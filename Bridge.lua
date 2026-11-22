@@ -25,10 +25,14 @@ Bridge.NEEDS = {
     "ActionBars.CdmData.Info",
     "ActionBars.CdmData.SPELL_FIELDS",
     "ActionBars.CdmData.CHAIN_FIELDS",
+    "ActionBars.CdmData.CHAIN",
     "ActionBars.CdmEditor.KeyForID",
     "ActionBars.CdmEditor.Spells",
     "ActionBars.CdmRows.Tracked",
     "ActionBars.CdmCustom.Is",
+    "ActionBars.CdmOwn.Track",
+    "ActionBars.CdmOwn.Entry",
+    "ActionBars.CdmOwn.SpellOf",
     "ActionBars.CdmEffects.Get",
     "ActionBars.CdmEffects.FORMS",
     "DaylightUI.Motion.GLOW_STYLES",
@@ -174,12 +178,25 @@ function Bridge.Tracked(id) return call("ActionBars.CdmRows.Tracked", id) end
 -- Whether a key is Daylight UI's own piece ("s<id>", "i<id>", named families). Its
 -- track values differ from a game piece's (Bridge.SetTrack against Bridge.SetSpellValue).
 function Bridge.IsCustom(key) return call("ActionBars.CdmCustom.Is", key) and true or false end
+-- What a piece shows ("both", "cooldown", "buff", "totem"), or nil for a plain
+-- cooldown. piece is its saved table (or a draft one), nil when not placed.
+function Bridge.Shows(key, piece) return call("ActionBars.CdmOwn.Track", key, piece) end
+-- The game's or Daylight UI's entry for a key ({ kind, aura, ... }), or nil when the
+-- spell isn't known.
+function Bridge.Entry(key) return call("ActionBars.CdmOwn.Entry", key) end
+-- The spell a key casts, or nil (a weapon enchant has none).
+function Bridge.SpellOf(key) return call("ActionBars.CdmOwn.SpellOf", key) end
 -- A piece's option, or its default.
 function Bridge.Option(piece, field) return call("ActionBars.CdmEffects.Get", piece, field) end
 
 -- The valid-value tables. Shared with Daylight UI: read only.
 function Bridge.SpellFields() return Bridge.Resolve("ActionBars.CdmData.SPELL_FIELDS") end
 function Bridge.ChainFields() return Bridge.Resolve("ActionBars.CdmData.CHAIN_FIELDS") end
+-- A group option's default, or nil.
+function Bridge.ChainDefault(field)
+    local t = Bridge.Resolve("ActionBars.CdmData.CHAIN")
+    if type(t) == "table" then return t[field] end
+end
 -- Forms, stances and stealth by class token ({ key, name, ... }, saved as hideIn<key>).
 function Bridge.Forms() return Bridge.Resolve("ActionBars.CdmEffects.FORMS") end
 -- The animated glow styles by key; "ring" (the game's proc ring) is valid too.
