@@ -6,3 +6,4 @@
 ## SavedVariables: EZCDMDB
 
 EZ-CDM.lua
+Bridge.lua
