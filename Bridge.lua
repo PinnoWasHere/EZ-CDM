@@ -37,16 +37,25 @@ Bridge.NEEDS = {
     "ActionBars.CdmEffects.FORMS",
     "DaylightUI.Motion.GLOW_STYLES",
     "DaylightUI.Sound.AlertChoices",
+    "ActionBars.CdmData.SIDES",
+    "ActionBars.CdmData.Root",
+    "ActionBars.CdmData.Subtree",
+    "ActionBars.CdmData.Child",
+    "ActionBars.CdmData.Layout",
+    "ActionBars.CdmEditor.SpellName",
+    "ActionBars.CdmCustom.CanTrack",
     -- Writes
     "ActionBars.CdmData.Ensure",
     "ActionBars.CdmData.AddPiece",
     "ActionBars.CdmData.Hook",
+    "ActionBars.CdmData.Unhook",
     "ActionBars.CdmData.LOOK",
     "ActionBars.CdmEditor.FreeSpot",
     "ActionBars.CdmData.SetSpellValue",
     "ActionBars.CdmData.SetTrack",
     "ActionBars.CdmData.SetChainValue",
     "ActionBars.CdmData.CopyProfile",
+    "ActionBars.CdmData.NewProfile",
     "ActionBars.CdmData.Assign",
     "ActionBars.CdmData.Changed",
     "ActionBars.CdmRows.Refresh",
@@ -204,6 +213,34 @@ function Bridge.GlowStyles() return Bridge.Resolve("DaylightUI.Motion.GLOW_STYLE
 -- The sound list: values, order, titles (headings in order are "head:" keys).
 function Bridge.SoundChoices() return call("DaylightUI.Sound.AlertChoices") end
 
+-- The sides a piece hangs off another by, in Daylight UI's order.
+function Bridge.Sides() return Bridge.Resolve("ActionBars.CdmData.SIDES") end
+-- The first piece of key's group on talent set g's layout (key itself when free).
+function Bridge.Root(key, g)
+    local set = Bridge.Layout(g)
+    if type(set) == "table" then return call("ActionBars.CdmData.Root", set, key) end
+end
+-- key and every piece hanging off it, key first.
+function Bridge.Subtree(key, g)
+    local set = Bridge.Layout(g)
+    if type(set) == "table" then return call("ActionBars.CdmData.Subtree", set, key) end
+end
+-- The piece hanging on side of key, or nil.
+function Bridge.Child(key, side, g)
+    local set = Bridge.Layout(g)
+    if type(set) == "table" then return call("ActionBars.CdmData.Child", set, key, side) end
+end
+-- Every piece's box on talent set g's layout with all of them shown:
+-- { [key] = { x, y, w, h } }, x, y the top-left.
+function Bridge.Boxes(g)
+    local set = Bridge.Layout(g)
+    if type(set) == "table" then return call("ActionBars.CdmData.Layout", set) end
+end
+-- A piece's name as Daylight UI's editor shows it, or nil.
+function Bridge.SpellName(key) return call("ActionBars.CdmEditor.SpellName", key) end
+-- Whether Daylight UI's own piece picks what it shows (Bridge.SetTrack takes it).
+function Bridge.CanTrack(key) return call("ActionBars.CdmCustom.CanTrack", key) == true end
+
 -- ---------------------------------------------------------------------
 -- Writes. Each refuses in combat and while switched off, and returns true (or
 -- the new thing) on success, else false and a reason:
@@ -274,6 +311,16 @@ function Bridge.Hook(g, key, parent, side, align)
     return answer(call("ActionBars.CdmData.Hook", set, key, parent, side, align))
 end
 
+-- Frees key from the piece it hangs off, with its top-left at x, y (kept when nil).
+-- What hangs off key goes with it, and its group's options are copied to it.
+function Bridge.Unhook(g, key, x, y)
+    local set, why = savedSet(g)
+    if not set then return false, why end
+    if type(set.pieces) ~= "table" or set.pieces[key] == nil then return false, "rejected" end
+    call("ActionBars.CdmData.Unhook", set, key, x, y)
+    return true
+end
+
 -- One spell option (Bridge.SpellFields). A value equal to the default is removed.
 -- For a game piece "track" is both / cooldown / buff / totem.
 function Bridge.SetSpellValue(g, key, field, value)
@@ -304,6 +351,22 @@ function Bridge.CopyAndAssign(g, name)
     local set, why = savedSet(g)
     if not set then return false, why end
     local id = call("ActionBars.CdmData.CopyProfile", Bridge.ProfileOf(g), name)
+    if not id then return false, "rejected" end
+    if not call("ActionBars.CdmData.Assign", g, id) then return false, "rejected" end
+    return id
+end
+
+-- Makes a new empty profile for the player's class (named name, made unique; Daylight
+-- UI's own name when empty) and picks it for talent set g. Every other profile is
+-- left as it was. Returns the new profile's id.
+function Bridge.NewAndAssign(g, name)
+    local ok, why = canWrite()
+    if not ok then return false, why end
+    g = g or Bridge.CurrentIndex()
+    if type(g) ~= "number" or g < 1 or g > Bridge.SetCount() or g % 1 ~= 0 then return false, "set" end
+    local class = Bridge.MyClass()
+    if not class then return false, "unsaved" end
+    local id = call("ActionBars.CdmData.NewProfile", name, class)
     if not id then return false, "rejected" end
     if not call("ActionBars.CdmData.Assign", g, id) then return false, "rejected" end
     return id
