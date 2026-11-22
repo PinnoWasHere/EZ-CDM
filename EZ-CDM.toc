@@ -1,0 +1,8 @@
+## Interface: 16001
+## Title: EZ-CDM (DaylightUI Plugin)
+## Notes: Click-to-build rules for Daylight UI's Cooldown Manager.
+## Version: 0.1.0
+## Dependencies: DaylightUI
+## SavedVariables: EZCDMDB
+
+EZ-CDM.lua
