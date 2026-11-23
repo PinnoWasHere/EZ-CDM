@@ -1,4 +1,4 @@
-local _, ns = ...
+local addonName, ns = ...
 
 -- The one file that touches Daylight UI's internals (anything not in API.md).
 -- docs/reference/daylight-internals.md lists each one, row for row with NEEDS.
@@ -22,12 +22,7 @@ Bridge.NEEDS = {
     "ActionBars.CdmData.Profile",
     "ActionBars.CdmData.Use",
     "ActionBars.CdmData.MyClass",
-    "ActionBars.CdmData.Info",
-    "ActionBars.CdmData.SPELL_FIELDS",
-    "ActionBars.CdmData.CHAIN_FIELDS",
     "ActionBars.CdmData.CHAIN",
-    "ActionBars.CdmEditor.KeyForID",
-    "ActionBars.CdmEditor.Spells",
     "ActionBars.CdmRows.Tracked",
     "ActionBars.CdmCustom.Is",
     "ActionBars.CdmOwn.Track",
@@ -35,37 +30,71 @@ Bridge.NEEDS = {
     "ActionBars.CdmOwn.SpellOf",
     "ActionBars.CdmEffects.Get",
     "ActionBars.CdmEffects.FORMS",
-    "DaylightUI.Motion.GLOW_STYLES",
     "DaylightUI.Sound.AlertChoices",
-    "ActionBars.CdmData.SIDES",
     "ActionBars.CdmData.Root",
     "ActionBars.CdmData.Subtree",
-    "ActionBars.CdmData.Child",
-    "ActionBars.CdmData.Layout",
     "ActionBars.CdmEditor.SpellName",
     "ActionBars.CdmCustom.CanTrack",
+    "ActionBars.CdmAuras.SpellIDs",
+    "ActionBars.CdmCustom.Totem",
+    "ActionBars.CdmData.PieceLook",
+    "ActionBars.CdmCard.Fallback",
+    "ActionBars.CdmCard.ROWS",
     -- Writes
     "ActionBars.CdmData.Ensure",
-    "ActionBars.CdmData.AddPiece",
-    "ActionBars.CdmData.Hook",
-    "ActionBars.CdmData.Unhook",
-    "ActionBars.CdmData.LOOK",
-    "ActionBars.CdmEditor.FreeSpot",
     "ActionBars.CdmData.SetSpellValue",
     "ActionBars.CdmData.SetTrack",
     "ActionBars.CdmData.SetChainValue",
+    "ActionBars.CdmData.SetLook",
     "ActionBars.CdmData.CopyProfile",
     "ActionBars.CdmData.NewProfile",
     "ActionBars.CdmData.Assign",
-    "ActionBars.CdmData.Changed",
-    "ActionBars.CdmRows.Refresh",
-    -- Preview and sharing
+    -- Looks
     "DaylightUI.Style.Shell",
     "DaylightUI.Style.CropIcon",
-    "ActionBars.CdmEffects.PreviewGlow",
-    "DaylightUI.Sound.Alert",
-    "DaylightUI.Profiles.Pack",
-    "DaylightUI.Profiles.Unpack",
+    -- Window parts
+    "DaylightUI.Win.EDGE",
+    "DaylightUI.Win.Parts.Stack",
+    "DaylightUI.Widgets.DeleteButton",
+    "ActionBars.CdmEditor.SpellTexture",
+    "DaylightUI.Widgets.OpenColorPicker",
+    "DaylightUI.Win.Parts.Rule",
+    "DaylightUI.Win.Parts.GAP",
+    -- Start block
+    "DaylightUI.InstallerCards.Picker",
+    "ActionBars.CdmEditor.Open",
+    -- Drawer: the editor functions EZ-CDM hooks (me.Hook), then what it reads
+    "ActionBars.CdmEditor.Close",
+    "ActionBars.CdmEditor.Select",
+    "ActionBars.CdmEditor.Draw",
+    "ActionBars.CdmEditor.EndTrayMove",
+    "ActionBars.CdmEditor.IsOpen",
+    "ActionBars.CdmEditor.Selected",
+    "ActionBars.CdmEditor.Attach",
+    "ActionBars.CdmEditor.Tray",
+    "ActionBars.CdmEditor.Overlay",
+    "ActionBars.CdmCard.TOP",
+    -- Drawer: sentences, chips and live writes
+    "ActionBars.CdmEditor.Changed",
+    "DaylightUI.Widgets.Link",
+    "DaylightUI.Widgets.Chip",
+    "DaylightUI.Style.SIZE",
+    -- Drawer: the fold tab and its slide
+    "DaylightUI.Motion.Slider",
+    "DaylightUI.Style.BorderPx",
+    "DaylightUI.Pixel.Px",
+}
+
+-- Internals EZ-CDM uses when their module is loaded, as "<root>.<path>" like NEEDS.
+-- One missing doesn't switch EZ-CDM off; the call behind it answers nil and the
+-- drawer keeps its plain header. The info panel's fold tab (DaylightUI_InfoPanel,
+-- an addon of its own a player can turn off) lends its look and slide.
+Bridge.OPTIONAL = {
+    "InfoPanel.Panel.TAB",
+    "InfoPanel.Panel.ARROW",
+    "InfoPanel.Panel.ARROW_COLOR",
+    "InfoPanel.Panel.SLIDE",
+    "InfoPanel.Panel.XP_BORDER",
 }
 
 -- The table a root name stands for, or nil.
@@ -106,14 +135,18 @@ local function present(path)
     return type(v) == "function"
 end
 
--- Every NEEDS entry this Daylight UI lacks, in NEEDS order.
-function Bridge.Missing()
+local function missingFrom(list)
     local out = {}
-    for _, path in ipairs(Bridge.NEEDS) do
+    for _, path in ipairs(list) do
         if not present(path) then out[#out + 1] = path end
     end
     return out
 end
+
+-- Every NEEDS entry this Daylight UI lacks, in NEEDS order.
+function Bridge.Missing() return missingFrom(Bridge.NEEDS) end
+-- Every OPTIONAL entry it lacks, in order.
+function Bridge.MissingOptional() return missingFrom(Bridge.OPTIONAL) end
 
 -- Whether Daylight UI's Cooldown Manager is running (set at its login).
 function Bridge.CdmOn()
@@ -173,14 +206,6 @@ function Bridge.ProfileOf(g) return call("ActionBars.CdmData.Use", g or Bridge.C
 -- The player's class token, or nil before it is known.
 function Bridge.MyClass() return call("ActionBars.CdmData.MyClass") end
 
--- The piece key a typed spell or item id stands for ("spell" or "item"), or nil
--- and Daylight UI's reason ("number", "spell", "item", "use", "wait").
-function Bridge.KeyFor(kind, text) return call("ActionBars.CdmEditor.KeyForID", kind, text) end
--- The editor's spell tray for the current talent set: { id, kind, aura, name,
--- placed, unlearned, custom }.
-function Bridge.Spells() return call("ActionBars.CdmEditor.Spells") end
--- The game's info for a cooldown id (shared, read only), or nil.
-function Bridge.Info(id) return call("ActionBars.CdmData.Info", id) end
 -- Whether a placed piece's buff can be told up or down: true, false, or nil when
 -- the last pass didn't draw it.
 function Bridge.Tracked(id) return call("ActionBars.CdmRows.Tracked", id) end
@@ -198,9 +223,6 @@ function Bridge.SpellOf(key) return call("ActionBars.CdmOwn.SpellOf", key) end
 -- A piece's option, or its default.
 function Bridge.Option(piece, field) return call("ActionBars.CdmEffects.Get", piece, field) end
 
--- The valid-value tables. Shared with Daylight UI: read only.
-function Bridge.SpellFields() return Bridge.Resolve("ActionBars.CdmData.SPELL_FIELDS") end
-function Bridge.ChainFields() return Bridge.Resolve("ActionBars.CdmData.CHAIN_FIELDS") end
 -- A group option's default, or nil.
 function Bridge.ChainDefault(field)
     local t = Bridge.Resolve("ActionBars.CdmData.CHAIN")
@@ -208,13 +230,9 @@ function Bridge.ChainDefault(field)
 end
 -- Forms, stances and stealth by class token ({ key, name, ... }, saved as hideIn<key>).
 function Bridge.Forms() return Bridge.Resolve("ActionBars.CdmEffects.FORMS") end
--- The animated glow styles by key; "ring" (the game's proc ring) is valid too.
-function Bridge.GlowStyles() return Bridge.Resolve("DaylightUI.Motion.GLOW_STYLES") end
 -- The sound list: values, order, titles (headings in order are "head:" keys).
 function Bridge.SoundChoices() return call("DaylightUI.Sound.AlertChoices") end
 
--- The sides a piece hangs off another by, in Daylight UI's order.
-function Bridge.Sides() return Bridge.Resolve("ActionBars.CdmData.SIDES") end
 -- The first piece of key's group on talent set g's layout (key itself when free).
 function Bridge.Root(key, g)
     local set = Bridge.Layout(g)
@@ -225,21 +243,51 @@ function Bridge.Subtree(key, g)
     local set = Bridge.Layout(g)
     if type(set) == "table" then return call("ActionBars.CdmData.Subtree", set, key) end
 end
--- The piece hanging on side of key, or nil.
-function Bridge.Child(key, side, g)
-    local set = Bridge.Layout(g)
-    if type(set) == "table" then return call("ActionBars.CdmData.Child", set, key, side) end
-end
--- Every piece's box on talent set g's layout with all of them shown:
--- { [key] = { x, y, w, h } }, x, y the top-left.
-function Bridge.Boxes(g)
-    local set = Bridge.Layout(g)
-    if type(set) == "table" then return call("ActionBars.CdmData.Layout", set) end
-end
 -- A piece's name as Daylight UI's editor shows it, or nil.
 function Bridge.SpellName(key) return call("ActionBars.CdmEditor.SpellName", key) end
 -- Whether Daylight UI's own piece picks what it shows (Bridge.SetTrack takes it).
 function Bridge.CanTrack(key) return call("ActionBars.CdmCustom.CanTrack", key) == true end
+-- Every spell id a piece answers to, { [id] = true }: its spell, ranks and linked
+-- ids. A cast of one of them starts its recast clock (CdmAuras.lua:1194-1211).
+function Bridge.SpellIDs(key) return call("ActionBars.CdmAuras.SpellIDs", key) end
+-- Whether a piece's spell is a totem. A totem picks what it shows from its own rows,
+-- not the card's What it shows (CdmCard.lua:242-256).
+function Bridge.IsTotem(key)
+    local sid = Bridge.SpellOf(key)
+    return sid ~= nil and call("ActionBars.CdmCustom.Totem", sid) ~= nil
+end
+
+-- A look key's value for a placed piece as the card reads it (CdmCard.lua:219-225):
+-- its own, its group's, else Daylight UI's fallback.
+function Bridge.PieceLook(key, field)
+    local set = Bridge.Layout()
+    local v
+    if type(set) == "table" and type(set.pieces) == "table" and set.pieces[key] then
+        v = call("ActionBars.CdmData.PieceLook", set, key, field)
+    end
+    if v == nil then v = Bridge.LookDefault(field) end
+    return v
+end
+-- What a look key shows before it's set (Card.Fallback): low false, lowAt 3 s,
+-- lowColor Daylight UI's BAD ink...
+function Bridge.LookDefault(field) return call("ActionBars.CdmCard.Fallback", field) end
+
+-- The glow styles the card's Style row offers, { { key, label } }, in its order:
+-- Ring, Daylight UI's default, then API.GlowStyles()'s (CdmCard.lua:490-495).
+function Bridge.GlowStyles()
+    local rows = Bridge.Resolve("ActionBars.CdmCard.ROWS")
+    for _, row in ipairs(type(rows) == "table" and type(rows.look) == "table" and rows.look or {}) do
+        local item = row.item
+        if type(item) == "table" and item.key == "cdm.card.glowStyle" and type(item.choices) == "function" then
+            local values, order = item.choices()
+            local out = {}
+            for _, k in ipairs(type(order) == "table" and order or {}) do
+                out[#out + 1] = { key = k, label = values[k] or k }
+            end
+            return out
+        end
+    end
+end
 
 -- ---------------------------------------------------------------------
 -- Writes. Each refuses in combat and while switched off, and returns true (or
@@ -250,7 +298,8 @@ function Bridge.CanTrack(key) return call("ActionBars.CdmCustom.CanTrack", key) 
 --   "unsaved"   no profile could be saved (the class isn't known yet)
 --   "rejected"  Daylight UI refused it (no such piece, a bad value, or an option
 --               the piece's shape doesn't take)
--- g is the talent set (current when nil). Nothing shows until Bridge.Apply().
+-- g is the talent set (current when nil). Nothing shows until the editor redraws
+-- (Bridge.EditorChanged).
 -- ---------------------------------------------------------------------
 
 local function canWrite()
@@ -259,12 +308,18 @@ local function canWrite()
     return true
 end
 
--- Talent set g's saved layout, made a profile first if it has none.
+-- Whether g is a talent set number.
+local function isSet(g)
+    return type(g) == "number" and g >= 1 and g <= (Bridge.SetCount() or 0) and g % 1 == 0
+end
+
+-- Talent set g's saved layout, made a profile first if it has none (Daylight UI's
+-- editor does this before any change).
 local function savedSet(g)
     local ok, why = canWrite()
     if not ok then return nil, why end
     g = g or Bridge.CurrentIndex()
-    if type(g) ~= "number" or g < 1 or g > Bridge.SetCount() or g % 1 ~= 0 then return nil, "set" end
+    if not isSet(g) then return nil, "set" end
     local set = call("ActionBars.CdmData.Ensure", g)
     if not Bridge.ProfileOf(g) then return nil, "unsaved" end
     return set
@@ -275,58 +330,21 @@ local function answer(done)
     return false, "rejected"
 end
 
--- Saves talent set g's layout as a profile when it has none (Daylight UI's editor
--- does this before any change). Returns the set.
-function Bridge.Ensure(g)
-    local set, why = savedSet(g)
-    if not set then return false, why end
-    return set
-end
-
--- A free spot for a new piece of this shape ("icon" or "bar") on the current talent
--- set's layout: x, y of its top-left.
-function Bridge.FreeSpot(shape)
-    local look = Bridge.Resolve("ActionBars.CdmData.LOOK")
-    if type(look) ~= "table" then return nil end
-    local w, h = look.size, look.size
-    if shape == "bar" then w, h = look.width, look.height end
-    return call("ActionBars.CdmEditor.FreeSpot", w, h)
-end
-
--- Places key as a free piece with its top-left at x, y (a free spot when nil).
--- A piece already placed keeps its options and is freed and moved there.
-function Bridge.AddPiece(g, key, shape, x, y)
-    local set, why = savedSet(g)
-    if not set then return false, why end
-    if key == nil then return false, "rejected" end
-    if x == nil or y == nil then x, y = Bridge.FreeSpot(shape) end
-    return answer(call("ActionBars.CdmData.AddPiece", set, key, shape, x, y) ~= nil)
-end
-
--- Hangs a placed key (and what hangs off it) on side ("right", "down", "left",
--- "up") of parent, at the end of that run. align: "start", "center" or "end".
-function Bridge.Hook(g, key, parent, side, align)
-    local set, why = savedSet(g)
-    if not set then return false, why end
-    return answer(call("ActionBars.CdmData.Hook", set, key, parent, side, align))
-end
-
--- Frees key from the piece it hangs off, with its top-left at x, y (kept when nil).
--- What hangs off key goes with it, and its group's options are copied to it.
-function Bridge.Unhook(g, key, x, y)
-    local set, why = savedSet(g)
-    if not set then return false, why end
-    if type(set.pieces) ~= "table" or set.pieces[key] == nil then return false, "rejected" end
-    call("ActionBars.CdmData.Unhook", set, key, x, y)
-    return true
-end
-
--- One spell option (Bridge.SpellFields). A value equal to the default is removed.
+-- One spell option (CdmData.SPELL_FIELDS). A value equal to the default is removed.
 -- For a game piece "track" is both / cooldown / buff / totem.
 function Bridge.SetSpellValue(g, key, field, value)
     local set, why = savedSet(g)
     if not set then return false, why end
     return answer(call("ActionBars.CdmData.SetSpellValue", set, key, field, value))
+end
+
+-- One look key of a piece, its own (CdmData.LOOK_FIELDS), as the card's Look tab
+-- writes it (CdmCard.lua:157-160). Daylight UI keeps even a value equal to its
+-- fallback, so a key goes back by writing Bridge.LookDefault.
+function Bridge.SetLook(g, key, field, value)
+    local set, why = savedSet(g)
+    if not set then return false, why end
+    return answer(call("ActionBars.CdmData.SetLook", set, key, field, value, false))
 end
 
 -- What Daylight UI's own piece (Bridge.IsCustom) shows: cooldown, aura or both.
@@ -336,24 +354,38 @@ function Bridge.SetTrack(g, key, track)
     return answer(call("ActionBars.CdmData.SetTrack", set, key, track))
 end
 
--- One group option (Bridge.ChainFields), set from any piece in the group.
+-- One group option (CdmData.CHAIN_FIELDS), set from any piece in the group onto the
+-- group, as Daylight UI's Group tab does (CdmCard.lua:165-175).
 function Bridge.SetChainValue(g, key, field, value)
     local set, why = savedSet(g)
     if not set then return false, why end
     return answer(call("ActionBars.CdmData.SetChainValue", set, key, field, value))
 end
 
--- Copies the profile talent set g uses into a new one (named name, or the old
--- name made unique) and picks the copy for g. The old profile is left as it was.
--- Returns the new profile's id.
-function Bridge.CopyAndAssign(g, name)
+-- Copies profile from into a new one (named name, or its name made unique) and
+-- picks the copy for talent set g. g's own layout isn't saved first, so a set with
+-- none gets no extra profile. Every other profile is left as it was. Returns the
+-- new profile's id.
+function Bridge.CopyAndAssign(g, from, name)
+    local ok, why = canWrite()
+    if not ok then return false, why end
     g = g or Bridge.CurrentIndex()
-    local set, why = savedSet(g)
-    if not set then return false, why end
-    local id = call("ActionBars.CdmData.CopyProfile", Bridge.ProfileOf(g), name)
+    if not isSet(g) then return false, "set" end
+    if not Bridge.Profile(from) then return false, "rejected" end
+    local id = call("ActionBars.CdmData.CopyProfile", from, name)
     if not id then return false, "rejected" end
     if not call("ActionBars.CdmData.Assign", g, id) then return false, "rejected" end
     return id
+end
+
+-- Talent set g uses profile id from now on. Every profile is left as it was.
+function Bridge.Assign(g, id)
+    local ok, why = canWrite()
+    if not ok then return false, why end
+    g = g or Bridge.CurrentIndex()
+    if not isSet(g) then return false, "set" end
+    if not Bridge.Profile(id) then return false, "rejected" end
+    return answer(call("ActionBars.CdmData.Assign", g, id))
 end
 
 -- Makes a new empty profile for the player's class (named name, made unique; Daylight
@@ -363,7 +395,7 @@ function Bridge.NewAndAssign(g, name)
     local ok, why = canWrite()
     if not ok then return false, why end
     g = g or Bridge.CurrentIndex()
-    if type(g) ~= "number" or g < 1 or g > Bridge.SetCount() or g % 1 ~= 0 then return false, "set" end
+    if not isSet(g) then return false, "set" end
     local class = Bridge.MyClass()
     if not class then return false, "unsaved" end
     local id = call("ActionBars.CdmData.NewProfile", name, class)
@@ -372,37 +404,128 @@ function Bridge.NewAndAssign(g, name)
     return id
 end
 
--- Shows what was written: Daylight UI's layout pass runs on the next frame.
-function Bridge.Apply()
-    local ok, why = canWrite()
-    if not ok then return false, why end
-    call("ActionBars.CdmData.Changed")
-    call("ActionBars.CdmRows.Refresh")
-    return true
-end
-
 -- ---------------------------------------------------------------------
--- Preview and sharing. Daylight UI's own looks and codec, passed straight through.
+-- Looks, passed straight through.
 -- ---------------------------------------------------------------------
 
--- Daylight UI's frame shell on frame (the editor's preview pieces wear it).
+-- Daylight UI's frame shell on frame (the editor's tray wears it).
 function Bridge.Shell(frame, opts) return call("DaylightUI.Style.Shell", frame, opts) end
 -- Daylight UI's crop for a square spell icon texture.
 function Bridge.CropIcon(tex) return call("DaylightUI.Style.CropIcon", tex) end
--- A glow style ("ring" or a Bridge.GlowStyles key) shown for a moment on frame, in
--- the color of the first glow piece has on (the accent when none).
-function Bridge.PreviewGlow(frame, style, piece)
-    return call("ActionBars.CdmEffects.PreviewGlow", frame, style, piece)
+
+-- ---------------------------------------------------------------------
+-- Window parts (Windows/Frame.lua, Windows/Parts.lua), passed straight through.
+-- ---------------------------------------------------------------------
+
+-- The window kit's side margin in px.
+function Bridge.Edge() return Bridge.Resolve("DaylightUI.Win.EDGE") end
+
+-- Daylight UI's window content (Windows/Parts.lua): a scrolling column of blocks
+-- wearing W.Scroll (s:Begin, s:Section, s:Line, s:Piece, s:End). inset: top,
+-- bottom, side.
+function Bridge.Stack(page, inset) return call("DaylightUI.Win.Parts.Stack", page, inset) end
+-- The list's remove button: a small rounded box with an X that turns red on hover.
+-- The caller places it and sets OnClick.
+function Bridge.RemoveButton(parent) return call("DaylightUI.Widgets.DeleteButton", parent) end
+-- A piece key's icon as Daylight UI's editor shows it (a question mark when unknown).
+function Bridge.SpellTexture(key) return call("ActionBars.CdmEditor.SpellTexture", key) end
+-- The game's color picker as Daylight UI opens it, starting at { r, g, b }.
+-- onChange({ r, g, b }) runs on each pick (once on release for a drag), and with
+-- the start color on Cancel. alpha adds the opacity bar, and colors come as
+-- { r, g, b, a }, as the card's colors with alpha (CdmCard.lua:688).
+function Bridge.PickColor(start, onChange, alpha)
+    return call("DaylightUI.Widgets.OpenColorPicker", start, onChange, alpha == true)
 end
--- Plays a sound choice ("dui:<name>", "kit:<id>", "file:<id>", "lsm:<name>") the way
--- the Cooldown Manager does. Returns the sound's handle, or nil.
-function Bridge.PlaySound(key) return call("DaylightUI.Sound.Alert", key) end
--- Any table packed into text starting with prefix (CBOR, compressed, Base64), or
--- nil and a reason.
-function Bridge.Pack(t, prefix) return call("DaylightUI.Profiles.Pack", t, prefix) end
--- Pack's table back from text, or nil and a reason ("empty", "prefix", "client",
--- "damaged").
-function Bridge.Unpack(text, prefix) return call("DaylightUI.Profiles.Unpack", text, prefix) end
+-- The faint 1 px divider Daylight UI's windows draw between areas. The caller
+-- anchors it.
+function Bridge.Rule(parent, vertical) return call("DaylightUI.Win.Parts.Rule", parent, vertical) end
+-- The window parts' gap between blocks in px.
+function Bridge.Gap() return Bridge.Resolve("DaylightUI.Win.Parts.GAP") end
+
+-- Daylight UI's choice cards, as its setup guide lays out one choice among several:
+-- one card per key, the current one ticked. opts: keys, width, cols, height,
+-- label(k), sub(k), get(), set(k). Returns a frame with .cards[k], .height and
+-- Refresh().
+function Bridge.Picker(parent, opts) return call("DaylightUI.InstallerCards.Picker", parent, opts) end
+
+-- ---------------------------------------------------------------------
+-- Daylight UI's CDM editor
+-- ---------------------------------------------------------------------
+
+-- Opens the editor on talent set g (current when nil). An open editor shows g's
+-- layout again, as Daylight UI does after an import. Daylight UI refuses in combat
+-- and while its Cooldown Manager is off, with its own chat line. Returns true when open.
+function Bridge.OpenEditor(g)
+    return call("ActionBars.CdmEditor.Open", g or Bridge.CurrentIndex()) == true
+end
+
+-- The editor functions EZ-CDM follows. after(...) runs after Daylight UI's own,
+-- through Daylight UI's public hook (API.For(...).Hook); an error in it names
+-- EZ-CDM. Returns the hook's handle, or false.
+Bridge.EDITOR_HOOKS = { Open = true, Close = true, Select = true, Draw = true, EndTrayMove = true }
+local me
+function Bridge.HookEditor(name, after)
+    local Ed = Bridge.Resolve("ActionBars.CdmEditor")
+    if not (Bridge.EDITOR_HOOKS[name] and type(Ed) == "table") then return false end
+    me = me or _G.DaylightUI.API.For(addonName)
+    return me.Hook(Ed, name, after)
+end
+
+-- Whether the editor is open.
+function Bridge.EditorOpen() return call("ActionBars.CdmEditor.IsOpen") == true end
+-- The piece picked in the editor, or nil.
+function Bridge.Selected() return call("ActionBars.CdmEditor.Selected") end
+-- Whether a + on the picked piece waits for a spell (the card steps aside then).
+function Bridge.EditorAttach() return call("ActionBars.CdmEditor.Attach") ~= nil end
+-- The editor's spell tray and the full-screen frame it sits on, once built.
+function Bridge.EditorTray() return call("ActionBars.CdmEditor.Tray") end
+function Bridge.EditorOverlay() return call("ActionBars.CdmEditor.Overlay") end
+-- The room the editor keeps clear at the screen's top for its title and banner.
+function Bridge.EditorTop() return Bridge.Resolve("ActionBars.CdmCard.TOP") end
+-- After a write: the live layout follows, then the editor and its card redraw, as
+-- after a change on Daylight UI's own card.
+function Bridge.EditorChanged() return call("ActionBars.CdmEditor.Changed") end
+
+-- Daylight UI's text link at size ("small", "body"...): quiet text whose underline
+-- grows from the left on hover. own keeps the caller's text color, a little dim at
+-- rest. b.SetLabel(text) sizes it; the caller sets OnClick.
+function Bridge.Link(parent, size, own)
+    local sizes = Bridge.Resolve("DaylightUI.Style.SIZE")
+    return call("DaylightUI.Widgets.Link", parent, type(sizes) == "table" and sizes[size] or nil,
+        own and { own = true } or nil)
+end
+-- Daylight UI's chip: a small rounded pill that lights on hover and fills with
+-- the accent while on (b.SetOn). b.FitWidth() sizes it; the caller sets OnClick.
+function Bridge.Chip(parent, text) return call("DaylightUI.Widgets.Chip", parent, text) end
+
+-- ---------------------------------------------------------------------
+-- The info panel's fold tab and slide (DaylightUI_InfoPanel/Panel.lua)
+-- ---------------------------------------------------------------------
+
+-- The fold tab's measures, or nil while the info panel isn't loaded:
+-- { tab = { thickness, length }, arrow = chevron px, color = { r, g, b },
+--   slide = seconds, border = the tab's borderPx for API.Skin }.
+function Bridge.FoldTab()
+    if #Bridge.MissingOptional() > 0 then return nil end
+    return {
+        tab = Bridge.Resolve("InfoPanel.Panel.TAB"),
+        arrow = Bridge.Resolve("InfoPanel.Panel.ARROW"),
+        color = Bridge.Resolve("InfoPanel.Panel.ARROW_COLOR"),
+        slide = Bridge.Resolve("InfoPanel.Panel.SLIDE"),
+        border = Bridge.Resolve("InfoPanel.Panel.XP_BORDER"),
+    }
+end
+
+-- Daylight UI's slide: s.p eases from 0 (in) to 1 (out) and apply(s) runs on each
+-- step. s:To(goal) slides, s:Jump(goal) goes straight there. opts: p, dur.
+function Bridge.Slider(apply, opts) return call("DaylightUI.Motion.Slider", apply, opts) end
+
+-- A shelled frame's border in screen px, as the info panel tucks its tab behind one.
+function Bridge.BorderPx(frame)
+    local px = call("DaylightUI.Style.BorderPx", frame)
+    if type(px) ~= "number" then return 0 end
+    return call("DaylightUI.Pixel.Px", frame, px) or 0
+end
 
 local API = _G.DaylightUI and _G.DaylightUI.API
 if type(API) == "table" and type(API.On) == "function" then

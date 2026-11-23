@@ -5,8 +5,11 @@ local _, ns = ...
 --
 -- A line is { moment = ..., action = ..., value = ... }. A spell's rules are
 -- { lines = { ... }, group = { combat = true, where = "instance", ... },
---   forms = { "Bear", ... } }.
--- Fields are a piece's spell options, with its group's options under fields.chain.
+--   forms = { "Bear", ... }, shows = "both" | "cooldown" | "buff", style = "comet" }.
+-- shows is the card's What it shows, nil while the piece has no pick saved; style
+-- is the glow style every glow of the spell uses, nil for Daylight UI's default.
+-- Fields are a piece's spell options, with its group's options under fields.chain
+-- and its own look keys under fields.look.
 
 local Bridge = ns.Bridge
 
@@ -16,12 +19,31 @@ ns.Grammar = Grammar
 -- Debug handle for an in-game check.
 EZCDM_Grammar = Grammar
 
-Grammar.MOMENTS = { "always", "ready", "cooldown", "unusable", "short", "usable", "up", "ends", "missing", "recast" }
-Grammar.ACTIONS = { "show", "fade", "hide", "glow", "gray", "color", "sound" }
+Grammar.MOMENTS = { "always", "ready", "cooldown", "almost", "unusable", "short", "usable", "up", "ends", "missing", "recast" }
+Grammar.ACTIONS = { "show", "fade", "hide", "glow", "gray", "color", "sound", "nosweep", "nogcd", "tint", "flash", "numbers" }
+-- What it shows, in the card's order (CdmCard.lua:621-627). Daylight UI's own piece
+-- saves "aura" for "buff" (CdmCard.lua:341-351).
+Grammar.SHOWS = { "both", "cooldown", "buff" }
 -- Group words in their canonical order: true turns one on, and where takes
--- "instance" or "world". false and "any" are Daylight UI's defaults.
-Grammar.GROUP = { "combat", "target", "group", "mounted", "where" }
+-- "instance" or "world". false and "any" are Daylight UI's defaults. keep is the
+-- group's Slide over turned off (chain collapse = false, CdmCard.lua:709-710).
+Grammar.GROUP = { "combat", "target", "group", "mounted", "where", "keep" }
 Grammar.WHERE = { "instance", "world" }
+-- Each group word's chain field, where it isn't the word itself, and the chain
+-- fields in word order.
+Grammar.GROUP_FIELD = { keep = "collapse" }
+Grammar.CHAIN = {}
+for i, word in ipairs(Grammar.GROUP) do Grammar.CHAIN[i] = Grammar.GROUP_FIELD[word] or word end
+
+-- A group word's value as its chain field's, and back.
+local function toChain(word, v)
+    if word == "keep" then return not v end
+    return v
+end
+local function fromChain(word, v)
+    if word == "keep" then return v == false end
+    return v
+end
 
 -- The show rules every "always show" line sets to show.
 local SHOW_RULES = { "onReady", "onCd", "onUnusable", "onShort" }
@@ -39,6 +61,9 @@ end
 --   alpha          the line's value is the fade amount (cdAlpha)
 --   color          the line's value is the glow color (nil = the accent)
 --   sound          the line's value is a Daylight UI sound key
+--   paint          the line's value is that color field, alpha kept (nil = the accent)
+--   look           a look key set true (fields.look); lookColor takes the line's value,
+--                  at the line's seconds (line.at)
 --   slot           lines sharing a slot set one choice (CdmCard.lua:313-333, Buff missing)
 --   all            "always show": every show rule
 local MAP = {
@@ -56,12 +81,18 @@ local MAP = {
         hide = { field = "hideActive", value = true },
         glow = { field = "upGlow", value = true, color = "upGlowColor" },
         sound = { field = "buffSound", sound = true },
+        -- The sweep while the buff is up: off (Look tab, CdmCard.lua:505-506), or its
+        -- color (Highlight color, CdmCard.lua:686-688).
+        nosweep = { field = "noDurationSwipe", value = true },
+        tint = { paint = "activeColor" },
     },
     ends = { sound = { field = "buffEndSound", sound = true } },
     missing = {
         show = { field = "missing", value = true, slot = "buffDown" },
         hide = { field = "hideMissing", value = true, slot = "buffDown" },
         glow = { field = "missingGlow", value = true, color = "missingGlowColor" },
+        -- The empty bar pulses (CdmCard.lua:698-700). It needs "show it" here too.
+        flash = { field = "inactiveFlash", value = true },
     },
     recast = { glow = { field = "clipGlow", value = true, color = "clipGlowColor" } },
 }
@@ -71,6 +102,11 @@ MAP.ready.sound = { field = "readySound", sound = true }
 -- cooldown alone.
 MAP.cooldown.gray = { field = "desat", value = "grey" }
 MAP.cooldown.color = { field = "desat", value = "color" }
+-- The cooldown's sweep: off, or off only for the global cooldown (CdmCard.lua:497-501).
+MAP.cooldown.nosweep = { field = "noSwipe", value = true }
+MAP.cooldown.nogcd = { field = "noGcd", value = true }
+-- The numbers' color for the cooldown's last seconds (CdmCard.lua:513-520).
+MAP.almost = { numbers = { look = "low", lookColor = "lowColor", at = "lowAt" } }
 Grammar.MAP = MAP
 
 -- Every spell field the grammar writes, so a caller can clear the ones a draft drops.
@@ -80,7 +116,10 @@ Grammar.FIELDS = {
     "missingGlow", "missingGlowColor", "clipGlow", "clipGlowColor",
     "readySound", "usableSound", "buffSound", "buffEndSound",
     "hideActive", "missing", "hideMissing",
+    "noDurationSwipe", "activeColor", "inactiveFlash", "noSwipe", "noGcd", "glowStyle",
 }
+-- Every look key the grammar writes (fields.look), through Data.SetLook.
+Grammar.LOOK_FIELDS = { "low", "lowAt", "lowColor" }
 
 -- Which glow shows when several could (CdmEffects.lua:502-527): proc, then missing,
 -- recast, up, usable and ready. The game's proc glow has no word here.
@@ -99,6 +138,27 @@ local function isRGB(c)
 end
 
 local function copyRGB(c) return { c[1], c[2], c[3] } end
+
+-- A color with its alpha, when it has one.
+local function copyColor(c)
+    local out = copyRGB(c)
+    if type(c[4]) == "number" then out[4] = c[4] end
+    return out
+end
+
+local function sameRGB(a, b) return a[1] == b[1] and a[2] == b[2] and a[3] == b[3] end
+
+-- A glow style the card's Style row offers.
+local function styleKnown(key)
+    for _, st in ipairs(Bridge.GlowStyles() or {}) do
+        if st.key == key then return true end
+    end
+    return false
+end
+
+local function isColor(c)
+    return isRGB(c) and (c[4] == nil or (type(c[4]) == "number" and c[4] >= 0 and c[4] <= 1))
+end
 
 -- Daylight UI's default for a spell field (CdmEffects Fx.DEFAULTS).
 local function spellDefault(field) return Bridge.Option({}, field) end
@@ -124,15 +184,37 @@ end
 -- Applicability
 -- ---------------------------------------------------------------------
 
--- The key a piece hangs from at the top of its group.
-local function rootOf(pieces, key, piece)
-    local seen, p = {}, piece
-    while type(p) == "table" and p.parent ~= nil and not seen[key] do
-        seen[key] = true
-        key = p.parent
-        p = pieces[key]
+-- A game answer, or nil when it is secret.
+local function plain(v)
+    if type(issecretvalue) == "function" and issecretvalue(v) then return nil end
+    return v
+end
+
+-- Whether the player casts spell id: false for a passive spell or one the player
+-- doesn't have, true for one the player has, nil when the game won't say. This is
+-- the one place the recast signal lives. On Forever, Improved Stormstrike's talent
+-- (1223031) is known and passive, and its buff (1238931) is not passive.
+function Grammar.Casts(id)
+    local S = type(C_Spell) == "table" and C_Spell or {}
+    if type(S.IsSpellPassive) == "function" and plain(S.IsSpellPassive(id)) == true then return false end
+    if type(IsPlayerSpell) ~= "function" then return nil end
+    local known = plain(IsPlayerSpell(id))
+    if known == nil then return nil end
+    return known == true
+end
+
+-- Whether a piece's recast moment can ever fire: the clock starts only on a cast of
+-- one of its own ids (CdmAuras.lua:1194-1211), so a piece whose every id is passive
+-- or not the player's never gets one. A weapon enchant has no spell at all.
+-- Daylight UI's card offers the row on any spell (CdmCard.lua:413-415).
+local function castable(key)
+    if Bridge.SpellOf(key) == nil then return false end
+    local ids = Bridge.SpellIDs(key)
+    if type(ids) ~= "table" or next(ids) == nil then return true end
+    for id in pairs(ids) do
+        if Grammar.Casts(id) ~= false then return true end
     end
-    return key
+    return false
 end
 
 -- Describes a piece through Daylight UI's own answers. piece is its saved table or a
@@ -144,50 +226,76 @@ end
 --   buffOnly         CdmCard.lua:272
 --   tellsState       CdmCard.lua:288-290
 --   showsBuff        CdmCard.lua:407-410
---   cast             CdmCard.lua:413-415
+--   cast             CdmCard.lua:413-415, less a spell never cast (castable)
+--   trackRow         What it shows: "game" (gameSpell, CdmCard.lua:253-256) or "own"
+--                    (canTrack, :337-340); nil for a totem, which has rows of its own
+--   highlight        the buff's sweep is on (activeGlow, CdmCard.lua:686)
+--   missingShown     Buff missing is set to Show (the Flash row, CdmCard.lua:698)
 -- Form rows show for cooldowns of a class with forms (CdmCard.lua:806).
 -- Totems take no case of their own. Bridge.Shows (CdmOwn.Track) says "totem" for a
 -- totem with no buff and "both" for a Shaman element piece (CdmOwn.lua:108-130), and
 -- the card reads that same answer. test_grammar checks Words against the card's rows.
-function Grammar.Kind(key, piece)
+-- shows, when given, is a What it shows pick not saved yet: the piece reads as the
+-- card would after that pick, Buff missing cleared for any pick but "buff"
+-- (CdmCard.lua:369-374).
+function Grammar.Kind(key, piece, shows)
     local layout = Bridge.Layout()
     local pieces = type(layout) == "table" and type(layout.pieces) == "table" and layout.pieces or {}
     if piece == nil then piece = pieces[key] end
-    local shows = Bridge.Shows(key, piece)
-    local cooldown
-    if shows then
-        cooldown = shows ~= "buff"
-    else
-        local known = Bridge.Entry(key)
-        cooldown = not (known and known.aura)
+    local custom = Bridge.IsCustom(key)
+    if shows ~= nil and not custom then
+        local p = {}
+        for k, v in pairs(type(piece) == "table" and piece or {}) do p[k] = v end
+        p.track = shows
+        if shows ~= "buff" then p.missing, p.hideMissing = nil, nil end
+        piece = p
     end
-    local hasBuff = shows ~= "totem" and (shows ~= nil or not cooldown)
+    local known = Bridge.Entry(key)
+    local aura = known and known.aura
+    local now = Bridge.Shows(key, piece)
+    -- Daylight UI's own piece reads its pick from the saved layout (CdmCustom.Track).
+    if shows ~= nil and custom then
+        now = shows == "both" and "both" or nil
+        aura = shows == "buff"
+    end
+    local cooldown
+    if now then
+        cooldown = now ~= "buff"
+    else
+        cooldown = not aura
+    end
+    local hasBuff = now ~= "totem" and (now ~= nil or not cooldown)
+    local trackRow
+    if not Bridge.IsTotem(key) then
+        if not custom and known ~= nil then trackRow = "game"
+        elseif Bridge.CanTrack(key) then trackRow = "own" end
+    end
     local kind = {
         key = key,
         shape = type(piece) == "table" and piece.shape == "bar" and "bar" or "icon",
-        custom = Bridge.IsCustom(key),
-        shows = shows,
+        custom = custom,
+        shows = now,
         cooldown = cooldown,
         buff = hasBuff,
         buffOnly = hasBuff and not cooldown,
-        showsBuff = hasBuff and shows ~= "cooldown",
+        showsBuff = hasBuff and now ~= "cooldown",
         tracked = Bridge.Tracked(key) ~= false,
-        cast = Bridge.SpellOf(key) ~= nil,
+        cast = castable(key),
+        trackRow = trackRow,
+        highlight = Bridge.Option(piece, "activeGlow") ~= false,
+        missingShown = Bridge.Option(piece, "missing") == true,
+        numbers = Bridge.PieceLook(key, "cdNumbers") ~= false,
     }
+    -- What the card's What it shows reads now (CdmCard.lua:358-365), in the grammar's words.
+    if trackRow then
+        kind.showing = (now == "both" or now == "cooldown" or now == "buff") and now
+            or (aura and "buff" or "cooldown")
+    end
     local forms = cooldown and (Bridge.Forms() or {})[Bridge.MyClass() or ""]
     if forms then
         kind.forms = {}
         for i, f in ipairs(forms) do kind.forms[i] = f.key end
     end
-    -- Its group: alone, or sharing the root's options with others.
-    local root = rootOf(pieces, key, piece)
-    local size = 0
-    for k, p in pairs(pieces) do
-        if k ~= key and rootOf(pieces, k, p) == root then size = size + 1 end
-    end
-    kind.alone = size == 0
-    local chains = type(layout) == "table" and type(layout.chains) == "table" and layout.chains or {}
-    kind.chain = type(chains[root]) == "table" and chains[root] or {}
     return kind
 end
 
@@ -201,11 +309,21 @@ function Grammar.Fits(kind, moment, action)
         or moment == "usable" then
         return kind.cooldown
     elseif moment == "cooldown" then
-        -- Gray out is an icon row (CdmCard.lua:648).
-        if action == "gray" or action == "color" then return kind.cooldown and kind.shape == "icon" end
+        -- Gray out and the sweep are icon rows (CdmCard.lua:497-501, 648).
+        if action == "gray" or action == "color" or action == "nosweep" or action == "nogcd" then
+            return kind.cooldown and kind.shape == "icon"
+        end
         return kind.cooldown
+    elseif moment == "almost" then
+        -- The card offers this on any icon with numbers (CdmCard.lua:513-515), but it
+        -- only colors a spell cooldown's numbers (Cooldowns.lua:336-350), so a buff
+        -- alone doesn't take it.
+        return kind.cooldown and kind.shape == "icon" and kind.numbers
     elseif moment == "up" then
         if action == "show" or action == "hide" then return kind.buff and told end
+        -- The sweep rows need no told state (CdmCard.lua:505, 683-688).
+        if action == "nosweep" then return kind.shape == "icon" and kind.buff end
+        if action == "tint" then return kind.shape == "icon" and kind.buff and kind.highlight end
         return kind.showsBuff and told
     elseif moment == "ends" then
         return kind.showsBuff and told
@@ -214,11 +332,26 @@ function Grammar.Fits(kind, moment, action)
         -- buff is down (CdmCard.lua:276-285, 693). A missing glow keeps the icon itself,
         -- so it's offered there too; Hide (Buff missing) makes it a "hidden" problem.
         if action == "glow" then return kind.buff and told end
+        -- Flash is a bar row, once Buff missing shows (CdmCard.lua:698-700).
+        if action == "flash" then return kind.shape == "bar" and kind.buffOnly and kind.missingShown end
         return kind.buffOnly
     elseif moment == "recast" then
         return kind.showsBuff and kind.cast
     end
     return false
+end
+
+-- Whole-spell words, each a sentence of its own: shows is What it shows, style the
+-- glow style (CdmCard.lua:490-495), which every piece takes.
+Grammar.EXTRAS = { "shows", "style" }
+
+-- The whole-spell words that fit a piece, in Grammar.EXTRAS order.
+function Grammar.Extras(kind)
+    local out = {}
+    for _, e in ipairs(Grammar.EXTRAS) do
+        if e ~= "shows" or kind == nil or kind.trackRow then out[#out + 1] = e end
+    end
+    return out
 end
 
 -- The moments that fit a piece, each with its actions, in canonical order:
@@ -240,25 +373,28 @@ end
 -- ---------------------------------------------------------------------
 
 -- Hide (Buff up) and Hide (Buff missing) show nothing then, so these glows never
--- light (CdmEffects.lua:491-500).
+-- light (CdmEffects.lua:491-500). With no sweep while the buff is up, its color has
+-- nothing to color, and the card hides that row (CdmCard.lua:686-688).
 local HIDDEN_BY = {
     { glow = "upGlow", hide = "hideActive" },
     { glow = "missingGlow", hide = "hideMissing" },
     { glow = "clipGlow", hide = "hideActive" },
+    { glow = "activeColor", hide = "noDurationSwipe" },
+    { glow = "noGcd", hide = "noSwipe" },
 }
 
 -- Group and form words into fields.chain and hideIn<Key>.
-local function compileGroup(rules, kind, fields, problem, flags)
+local function compileGroup(rules, kind, fields, problem)
     local chain = {}
     fields.chain = chain
     local group = type(rules.group) == "table" and rules.group or {}
-    for _, word in ipairs(Grammar.GROUP) do
+    for i, word in ipairs(Grammar.GROUP) do
         local v = group[word]
         if v ~= nil then
             local ok
             if word == "where" then ok = v == "any" or indexOf(Grammar.WHERE, v) ~= nil
             else ok = type(v) == "boolean" end
-            if ok then chain[word] = v else problem({ group = word, code = "value" }) end
+            if ok then chain[Grammar.CHAIN[i]] = toChain(word, v) else problem({ group = word, code = "value" }) end
         end
     end
     local unknown = {}
@@ -267,15 +403,8 @@ local function compileGroup(rules, kind, fields, problem, flags)
     end
     table.sort(unknown)
     for _, word in ipairs(unknown) do problem({ group = word, code = "pair" }) end
-    for _, word in ipairs(Grammar.GROUP) do
-        if chain[word] == Bridge.ChainDefault(word) then chain[word] = nil end
-    end
-    if kind and not kind.alone then
-        for _, word in ipairs(Grammar.GROUP) do
-            local now = kind.chain[word]
-            if now == Bridge.ChainDefault(word) then now = nil end
-            if chain[word] ~= now then flags.needsOwnGroup = true end
-        end
+    for _, f in ipairs(Grammar.CHAIN) do
+        if chain[f] == Bridge.ChainDefault(f) then chain[f] = nil end
     end
     for _, key in ipairs(type(rules.forms) == "table" and rules.forms or {}) do
         local fits = kind == nil and isForm(key) or (kind and kind.forms and indexOf(kind.forms, key))
@@ -287,19 +416,22 @@ end
 -- rules -> fields, problems, flags. kind (Grammar.Kind) is optional; without it
 -- every mapped pair is taken.
 -- problems: { line = i, code = ... } for a line left out, or { group = word } /
--- { form = key }. Codes:
+-- { form = key } / { shows = pick }. Codes:
+--   "blank"   a line with its moment or action not picked yet
 --   "pair"    no such moment and action
 --   "kind"    the piece doesn't take it (Grammar.Fits)
 --   "value"   a bad color, sound, fade amount or group value
 --   "twice"   an earlier line set the same thing; the later line wins
 --   "hidden"  a glow that a hide line keeps from showing
+--   "needs"   "flash it" with no "show it" while it's not active (CdmCard.lua:698)
+-- A bad glow style is { style = key, code = "value" }.
 -- flags:
---   needsOwnGroup  group words differ from the group the piece shares with others
 --   keepBuffOnly   "missing show" needs the piece kept Buff only: the card sets track
 --                  to buff (or aura for Daylight UI's own piece) with it (CdmCard.lua:326-329)
 function Grammar.Compile(rules, kind)
     rules = type(rules) == "table" and rules or {}
     local fields, problems, flags = {}, {}, {}
+    local look = {}
     local setBy, slotBy = {}, {}
     local function problem(t)
         t.seq = #problems + 1
@@ -310,15 +442,29 @@ function Grammar.Compile(rules, kind)
         fields[field], setBy[field] = value, i
     end
     local always
+    -- "Flash it" fits once Buff missing shows, and a "show it" line here counts.
+    local flashKind = kind
+    for _, line in ipairs(rules.lines or {}) do
+        if kind and type(line) == "table" and line.moment == "missing" and line.action == "show" then
+            flashKind = setmetatable({ missingShown = true }, { __index = kind })
+        end
+    end
     for i, line in ipairs(rules.lines or {}) do
         local entry = type(line) == "table" and MAP[line.moment] and MAP[line.moment][line.action]
-        if not entry then
+        if type(line) == "table" and (line.moment == nil or line.action == nil) then
+            problem({ line = i, code = "blank" })
+        elseif not entry then
             problem({ line = i, code = "pair" })
-        elseif not Grammar.Fits(kind, line.moment, line.action) then
+        elseif not Grammar.Fits(line.action == "flash" and flashKind or kind, line.moment, line.action) then
             problem({ line = i, code = "kind" })
         elseif entry.all then
             always = entry
         elseif entry.color and line.value ~= nil and not isRGB(line.value) then
+            problem({ line = i, code = "value" })
+        elseif entry.paint and line.value ~= nil and not isColor(line.value) then
+            problem({ line = i, code = "value" })
+        elseif entry.look and ((line.value ~= nil and not isRGB(line.value)) or (line.at ~= nil
+            and not (type(line.at) == "number" and line.at >= 1 and line.at <= 10 and line.at % 1 == 0))) then
             problem({ line = i, code = "value" })
         elseif entry.sound and not isSound(line.value) then
             problem({ line = i, code = "value" })
@@ -334,7 +480,17 @@ function Grammar.Compile(rules, kind)
                 end
                 slotBy[entry.slot] = { field = entry.field, line = i }
             end
-            set(i, entry.field, entry.sound and line.value or entry.value)
+            if entry.paint then
+                set(i, entry.paint, line.value ~= nil and copyColor(line.value) or nil)
+            elseif entry.look then
+                if setBy[entry.look] then problem({ line = setBy[entry.look], code = "twice" }) end
+                setBy[entry.look] = i
+                look[entry.look] = true
+                look[entry.lookColor] = line.value and copyRGB(line.value) or nil
+                look[entry.at] = line.at
+            else
+                set(i, entry.field, entry.sound and line.value or entry.value)
+            end
             if entry.color then
                 fields[entry.color] = line.value and copyRGB(line.value) or nil
             end
@@ -348,17 +504,44 @@ function Grammar.Compile(rules, kind)
         end
     end
     for _, h in ipairs(HIDDEN_BY) do
-        if fields[h.glow] == true and fields[h.hide] == true then
+        if setBy[h.glow] and fields[h.glow] ~= false and fields[h.hide] == true then
             problem({ line = setBy[h.glow], code = "hidden" })
             fields[h.glow], fields[h.glow .. "Color"] = nil, nil
         end
     end
+    if fields.inactiveFlash == true and fields.missing ~= true then
+        problem({ line = setBy.inactiveFlash, code = "needs" })
+        fields.inactiveFlash = nil
+    end
     if fields.missing == true then flags.keepBuffOnly = true end
+    -- What it shows, in the piece's own words: "aura" for Daylight UI's own piece.
+    local shows = rules.shows
+    if shows ~= nil then
+        if not indexOf(Grammar.SHOWS, shows) then
+            problem({ shows = shows, code = "value" })
+        elseif kind and not kind.trackRow then
+            problem({ shows = shows, code = "kind" })
+        else
+            fields.track = kind and kind.trackRow == "own" and shows == "buff" and "aura" or shows
+        end
+    end
+    -- The glow style, one for the whole spell.
+    if rules.style ~= nil then
+        if styleKnown(rules.style) then fields.glowStyle = rules.style
+        else problem({ style = rules.style, code = "value" }) end
+    end
     -- Values equal to Daylight UI's default are left out, as its setters do.
     for _, f in ipairs(Grammar.FIELDS) do
         if fields[f] ~= nil and fields[f] == spellDefault(f) then fields[f] = nil end
     end
-    compileGroup(rules, kind, fields, problem, flags)
+    for _, f in ipairs(Grammar.LOOK_FIELDS) do
+        local d = Bridge.LookDefault(f)
+        if look[f] ~= nil and (look[f] == d or (isRGB(d) and isRGB(look[f]) and sameRGB(look[f], d))) then
+            look[f] = nil
+        end
+    end
+    if next(look) then fields.look = look end
+    compileGroup(rules, kind, fields, problem)
     -- By line, group and form words last; ties keep the order they were found in.
     table.sort(problems, function(a, b)
         local la, lb = a.line or math.huge, b.line or math.huge
@@ -367,6 +550,18 @@ function Grammar.Compile(rules, kind)
     end)
     for _, p in ipairs(problems) do p.seq = nil end
     return fields, problems, flags
+end
+
+-- Whether a finished line asks only for what Daylight UI does anyway ("Always show
+-- it."): it fits kind and sets no field away from its default.
+function Grammar.IsDefault(line, kind)
+    if type(line) ~= "table" or line.moment == nil or line.action == nil then return false end
+    local fields, problems = Grammar.Compile({ lines = { line } }, kind)
+    if #problems > 0 then return false end
+    for f in pairs(fields) do
+        if f ~= "chain" then return false end
+    end
+    return next(fields.chain) == nil
 end
 
 -- ---------------------------------------------------------------------
@@ -384,9 +579,21 @@ function Grammar.Decompile(fields, kind)
         for _, a in ipairs(Grammar.ACTIONS) do
             local entry = MAP[m][a]
             if entry and not entry.all then
-                local v = fields[entry.field]
+                local v = entry.field and fields[entry.field]
                 local line
-                if entry.sound then
+                if entry.paint then
+                    local c = fields[entry.paint]
+                    if isColor(c) then line = { moment = m, action = a, value = copyColor(c) } end
+                elseif entry.look then
+                    local look = type(fields.look) == "table" and fields.look or {}
+                    if look[entry.look] == true then
+                        line = { moment = m, action = a }
+                        local c, d = look[entry.lookColor], Bridge.LookDefault(entry.lookColor)
+                        if isRGB(c) and not (isRGB(d) and sameRGB(c, d)) then line.value = copyRGB(c) end
+                        local at = look[entry.at]
+                        if type(at) == "number" and at ~= Bridge.LookDefault(entry.at) then line.at = at end
+                    end
+                elseif entry.sound then
                     if v ~= nil and v ~= spellDefault(entry.field) then
                         line = { moment = m, action = a, value = v }
                     end
@@ -407,9 +614,10 @@ function Grammar.Decompile(fields, kind)
     end
     local group = {}
     local chain = type(fields.chain) == "table" and fields.chain or {}
-    for _, word in ipairs(Grammar.GROUP) do
-        local v = chain[word]
-        if v ~= nil and v ~= Bridge.ChainDefault(word) then group[word] = v end
+    for i, word in ipairs(Grammar.GROUP) do
+        local f = Grammar.CHAIN[i]
+        local v = chain[f]
+        if v ~= nil and v ~= Bridge.ChainDefault(f) then group[word] = fromChain(word, v) end
     end
     local forms = {}
     for field, v in pairs(fields) do
@@ -422,29 +630,147 @@ function Grammar.Decompile(fields, kind)
             problems[#problems + 1] = { form = key, code = "kind" }
         end
     end
-    return { lines = lines, group = group, forms = forms }, problems
+    -- A saved What it shows pick, in the grammar's words. A totem's track is its own
+    -- rows' (CdmCard.lua:379-389), so it makes no word.
+    local shows = fields.track == "aura" and "buff" or fields.track
+    if not indexOf(Grammar.SHOWS, shows) or (kind and not kind.trackRow) then shows = nil end
+    local style = fields.glowStyle
+    if style == spellDefault("glowStyle") then style = nil end
+    return { lines = lines, group = group, forms = forms, shows = shows, style = style }, problems
 end
 
 -- ---------------------------------------------------------------------
 -- Plain words
 -- ---------------------------------------------------------------------
 
-local MOMENT_WORDS = {
-    ready = "When it's ready",
-    cooldown = "When it's on cooldown",
-    unusable = "When it's not usable",
-    short = "When you're short of power",
-    usable = "When it turns usable",
-    up = "While its buff is up",
-    ends = "When its buff ends",
-    missing = "While its buff is missing",
-    recast = "When it's due for recast",
+-- Every word the player reads, in one table (the spec's "Player wording"). Describe,
+-- Draft's notes, the drawer and the start block all read it, so a sentence and its
+-- chips say the same words. The keys stay the grammar's own.
+--   moments   each moment as one phrase, a sentence's start; %s is the power name
+--   noComma   moments the action follows with no comma ("Always show it.")
+--   actions   the word for each action
+--   group     each group word, on and off
+--   where     each "where" value
+--   form      hiding in a form; %s is the form's name
+--   shows     each What it shows pick, a sentence of its own
+Grammar.WORDING = {
+    moments = {
+        always = "Always",
+        ready = "When it's ready",
+        cooldown = "While it's cooling down",
+        almost = "When it's almost ready",
+        unusable = "When I can't cast it",
+        short = "When I don't have enough %s",
+        usable = "When it becomes castable",
+        up = "While it's active",
+        ends = "When it wears off",
+        missing = "While it's not active",
+        recast = "When it's about to fall off",
+    },
+    noComma = { always = true },
+    actions = {
+        show = "show it", fade = "make it see-through", hide = "hide it", glow = "glow",
+        gray = "turn it gray", color = "keep its color", sound = "play a sound",
+        nosweep = "hide the sweep", nogcd = "hide the global cooldown sweep", tint = "color the sweep",
+        flash = "flash it", numbers = "color the numbers",
+    },
+    shows = { both = "show its buff and its cooldown", cooldown = "show its cooldown", buff = "show its buff" },
+    group = {
+        combat = { on = "only show it in combat", off = "in or out of combat" },
+        target = { on = "only when I have a target", off = "with or without a target" },
+        group = { on = "only in a group", off = "in a group or not" },
+        mounted = { on = "hide it while mounted", off = "mounted or not" },
+        keep = { on = "keep every spell in place when a buff drops", off = "slide the others over when a buff drops" },
+    },
+    where = { any = "anywhere", instance = "only in dungeons and raids", world = "only in the open world" },
+    form = "hide it while I'm in %s",
+    -- The one see-through amount a spell has (cdAlpha), as a percent.
+    amount = "when see-through, show it at %s",
+    -- A new line's blanks before a word is picked.
+    chooseMoment = "choose a moment",
+    chooseWhat = "choose what happens",
+    accent = "the accent color",
+    picked = "the color you picked",
+    -- Notes on a write: %s is the line "flash it" needs; the spell and its color.
+    needs = "needs \"%s\" too",
+    sweepAccent = "%s: Daylight UI can't set the sweep back to the accent color, so it stays %s.",
+    -- The drawer's strip heading for each kind of word.
+    headings = {
+        moment = "Choose a moment:", action = "Choose what happens:", color = "Choose a color:",
+        sound = "Choose a sound:", fade = "Choose how much shows:", group = "Choose for the whole group:",
+        form = "Choose a form:", shows = "Choose what it shows:", style = "Choose a glow style:",
+        seconds = "Choose how many seconds:",
+    },
+    -- The glow style line (%s is the style's name, the card's label) and its note.
+    style = "glow with a %s",
+    styleNote = "One glow style covers every glow on this spell.",
+    -- The almost-ready numbers: their seconds, and Daylight UI's own color on its chip.
+    lastSeconds = "for the last",
+    seconds = { one = "%d second", other = "%d seconds" },
+    daylightColor = "Daylight's color",
+    -- Under a finished line that asks for what Daylight UI does anyway.
+    default = "Daylight already does this.",
+    -- Over the group words: every spell in the group (%s), or the spell alone.
+    wholeGroup = "For its whole group: %s",
+    thisSpell = "For this spell:",
+    -- The drawer's add links.
+    addLine = "+ add a line",
+    addGroup = "+ a rule for its whole group",
+    addForm = "+ hide it in a form …",
+    -- The start block beside the editor's tray.
+    start = {
+        blank = "EZ-Start Blank", load = "EZ-Load Layout",
+        name = "Name your layout", create = "Create", noName = "Give the layout a name first.",
+    },
 }
+local WORDING = Grammar.WORDING
 
-local GLOW_NAMES = {
-    missing = "the buff missing glow", recast = "the recast glow", up = "the buff up glow",
-    usable = "the usable glow", ready = "the ready glow",
-}
+-- The player's power, as the game names it ("rage"), else "power".
+function Grammar.PowerName()
+    local token = type(UnitPowerType) == "function" and select(2, UnitPowerType("player"))
+    local name = type(token) == "string" and _G[token]
+    if type(name) == "string" and name ~= "" then return name:lower() end
+    return "power"
+end
+
+-- A moment's phrase and what joins it to the action (", " or " "). A moment not
+-- picked yet reads as its blank.
+function Grammar.MomentWords(moment)
+    if moment == nil then return WORDING.chooseMoment, ", " end
+    local phrase = WORDING.moments[moment]
+    if not phrase then return tostring(moment), " " end
+    if phrase:find("%s", 1, true) then phrase = phrase:format(Grammar.PowerName()) end
+    return phrase, WORDING.noComma[moment] and " " or ", "
+end
+
+-- A group word's words: on (true, or a "where" value) or off.
+function Grammar.GroupWords(word, v)
+    if word == "where" then return WORDING.where[v or "any"] or tostring(v) end
+    local w = WORDING.group[word]
+    if not w then return tostring(word) end
+    return v and w.on or w.off
+end
+
+function Grammar.FormWords(name) return WORDING.form:format(name) end
+
+-- A count of seconds in words: "1 second", "3 seconds".
+function Grammar.Seconds(n)
+    return (n == 1 and WORDING.seconds.one or WORDING.seconds.other):format(n)
+end
+
+-- The glow style line as a sentence: "Glow with a Comet."
+function Grammar.StyleWords(label)
+    local w = WORDING.style:format(label)
+    return w:sub(1, 1):upper() .. w:sub(2) .. "."
+end
+
+-- What it shows as a sentence: "Show its buff."
+function Grammar.ShowsWords(shows)
+    local w = WORDING.shows[shows] or tostring(shows)
+    return w:sub(1, 1):upper() .. w:sub(2) .. "."
+end
+
+local function percent(v) return string.format("%d%%", math.floor(v * 100 + 0.5)) end
 
 -- A sound key's name in Daylight UI's list, or the key.
 local function soundName(key)
@@ -455,27 +781,32 @@ end
 
 local function actionWords(line)
     local a = line.action
-    if a == "show" then return "show it" end
-    if a == "hide" then return "hide it" end
-    if a == "fade" then
-        if type(line.value) == "number" then
-            return string.format("fade it to %d%%", math.floor(line.value * 100 + 0.5))
-        end
-        return "fade it"
+    if a == nil then return WORDING.chooseWhat end
+    if a == "fade" and type(line.value) == "number" then
+        return string.format("%s (%s visible)", WORDING.actions.fade, percent(line.value))
     end
-    if a == "glow" then return line.value and "glow in the color you picked" or "glow" end
-    if a == "gray" then return "gray it" end
-    if a == "color" then return "keep its color" end
+    if (a == "glow" or a == "tint") and line.value then return WORDING.actions[a] .. " in " .. WORDING.picked end
+    if a == "numbers" then
+        local out = WORDING.actions.numbers
+        if line.value then out = out .. " in " .. WORDING.picked end
+        if line.at then out = out .. " " .. WORDING.lastSeconds .. " " .. Grammar.Seconds(line.at) end
+        return out
+    end
     if a == "sound" then return string.format("play \"%s\"", soundName(line.value)) end
-    return tostring(a)
+    return WORDING.actions[a] or tostring(a)
 end
 
 -- The line as one sentence, in US English.
 function Grammar.Describe(line)
     if type(line) ~= "table" then return "" end
-    if line.moment == "always" then return "Always " .. actionWords(line) .. "." end
-    local m = MOMENT_WORDS[line.moment] or tostring(line.moment)
-    return m .. ", " .. actionWords(line) .. "."
+    local phrase, joint = Grammar.MomentWords(line.moment)
+    return phrase:sub(1, 1):upper() .. phrase:sub(2) .. joint .. actionWords(line) .. "."
+end
+
+-- The glow a moment lights, in plain words: "the glow when it's ready".
+local function glowName(moment)
+    local phrase = Grammar.MomentWords(moment)
+    return "the glow " .. phrase:sub(1, 1):lower() .. phrase:sub(2)
 end
 
 -- Two glow moments that can be true at once. Buff missing is never true with buff up,
@@ -501,8 +832,8 @@ function Grammar.Notes(rules)
                 local lose = Grammar.GLOW_ORDER[j]
                 if on[lose] and overlap(win, lose) then
                     notes[#notes + 1] = { winner = win, loser = lose,
-                        text = string.format("Only one glow shows at a time: when both apply, %s shows instead of %s.",
-                            GLOW_NAMES[win], GLOW_NAMES[lose]) }
+                        text = string.format("Only one glow shows at a time. When both apply, %s shows instead of %s.",
+                            glowName(win), glowName(lose)) }
                 end
             end
         end
