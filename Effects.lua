@@ -372,7 +372,7 @@ end
 -- Seconds a "down" waits for an up before the clock stops.
 Effects.DOWN_GRACE = 1
 -- Seconds after a target change in which an up is the old debuff seen again
--- (Daylight UI's END_QUIET, CdmEffects.lua:718 at 2.2.4).
+-- (Daylight UI's END_QUIET, CdmEffects.lua:717 at 2.2.4).
 Effects.SWAP_QUIET = 0.5
 
 -- Piece key as a string -> { up, ends, upAt, downAt, token }. ends is set only by an
