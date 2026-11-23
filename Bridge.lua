@@ -83,6 +83,19 @@ Bridge.NEEDS = {
     "DaylightUI.Motion.Slider",
     "DaylightUI.Style.BorderPx",
     "DaylightUI.Pixel.Px",
+    -- Effects: the up glow EZ-CDM builds inside a holder's client aura buttons
+    "ActionBars.CdmEffects.MakeSlide",
+    "ActionBars.CdmEffects.GLOW_ATLAS",
+    "ActionBars.CdmEffects.GLOW_ROWS",
+    "ActionBars.CdmEffects.GLOW_COLUMNS",
+    "ActionBars.CdmEffects.GLOW_FRAMES",
+    "ActionBars.CdmEffects.GLOW_LOOP",
+    "ActionBars.CdmEffects.GLOW_PAD",
+    "DaylightUI.Style.PaintAccent",
+    "ActionBars.CdmAuras.Frame",
+    "ActionBars.CdmRows.DrawnBy",
+    "DaylightUI.Restricted",
+    "DaylightUI.AfterRestrictions",
 }
 
 -- Internals EZ-CDM uses when their module is loaded, as "<root>.<path>" like NEEDS.
@@ -125,12 +138,12 @@ function Bridge.Resolve(path)
     return cur
 end
 
--- Whether a path resolves to what its form promises: "<root>.<Part>" is a table,
+-- Whether a path resolves to what its form promises: "<module>.<Part>" is a table,
 -- a last part in capitals is a value, and anything else is a function.
 local function present(path)
     local v = Bridge.Resolve(path)
     local _, dots = path:gsub("%.", "")
-    if dots == 1 then return type(v) == "table" end
+    if dots == 1 and path:match("^[^%.]+") ~= "DaylightUI" then return type(v) == "table" end
     if isValueName(path:match("([^%.]+)$")) then return v ~= nil end
     return type(v) == "function"
 end
@@ -323,6 +336,14 @@ local function savedSet(g)
     local set = call("ActionBars.CdmData.Ensure", g)
     if not Bridge.ProfileOf(g) then return nil, "unsaved" end
     return set
+end
+
+-- Talent set g's saved profile id, made first if it has none, as savedSet does
+-- before a write. Returns nil and a reason when it can't be.
+function Bridge.SavedProfile(g)
+    local set, why = savedSet(g)
+    if not set then return nil, why end
+    return Bridge.ProfileOf(g)
 end
 
 local function answer(done)
@@ -525,6 +546,64 @@ function Bridge.BorderPx(frame)
     local px = call("DaylightUI.Style.BorderPx", frame)
     if type(px) ~= "number" then return 0 end
     return call("DaylightUI.Pixel.Px", frame, px) or 0
+end
+
+-- ---------------------------------------------------------------------
+-- The up glow inside a holder's client aura buttons (CdmAuras, CdmEffects)
+-- ---------------------------------------------------------------------
+
+-- What draws a placed piece since the last pass: "game", "aura icon", "aura and
+-- cooldown icon", "aura bar" and so on, or nil.
+function Bridge.DrawnBy(key) return call("ActionBars.CdmRows.DrawnBy", key) end
+
+-- Whether the client has auras locked now: in combat or under its restrictions.
+-- A client aura button and everything on it refuse addon code then.
+function Bridge.Restricted() return call("DaylightUI.Restricted") == true end
+-- Runs fn now, or once restrictions lift. A later call with the same key replaces
+-- a waiting one.
+function Bridge.AfterRestrictions(fn, key) return call("DaylightUI.AfterRestrictions", fn, key) end
+
+-- Daylight UI's ring glow, the game's proc loop it draws (CdmEffects.lua:184-189):
+-- { atlas, rows, columns, frames, loop = seconds per turn, pad = how far it
+-- reaches past each edge, as a share of the item's short side }. nil when any is gone.
+function Bridge.RingArt()
+    local art = {
+        atlas = Bridge.Resolve("ActionBars.CdmEffects.GLOW_ATLAS"),
+        rows = Bridge.Resolve("ActionBars.CdmEffects.GLOW_ROWS"),
+        columns = Bridge.Resolve("ActionBars.CdmEffects.GLOW_COLUMNS"),
+        frames = Bridge.Resolve("ActionBars.CdmEffects.GLOW_FRAMES"),
+        loop = Bridge.Resolve("ActionBars.CdmEffects.GLOW_LOOP"),
+        pad = Bridge.Resolve("ActionBars.CdmEffects.GLOW_PAD"),
+    }
+    if type(art.atlas) ~= "string" then return nil end
+    for _, k in ipairs({ "rows", "columns", "frames", "loop", "pad" }) do
+        if type(art[k]) ~= "number" then return nil end
+    end
+    return art
+end
+
+-- Paints a texture in the accent, as Daylight UI's ring takes it: a gradient
+-- accent runs across it, else the one color.
+function Bridge.PaintAccent(tex) return call("DaylightUI.Style.PaintAccent", tex, 1) end
+
+-- fn(btn, key, size) runs inside the client's initializeFrame for each button an
+-- aura icon holder (CdmAuras) is given, after Daylight UI dresses it: the one time
+-- the client lets an addon add to the button. key is the holder's piece and size
+-- the button's side in px, as Daylight UI sets it (h.size), or nil. Hooked on
+-- CdmEffects.MakeSlide, the last call of that dressing, through Daylight UI's
+-- public hook. Aura bars (CdmBars) call it too and are skipped. Returns the hook's
+-- handle, or false.
+function Bridge.HookAuraButtons(fn)
+    local Fx = Bridge.Resolve("ActionBars.CdmEffects")
+    if type(Fx) ~= "table" or type(Fx.MakeSlide) ~= "function" then return false end
+    me = me or _G.DaylightUI.API.For(addonName)
+    return me.Hook(Fx, "MakeSlide", function(btn, h)
+        local key = type(h) == "table" and h.id or nil
+        if key ~= nil and call("ActionBars.CdmAuras.Frame", key) == h then
+            local size = h.size
+            fn(btn, key, type(size) == "number" and size or nil)
+        end
+    end)
 end
 
 local API = _G.DaylightUI and _G.DaylightUI.API

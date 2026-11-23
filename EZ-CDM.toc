@@ -3,10 +3,12 @@
 ## Notes: Click-to-build rules for Daylight UI's Cooldown Manager.
 ## Version: 0.1.0
 ## Dependencies: DaylightUI
+## OptionalDeps: DaylightUI_ActionBars
 ## SavedVariables: EZCDMDB
 
 EZ-CDM.lua
 Bridge.lua
+Effects.lua
 Grammar.lua
 Draft.lua
 Start.lua

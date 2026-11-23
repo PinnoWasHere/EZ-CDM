@@ -3,10 +3,11 @@ local _, ns = ...
 -- One placed spell's sentences, read from and written live to the layout Daylight
 -- UI's editor shows. A write goes only through ns.Bridge, in stages: group words
 -- on the spell's group, what it shows (track), the spell fields the grammar owns
--- (Grammar.FIELDS and hideIn<Key>), then its look keys (Grammar.LOOK_FIELDS). Only
--- fields that change are written, and no piece ever moves.
+-- (Grammar.FIELDS and hideIn<Key>), its look keys (Grammar.LOOK_FIELDS), then
+-- EZ-CDM's own up glow (Effects). Only fields that change are written, and no
+-- piece ever moves.
 
-local Bridge, Grammar = ns.Bridge, ns.Grammar
+local Bridge, Grammar, Effects = ns.Bridge, ns.Grammar, ns.Effects
 
 local Draft = {}
 ns.Draft = Draft
@@ -222,8 +223,9 @@ local function fades(fields)
 end
 
 -- key's plan on talent set g: { changes, notes, ops }. Each change is { key, kind,
--- field, old, new } (kinds: group, track, set, clear), each op { stage, change,
--- run }. Stages: 1 group words, 2 track, 3 spell fields.
+-- field, old, new } (kinds: group, track, set, clear, ez), each op { stage, change,
+-- run }. Stages: 1 group words, 2 track, 3 spell fields, 4 look keys, 5 EZ-CDM's
+-- up glow.
 local function planFor(key, rules, g)
     local name = nameOf(key)
     local pieces, chains = layout(g)
@@ -243,6 +245,13 @@ local function planFor(key, rules, g)
     local fields, problems, flags = Grammar.Compile(rules, kind)
     for _, p in ipairs(problems) do
         note(p.code, problemWords(name, rules, p), BLOCKING[p.code])
+    end
+
+    -- "Glow while active" on a piece an aura icon holder draws is EZ-CDM's own, and
+    -- Daylight UI's upGlow goes off (Effects.Split).
+    local ezOld, ezNew = Effects.Get(key, g), Effects.Split(key, fields)
+    if not same(ezOld, ezNew) then
+        op(5, "ez", "upGlow", ezOld, ezNew, function() return Effects.Set(g, key, ezNew) end)
     end
 
     -- Group words, on the spell's group, as Daylight UI's Group tab writes them
@@ -334,7 +343,7 @@ local function planFor(key, rules, g)
     return plan
 end
 
--- Runs a plan's writes by stage (4 is look keys), in order within each. Stops at the first refusal
+-- Runs a plan's writes by stage, in order within each. Stops at the first refusal
 -- and returns its reason; report.changed gets each change that landed.
 local function runStages(ops, report)
     table.sort(ops, function(a, b)
@@ -383,7 +392,7 @@ function Draft.Rules(key)
     local pieces, chains = layout(g)
     local live = pieces[key]
     if not live then return nil end
-    local fields = copy(live)
+    local fields = Effects.Merge(key, copy(live), g)
     fields.chain = copy(chains[Bridge.Root(key, g)] or {})
     return Grammar.Decompile(fields, Grammar.Kind(key))
 end

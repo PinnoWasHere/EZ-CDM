@@ -11,7 +11,7 @@ local _, ns = ...
 -- EndTrayMove. Every look is Daylight UI's, through ns.Bridge and API.md calls.
 -- Without the info panel loaded, a header row with Daylight UI's chevron folds it.
 
-local Bridge, Grammar, Draft = ns.Bridge, ns.Grammar, ns.Draft
+local Bridge, Grammar, Draft, Effects = ns.Bridge, ns.Grammar, ns.Draft, ns.Effects
 local API = DaylightUI.API
 local WORDING = Grammar.WORDING
 
@@ -312,8 +312,9 @@ local function words(s, pieces, opts)
     b.said = table.concat(said)
     -- A pooled block forgets what it stood for last time.
     b.line, b.group, b.form, b.note, b.notice, b.refusal, b.adds, b.fade, b.shared, b.choices, b.hint, b.default,
-        b.groupHead, b.shows, b.style, b.styleNote = nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-        nil, nil
+        b.groupHead, b.shows, b.style, b.styleNote, b.ezGlow, b.ezReload = nil, nil, nil, nil, nil, nil, nil, nil, nil,
+        nil, nil, nil, nil, nil, nil, nil, nil, nil
+    b.ezRingStyle, b.ezRingOther = nil, nil
     b.onRemove = opts.onRemove
     b.remove:SetShown(opts.onRemove ~= nil)
     return b
@@ -801,8 +802,10 @@ local function sentence(s, kind, rules, i, line)
 end
 
 -- The glow style, one for the whole spell: shown while a line glows or a style is
--- saved, with Daylight UI's rule under it.
-local function styleLine(s, rules)
+-- saved, with Daylight UI's rule under it. A piece whose up glow is EZ-CDM's combat
+-- ring offers no style, since that glow is always the ring. A saved style stays as
+-- it is: Daylight UI uses it for the piece's other glows, and a note says so.
+local function styleLine(s, rules, key)
     local glows = rules.style ~= nil
     for _, l in ipairs(rules.lines) do glows = glows or l.action == "glow" end
     if not glows then return end
@@ -810,6 +813,14 @@ local function styleLine(s, rules)
     for _, st in ipairs(Bridge.GlowStyles() or {}) do
         keys[#keys + 1] = st.key
         values[st.key] = st.label
+    end
+    if Effects.Drawn(key) and Effects.Get(key) ~= nil then
+        words(s, { { text = WORDING.ezRingStyle, size = "small", color = "LABEL" } }).ezRingStyle = true
+        if rules.style ~= nil then
+            local name = values[rules.style] or tostring(rules.style)
+            words(s, { { text = WORDING.ezRingOther:format(name), size = "small", color = "LABEL" } }).ezRingOther = true
+        end
+        return
     end
     local now = rules.style or Bridge.Option({}, "glowStyle")
     local text = Grammar.StyleWords("\1")
@@ -1110,9 +1121,16 @@ local function spellBody(s, key)
         if i >= first and i <= last then
             words(s, { { text = WORDING.default, size = "small", color = "LABEL" } }).default = i
         end
+        -- EZ-CDM draws this glow itself (Effects), so it shows in a fight too.
+        if line.moment == "up" and line.action == "glow" and Effects.Drawn(key) and Effects.Get(key) ~= nil then
+            words(s, { { text = WORDING.ezGlow, size = "small", color = "LABEL" } }).ezGlow = i
+            if Effects.Pending(key) then
+                words(s, { { text = WORDING.ezGlowReload, size = "small", color = "LABEL" } }).ezReload = i
+            end
+        end
     end
     fadeLine(s, rules)
-    styleLine(s, rules)
+    styleLine(s, rules, key)
     groupLines(s, rules)
     formLines(s, kind, rules)
     addLinks(s, kind, rules)

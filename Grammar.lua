@@ -11,7 +11,7 @@ local _, ns = ...
 -- Fields are a piece's spell options, with its group's options under fields.chain
 -- and its own look keys under fields.look.
 
-local Bridge = ns.Bridge
+local Bridge, Effects = ns.Bridge, ns.Effects
 
 local Grammar = {}
 ns.Grammar = Grammar
@@ -231,6 +231,8 @@ end
 --                    (canTrack, :337-340); nil for a totem, which has rows of its own
 --   highlight        the buff's sweep is on (activeGlow, CdmCard.lua:686)
 --   missingShown     Buff missing is set to Show (the Flash row, CdmCard.lua:698)
+--   ezGlow           EZ-CDM draws its up glow inside the client's button (Effects),
+--                    which needs no told state
 -- Form rows show for cooldowns of a class with forms (CdmCard.lua:806).
 -- Totems take no case of their own. Bridge.Shows (CdmOwn.Track) says "totem" for a
 -- totem with no buff and "both" for a Shaman element piece (CdmOwn.lua:108-130), and
@@ -285,6 +287,7 @@ function Grammar.Kind(key, piece, shows)
         highlight = Bridge.Option(piece, "activeGlow") ~= false,
         missingShown = Bridge.Option(piece, "missing") == true,
         numbers = Bridge.PieceLook(key, "cdNumbers") ~= false,
+        ezGlow = Effects.Drawn(key),
     }
     -- What the card's What it shows reads now (CdmCard.lua:358-365), in the grammar's words.
     if trackRow then
@@ -324,6 +327,7 @@ function Grammar.Fits(kind, moment, action)
         -- The sweep rows need no told state (CdmCard.lua:505, 683-688).
         if action == "nosweep" then return kind.shape == "icon" and kind.buff end
         if action == "tint" then return kind.shape == "icon" and kind.buff and kind.highlight end
+        if action == "glow" then return kind.showsBuff and (told or kind.ezGlow == true) end
         return kind.showsBuff and told
     elseif moment == "ends" then
         return kind.showsBuff and told
@@ -710,6 +714,14 @@ Grammar.WORDING = {
     daylightColor = "Daylight's color",
     -- Under a finished line that asks for what Daylight UI does anyway.
     default = "Daylight already does this.",
+    -- Under "While it's active, glow" on a piece EZ-CDM draws that glow for, and
+    -- while that glow waits for a /reload (Effects.Pending).
+    ezGlow = "Ring style; drawn by EZ so it works in combat.",
+    ezGlowReload = "It lights after your next /reload.",
+    -- In place of the glow style line on such a piece, and under it when another
+    -- style is saved (%s is that style's name), which Daylight UI keeps for the rest.
+    ezRingStyle = "Its combat glow is always a ring.",
+    ezRingOther = "Its other glows still use %s.",
     -- Over the group words: every spell in the group (%s), or the spell alone.
     wholeGroup = "For its whole group: %s",
     thisSpell = "For this spell:",
