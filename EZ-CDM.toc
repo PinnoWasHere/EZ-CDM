@@ -9,6 +9,7 @@
 EZ-CDM.lua
 Bridge.lua
 Effects.lua
+AuraLinks.lua
 Grammar.lua
 Draft.lua
 Start.lua

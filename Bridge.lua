@@ -102,7 +102,15 @@ Bridge.NEEDS = {
     "ActionBars.CdmEffects.ClipGlows",
     "DaylightUI.Sound.Alert",
     "ActionBars.CdmAuras.Told",
-    "ActionBars.CdmAuras.CAST_LANDS",
+    -- Effects: a glow style per moment (me.Wrap)
+    "ActionBars.CdmEffects.GlowStyle",
+    "ActionBars.CdmEffects.SetDown",
+    "ActionBars.CdmEffects.EndPass",
+    -- Effects: a proc's length, for its fall-off ring
+    "ActionBars.CdmCustom.Fact",
+    "ActionBars.CdmAuras.Read",
+    -- Grammar: a buff another class puts on you is never your proc
+    "ActionBars.CdmCustom.IsGroup",
 }
 
 -- Internals EZ-CDM uses when their module is loaded, as "<root>.<path>" like NEEDS.
@@ -270,6 +278,9 @@ function Bridge.CanTrack(key) return call("ActionBars.CdmCustom.CanTrack", key) 
 -- Every spell id a piece answers to, { [id] = true }: its spell, ranks and linked
 -- ids. A cast of one of them starts its recast clock (CdmAuras.lua:1194-1211).
 function Bridge.SpellIDs(key) return call("ActionBars.CdmAuras.SpellIDs", key) end
+-- Whether a piece is another class's buff on you: the tray's Group buffs
+-- (CdmCustom.IsGroup). The player never casts it, so it is no proc of theirs.
+function Bridge.IsGroup(key) return call("ActionBars.CdmCustom.IsGroup", key) == true end
 -- Whether a piece's spell is a totem. A totem picks what it shows from its own rows,
 -- not the card's What it shows (CdmCard.lua:242-256).
 function Bridge.IsTotem(key)
@@ -563,6 +574,20 @@ end
 -- cooldown icon", "aura bar" and so on, or nil.
 function Bridge.DrawnBy(key) return call("ActionBars.CdmRows.DrawnBy", key) end
 
+-- Whether a piece's aura icon holder shows its aura in the client's own buttons:
+-- true when it made client containers (h.containers, CdmAuras.lua:385), false when
+-- Daylight UI draws the piece on its own face instead (h.face, made at :414, 422,
+-- 449 and 466 for the pet, a weapon enchant, a summon and a debuff on you, never
+-- with a container). nil with no holder yet, or none of either (a holder still
+-- waiting for a fight to end, CdmAuras.lua:398-406).
+function Bridge.ClientButtons(key)
+    local h = call("ActionBars.CdmAuras.Frame", key)
+    if type(h) ~= "table" then return nil end
+    if type(h.containers) == "table" and #h.containers > 0 then return true end
+    if h.face ~= nil then return false end
+    return nil
+end
+
 -- Whether the client has auras locked now: in combat or under its restrictions.
 -- A client aura button and everything on it refuse addon code then.
 function Bridge.Restricted() return call("DaylightUI.Restricted") == true end
@@ -624,32 +649,94 @@ end
 --   Clip(h, sid)     the pass's answer for one holder or watch
 --   ClipGlows(p)     whether a piece's pass runs the clock
 --   Told(h, up)      what the game's item says, up or down; a down drops the clock
+-- Bridge.Clip calls Clip as the pass does, for a pass that skips it on a "down".
 -- h.id is the piece key and h.endsAt the end the clock keeps, both plain numbers
 -- Daylight UI sets itself (CdmAuras.lua:518, 1128). h.watch is true on the watch of
 -- a piece the game's item draws (:518).
 Bridge.CLOCK_WRAPS = { ClipDue = "ActionBars.CdmAuras", Clip = "ActionBars.CdmAuras",
                        ClipGlows = "ActionBars.CdmEffects", Told = "ActionBars.CdmAuras" }
 
--- How long after a cast its aura may still land, in seconds (CdmAuras.lua:1120).
-function Bridge.CastLands()
-    local v = Bridge.Resolve("ActionBars.CdmAuras.CAST_LANDS")
-    return type(v) == "number" and v or 0
-end
+-- The clock's answer for holder or watch h now, as a pass asks it (CdmAuras.Clip,
+-- wraps included): due, and when not, a wake for the moment it will be.
+function Bridge.Clip(h, sid) return call("ActionBars.CdmAuras.Clip", h, sid) end
 
--- Wraps one of the clock functions with fn(original, ...) through Daylight UI's
--- public wrap (API.For(...).Wrap). A wrap that errors falls back to Daylight UI's
--- own. Returns the handle, or false.
-function Bridge.WrapClock(name, fn)
-    local path = Bridge.CLOCK_WRAPS[name]
+-- Wraps name, listed in list, with fn(original, ...) through Daylight UI's public
+-- wrap (API.For(...).Wrap). A wrap that errors falls back to Daylight UI's own.
+-- Returns the handle, or false.
+local function wrapListed(list, name, fn)
+    local path = list[name]
     local tbl = path and Bridge.Resolve(path)
     if type(tbl) ~= "table" or type(tbl[name]) ~= "function" or type(fn) ~= "function" then return false end
     me = me or _G.DaylightUI.API.For(addonName)
     return me.Wrap(tbl, name, fn)
 end
 
+-- Wraps one of the clock functions (Bridge.CLOCK_WRAPS).
+function Bridge.WrapClock(name, fn) return wrapListed(Bridge.CLOCK_WRAPS, name, fn) end
+
 -- Plays a sound key from Daylight UI's list (Bridge.SoundChoices), as its own
 -- piece sounds do (CdmEffects.lua:727-734).
 function Bridge.PlayAlert(key) return call("DaylightUI.Sound.Alert", key) end
+
+-- ---------------------------------------------------------------------
+-- A glow style per moment (CdmEffects)
+-- ---------------------------------------------------------------------
+
+-- The glow functions EZ-CDM wraps. Daylight UI calls each by table lookup
+-- (CdmEffects.lua:377; CdmRows.lua:982, 987, 989), so a wrap sees every call.
+--   GlowStyle(button)                    the style a lit glow takes; button is the
+--                                        piece's saved table, nil on an aura holder
+--   SetDown(item, piece, isDown, isDue)  what a pass tells an item; it lights the
+--                                        item's glow before it returns
+--   EndPass(told)                        after a pass; items not in told forget it
+Bridge.GLOW_WRAPS = { GlowStyle = "ActionBars.CdmEffects", SetDown = "ActionBars.CdmEffects",
+                      EndPass = "ActionBars.CdmEffects" }
+
+-- Wraps one of the glow functions (Bridge.GLOW_WRAPS).
+function Bridge.WrapGlow(name, fn) return wrapListed(Bridge.GLOW_WRAPS, name, fn) end
+
+-- ---------------------------------------------------------------------
+-- A proc's length (CdmAuras, CdmCustom)
+-- ---------------------------------------------------------------------
+
+local function seconds(v)
+    if type(v) ~= "number" or (type(issecretvalue) == "function" and issecretvalue(v)) then return nil end
+    return v > 0 and v or nil
+end
+
+-- How long a piece's aura lasts as its aura icon holder last read it (h.auraLasts,
+-- set from a plain read, CdmAuras.lua:933), or nil before a read this session.
+function Bridge.AuraLasts(key)
+    local h = call("ActionBars.CdmAuras.Frame", key)
+    return type(h) == "table" and seconds(h.auraLasts) or nil
+end
+
+-- Asks a piece's aura icon holder to read its aura now (CdmAuras.Read). Daylight UI
+-- reads only where auras read plainly, out of a fight, and learns the length
+-- (h.auraLasts) when the aura is up. Returns its answer: up, down, or nil.
+function Bridge.ReadAura(key)
+    local h = call("ActionBars.CdmAuras.Frame", key)
+    if type(h) ~= "table" then return nil end
+    return call("ActionBars.CdmAuras.Read", h)
+end
+
+-- How long a piece's aura lasts by the game's data (CdmSpells.FACTS through
+-- CdmCustom.Fact), over every id it answers to, or nil when the data has none.
+function Bridge.FactLasts(key)
+    local ids = Bridge.SpellIDs(key)
+    local list = {}
+    for id in pairs(type(ids) == "table" and ids or {}) do
+        if type(id) == "number" then list[#list + 1] = id end
+    end
+    table.sort(list)
+    local sid = Bridge.SpellOf(key)
+    if type(sid) == "number" then table.insert(list, 1, sid) end
+    for _, id in ipairs(list) do
+        local fact = call("ActionBars.CdmCustom.Fact", id)
+        local n = type(fact) == "table" and seconds(fact.lasts) or nil
+        if n then return n end
+    end
+end
 
 local API = _G.DaylightUI and _G.DaylightUI.API
 if type(API) == "table" and type(API.On) == "function" then

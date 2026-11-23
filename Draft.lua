@@ -4,7 +4,8 @@ local _, ns = ...
 -- UI's editor shows. A write goes only through ns.Bridge, in stages: group words
 -- on the spell's group, what it shows (track), the spell fields the grammar owns
 -- (Grammar.FIELDS and hideIn<Key>), its look keys (Grammar.LOOK_FIELDS), then
--- EZ-CDM's own rules (Effects): the up glow, and the fall-off lead and sound.
+-- EZ-CDM's own rules (Effects): the up glow, the fall-off lead and sound, and the
+-- glow lines' own styles.
 -- Only fields that change are written, and no piece ever moves.
 
 local Bridge, Grammar, Effects = ns.Bridge, ns.Grammar, ns.Effects
@@ -253,10 +254,16 @@ local function planFor(key, rules, g)
     if not same(ezOld, ezNew) then
         op(5, "ez", "upGlow", ezOld, ezNew, function() return Effects.Set(g, key, ezNew) end)
     end
-    -- The fall-off lead and its sound are EZ-CDM's own on every piece.
-    local foOld, foNew = Effects.FallOff(key, g), Effects.SplitFallOff(fields)
+    -- The fall-off lead and its sound are EZ-CDM's own on every piece, and so is a
+    -- proc's fall-off ring (Effects.SplitFallOff).
+    local foOld, foNew = Effects.FallOff(key, g), Effects.SplitFallOff(fields, kind)
     if not same(foOld, foNew) then
         op(5, "ez", "fallOff", foOld, foNew, function() return Effects.SetFallOff(g, key, foNew) end)
+    end
+    -- So are the glow lines' own styles.
+    local stOld, stNew = Effects.Styles(key, g), Effects.SplitStyles(fields)
+    if not same(stOld, stNew) then
+        op(5, "ez", "glowStyles", stOld, stNew, function() return Effects.SetStyles(g, key, stNew) end)
     end
 
     -- Group words, on the spell's group, as Daylight UI's Group tab writes them
@@ -371,7 +378,8 @@ local function signature(line)
     if type(line) ~= "table" then return "" end
     local v = line.value
     if isRGB(v) then v = string.format("%s,%s,%s,%s", v[1], v[2], v[3], tostring(v[4])) end
-    return string.format("%s|%s|%s|%s", tostring(line.moment), tostring(line.action), tostring(v), tostring(line.at))
+    return string.format("%s|%s|%s|%s|%s", tostring(line.moment), tostring(line.action), tostring(v),
+        tostring(line.at), tostring(line.style))
 end
 
 -- The spell fields a line sets.

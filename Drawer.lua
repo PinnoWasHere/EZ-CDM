@@ -312,8 +312,8 @@ local function words(s, pieces, opts)
     b.said = table.concat(said)
     -- A pooled block forgets what it stood for last time.
     b.line, b.group, b.form, b.note, b.notice, b.refusal, b.adds, b.fade, b.shared, b.choices, b.hint, b.default,
-        b.groupHead, b.shows, b.style, b.styleNote, b.ezGlow, b.ezReload = nil, nil, nil, nil, nil, nil, nil, nil, nil,
-        nil, nil, nil, nil, nil, nil, nil, nil, nil
+        b.groupHead, b.shows, b.style, b.ezGlow, b.ezReload = nil, nil, nil, nil, nil, nil, nil, nil, nil,
+        nil, nil, nil, nil, nil, nil, nil, nil
     b.ezRingStyle, b.ezRingOther, b.fallOff = nil, nil, nil
     b.onRemove = opts.onRemove
     b.remove:SetShown(opts.onRemove ~= nil)
@@ -694,13 +694,13 @@ local function firstSound()
     return keys[1]
 end
 
--- A line on a new moment or action. The value goes with an action change; a sound
--- line takes the first sound. The fall-off lead stays while the line stays on
--- "When it's about to fall off", and goes when it leaves.
+-- A line on a new moment or action. The value and the glow's own style go with an
+-- action change; a sound line takes the first sound. The fall-off lead stays while
+-- the line stays on "When it's about to fall off", and goes when it leaves.
 local function retarget(line, moment, action)
     local keepAt = moment == "recast" and line.moment == "recast"
     if action ~= line.action then
-        line.value = nil
+        line.value, line.style = nil, nil
         if not keepAt then line.at = nil end
     end
     if line.moment == "recast" and moment ~= "recast" then line.at = nil end
@@ -722,9 +722,20 @@ local function leadOf(rules)
     end
 end
 
--- The lead's strip: Daylight UI's own timing, then the seconds choices.
-local function leadChoices()
+-- The lead's strip: Daylight UI's own timing, then the seconds choices. A proc
+-- EZ-CDM rings has no Daylight UI timing, and takes only leads inside its length.
+local function leadChoices(kind)
     local keys, values = { "daylight" }, { daylight = WORDING.daylightTiming }
+    if kind.procLead then
+        keys, values = {}, {}
+        for _, n in ipairs(Grammar.LEADS) do
+            if n < kind.procLasts then
+                keys[#keys + 1] = n
+                values[n] = Grammar.Seconds(n)
+            end
+        end
+        return keys, values
+    end
     for _, n in ipairs(Grammar.LEADS) do
         keys[#keys + 1] = n
         values[n] = Grammar.Seconds(n)
@@ -752,6 +763,21 @@ local function word(text, id, def, chosen, color)
         onClick = function() Drawer.Choose(id, def) end }
 end
 
+-- The glow styles in the card's order and labels. piece puts "the spell's style"
+-- first, for a glow line with no style of its own.
+local function styleChoices(piece)
+    local keys, values = {}, {}
+    if piece then
+        keys[1] = "piece"
+        values.piece = WORDING.pieceStyle
+    end
+    for _, st in ipairs(Bridge.GlowStyles() or {}) do
+        keys[#keys + 1] = st.key
+        values[st.key] = st.label
+    end
+    return keys, values
+end
+
 local function sentence(s, kind, rules, i, line)
     local moments, actions, any = wordsFor(kind)
     local finished = line.moment ~= nil and line.action ~= nil
@@ -769,11 +795,13 @@ local function sentence(s, kind, rules, i, line)
                 if a ~= nil and not Grammar.Fits(kind, m, a) then a = actions[m][1] end
                 retarget(l, m, a)
                 if m == "recast" and l.at == nil then l.at = leadOf(r) end
+                if m == "recast" and l.at == nil and kind.procLead then l.at = Grammar.PROC_LEAD end
+                if Grammar.RingOnly(kind, m) then l.style = nil end
             end)
         end }, line.moment ~= nil, off)
     if line.moment == "recast" then
         -- "(5 seconds before)", or Daylight UI's own timing with no lead.
-        local keys, values = leadChoices()
+        local keys, values = leadChoices(kind)
         local before, after = aroundLead(line.at)
         pieces[#pieces + 1] = { text = " " .. before }
         pieces[#pieces + 1] = word(line.at and Grammar.Seconds(line.at) or WORDING.daylightTiming, id .. "lead", {
@@ -796,6 +824,19 @@ local function sentence(s, kind, rules, i, line)
             kind = "sound", keys = keys, values = values, current = line.value,
             onPick = function(k) edit(function(r) r.lines[i].value = k end) end }, true, off)
     elseif line.action == "glow" or line.action == "tint" then
+        -- A glow's own style, unless it is EZ-CDM's combat ring.
+        if line.action == "glow" and line.moment ~= nil and not Grammar.RingOnly(kind, line.moment) then
+            local keys, values = styleChoices(true)
+            local text = (line.style ~= nil and WORDING.lineStyle or WORDING.lineStyleNone):format("\1")
+            local before, after = text:match("^(.-)\1(.*)$")
+            pieces[#pieces + 1] = { text = " " .. before }
+            pieces[#pieces + 1] = word(line.style ~= nil and (values[line.style] or tostring(line.style))
+                or WORDING.pieceStyle, id .. "style", {
+                kind = "style", keys = keys, values = values, current = line.style or "piece",
+                onPick = function(k) edit(function(r) r.lines[i].style = k ~= "piece" and k or nil end) end },
+                true, off)
+            if after ~= "" then pieces[#pieces + 1] = { text = after } end
+        end
         -- The sweep's color keeps an alpha, as the card's Highlight color does.
         local alpha = line.action == "tint"
         pieces[#pieces + 1] = { text = " in " }
@@ -848,19 +889,15 @@ local function sentence(s, kind, rules, i, line)
     return b
 end
 
--- The glow style, one for the whole spell: shown while a line glows or a style is
--- saved, with Daylight UI's rule under it. A piece whose up glow is EZ-CDM's combat
--- ring offers no style, since that glow is always the ring. A saved style stays as
--- it is: Daylight UI uses it for the piece's other glows, and a note says so.
+-- The spell's glow style, for its glows with no style of their own: shown while a
+-- line glows or a style is saved. A piece whose up glow is EZ-CDM's combat ring
+-- offers no style, since that glow is always the ring. A saved style stays as it
+-- is: Daylight UI uses it for the piece's other glows, and a note says so.
 local function styleLine(s, rules, key)
     local glows = rules.style ~= nil
     for _, l in ipairs(rules.lines) do glows = glows or l.action == "glow" end
     if not glows then return end
-    local keys, values = {}, {}
-    for _, st in ipairs(Bridge.GlowStyles() or {}) do
-        keys[#keys + 1] = st.key
-        values[st.key] = st.label
-    end
+    local keys, values = styleChoices(false)
     if Effects.Drawn(key) and Effects.Get(key) ~= nil then
         words(s, { { text = WORDING.ezRingStyle, size = "small", color = "LABEL" } }).ezRingStyle = true
         if rules.style ~= nil then
@@ -879,7 +916,6 @@ local function styleLine(s, rules, key)
         { text = after },
     })
     b.style = true
-    words(s, { { text = WORDING.styleNote, size = "small", color = "LABEL" } }).styleNote = true
 end
 
 -- The one see-through amount (cdAlpha), shown while a line makes it see-through.
@@ -1169,8 +1205,11 @@ local function spellBody(s, key)
         -- What the fall-off moment can't know, once, under its first line.
         if line.moment == "recast" and not fallOffNoted then
             fallOffNoted = true
-            for _, n in ipairs(Grammar.FallOffNotes(kind)) do
+            for _, n in ipairs(Grammar.FallOffNotes(kind, rules.lines)) do
                 words(s, { { text = n.text, size = "small", color = "LABEL" } }).fallOff = n.code
+            end
+            if kind.procLead and Effects.LeadPending(key) then
+                words(s, { { text = WORDING.ezGlowReload, size = "small", color = "LABEL" } }).ezReload = i
             end
         end
         if i >= first and i <= last then
