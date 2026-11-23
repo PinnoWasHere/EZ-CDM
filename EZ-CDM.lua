@@ -1,3 +1,3 @@
 local addonName, ns = ...
 
-DaylightUI:RegisterPlugin(addonName, { needs = { 1, 7 } })
+DaylightUI:RegisterPlugin(addonName, { needs = { 1, 14 } })

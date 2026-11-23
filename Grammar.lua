@@ -135,8 +135,6 @@ Grammar.LOOK_FIELDS = { "low", "lowAt", "lowColor" }
 Grammar.EZ_FIELDS = { "ezLead", "ezSound", "ezStyles" }
 -- The fall-off lead's choices, in seconds.
 Grammar.LEADS = { 2, 3, 4, 5, 8, 10 }
--- A proc's fall-off ring needs a lead; a new line there starts with this one.
-Grammar.PROC_LEAD = 5
 
 -- Which glow shows when several could (CdmEffects.lua:502-527): proc, then missing,
 -- recast, up, usable and ready. The game's proc glow has no word here.
@@ -251,7 +249,7 @@ end
 -- ways: an aura of the piece another spell puts up (Clearcasting <- Arcane
 -- Concentration), or the piece's own spell putting up an aura under another id
 -- (Improved Stormstrike -> 1238931, the game's entry naming the talent). With a
--- spell you know on one of them: true, with that spell, when it procs the aura
+-- spell you know on one of them: true when it procs the aura
 -- (Arcane Concentration, Aspect of the Hawk's Quick Shots) and you cast none of
 -- the piece's ids; false when it only puts the aura up as its cast (Moonkin Form's
 -- Moonkin Aura). nil when the links name no spell you know.
@@ -285,7 +283,7 @@ local function linkedProc(key, cast)
     end
     if not known then return nil end
     if cast or proc == nil then return false end
-    return true, proc
+    return true
 end
 
 -- Whether a piece's recast moment can ever fire: the clock starts only on a cast of
@@ -354,15 +352,11 @@ end
 --   missingShown     Buff missing is set to Show (the Flash row, CdmCard.lua:698)
 --   ezGlow           EZ-CDM draws its up glow inside the client's button (Effects),
 --                    which needs no told state
---   procLasts        a proc's length in seconds (Effects.ProcLasts): one EZ-CDM
---                    draws, nil when no one knows it. Only your own procs: put up
---                    by a talent you have (aura links), else a buff you never
---                    cast; never a weapon enchant (no spell) or another class's
---                    buff (groupBuff)
---   procSource       the talent that puts the proc up, by the aura links
---                    (Grammar.ProcSource); nil when they name none
---   procLead         EZ-CDM draws its fall-off glow inside the client's button too:
---                    such a proc with a known length (Effects)
+--   proc             your own proc that EZ-CDM draws (ezGlow): put up by a talent
+--                    you have (aura links), else a buff you never cast; never a
+--                    weapon enchant (no spell), another class's buff (groupBuff) or
+--                    a debuff on the target. Its aura can't be read in a fight, so
+--                    it has no fall-off moment
 --   drawnBy          what draws it since the last pass (Bridge.DrawnBy), or nil
 --   harmful          its spell is cast on an enemy, so its aura is a debuff on the
 --                    target (C_Spell.IsSpellHarmful); nil when the game won't say
@@ -370,6 +364,8 @@ end
 --                    (CdmCustom.IsGroup)
 --   untimed          its aura never falls off (AuraLinks.untimed: Ghost Wolf,
 --                    Shadowform); nil when any id is timed or unknown
+--   buffEvents       Daylight UI's buff moments time its fall-off: one came for it,
+--                    or its state reads up or down (Effects.Covered)
 -- Form rows show for cooldowns of a class with forms (CdmCard.lua:806).
 -- Totems take no case of their own. Bridge.Shows (CdmOwn.Track) says "totem" for a
 -- totem with no buff and "both" for a Shaman element piece (CdmOwn.lua:108-130), and
@@ -429,6 +425,7 @@ function Grammar.Kind(key, piece, shows)
         harmful = harmful(key),
         groupBuff = Bridge.IsGroup(key),
         untimed = untimed(key),
+        buffEvents = Effects.Covered(key),
     }
     -- A proc is your own: a buff with a spell (a weapon enchant has none, so the card
     -- hides its recast row, CdmCard.lua:411-415) that no other class puts on you. The
@@ -437,14 +434,10 @@ function Grammar.Kind(key, piece, shows)
     -- A debuff on the target is never your proc, whichever rule would say so.
     if kind.ezGlow and hasBuff and Bridge.SpellOf(key) ~= nil and not kind.groupBuff
         and kind.harmful ~= true then
-        local own, source = linkedProc(key, kind.cast)
+        local own = linkedProc(key, kind.cast)
         if own == nil then own = not kind.cast end
-        if own then
-            kind.procLasts = Effects.ProcLasts(key)
-            kind.procSource = source
-        end
+        kind.proc = own == true
     end
-    kind.procLead = kind.procLasts ~= nil
     -- What the card's What it shows reads now (CdmCard.lua:358-365), in the grammar's words.
     if trackRow then
         kind.showing = (now == "both" or now == "cooldown" or now == "buff") and now
@@ -463,7 +456,6 @@ end
 function Grammar.RingOnly(kind, moment)
     if type(kind) ~= "table" then return false end
     if moment == "up" then return kind.ezGlow == true end
-    if moment == "recast" then return kind.procLead == true end
     return false
 end
 
@@ -507,13 +499,9 @@ function Grammar.Fits(kind, moment, action)
         if action == "flash" then return kind.shape == "bar" and kind.buffOnly and kind.missingShown end
         return kind.buffOnly
     elseif moment == "recast" then
-        -- An aura that never falls off has no moment before it does.
-        if kind.untimed then return false end
-        -- A proc EZ-CDM draws takes the glow as its own ring, timed from its length.
-        -- The lead must fit inside that length, so the proc outlasts the shortest one.
-        if action == "glow" and kind.procLead == true then
-            return type(kind.procLasts) == "number" and kind.procLasts > Grammar.LEADS[1]
-        end
+        -- An aura that never falls off has no moment before it does, and nothing can
+        -- time a proc EZ-CDM draws in a fight.
+        if kind.untimed or kind.proc then return false end
         return kind.showsBuff and kind.cast
     end
     return false
@@ -647,10 +635,6 @@ function Grammar.Compile(rules, kind)
         elseif entry.sound and not isSound(line.value) then
             problem({ line = i, code = "value" })
         elseif entry.lead and line.at ~= nil and not isLead(line.at) then
-            problem({ line = i, code = "value" })
-        elseif entry.lead and line.action == "glow" and kind and kind.procLead
-            and (line.at == nil or line.at >= kind.procLasts) then
-            -- A proc's ring has no Daylight UI timing: it needs a lead inside its length.
             problem({ line = i, code = "value" })
         elseif line.style ~= nil and not (entry.style and styleKnown(line.style)) then
             problem({ line = i, code = "value" })
@@ -924,14 +908,15 @@ Grammar.WORDING = {
     daylightTiming = "Daylight's timing",
     -- Under the first "When it's about to fall off" line: own on every piece, early
     -- where Daylight UI's aura holder draws it or EZ-CDM has a rule (a lead or a
-    -- sound), target on a debuff you cast. On a proc EZ-CDM rings, ezGlow and proc
-    -- instead, or procFrom when the aura links name the talent behind it (%s).
+    -- sound), target on a debuff you cast. lands in place of own and early where
+    -- Daylight UI's buff moments time an EZ-CDM rule. hidden on a proc EZ-CDM draws
+    -- (kind.proc), which has no fall-off moment.
     fallOff = {
         own = "Counts from your own cast.",
+        lands = "Counts from when it lands, and stops if it falls off early.",
         early = "In a fight it can't tell if it falls off early.",
         target = "One timer per spell, not per target.",
-        proc = "Counts from when it lands; a new proc while it's up isn't seen.",
-        procFrom = "Counts from when %s puts it up; a new proc while it's up isn't seen.",
+        hidden = "The game hides this buff's timer in a fight, so EZ can't time its end.",
     },
     -- In place of the glow style line on such a piece, and under it when another
     -- style is saved (%s is that style's name), which Daylight UI keeps for the rest.
@@ -1062,18 +1047,19 @@ end
 -- The limit notes on a piece's fall-off moment, each { code, text }: own always,
 -- early where Daylight UI's aura holder draws it or the piece's lines hold an
 -- EZ-CDM rule (its clock is trusted over the game's "down"), target on a debuff
--- you cast on an enemy. A proc EZ-CDM rings gets ring and proc instead.
+-- you cast on an enemy. An EZ-CDM rule on a piece Daylight UI's buff moments
+-- cover gets lands in place of own and early.
 function Grammar.FallOffNotes(kind, lines)
-    if type(kind) == "table" and kind.procLead == true then
-        local S = type(C_Spell) == "table" and C_Spell or {}
-        local name = kind.procSource and type(S.GetSpellName) == "function" and plain(S.GetSpellName(kind.procSource))
-        local text = type(name) == "string" and name ~= "" and WORDING.fallOff.procFrom:format(name)
-            or WORDING.fallOff.proc
-        return { { code = "ring", text = WORDING.ezGlow }, { code = "proc", text = text } }
+    local ruled = fallOffRuled(lines)
+    local out
+    if ruled and type(kind) == "table" and kind.buffEvents == true then
+        out = { { code = "lands", text = WORDING.fallOff.lands } }
+        if kind.harmful == true then out[#out + 1] = { code = "target", text = WORDING.fallOff.target } end
+        return out
     end
-    local out = { { code = "own", text = WORDING.fallOff.own } }
+    out = { { code = "own", text = WORDING.fallOff.own } }
     local by = type(kind) == "table" and kind.drawnBy
-    if (type(by) == "string" and by:find("^aura")) or fallOffRuled(lines) then
+    if (type(by) == "string" and by:find("^aura")) or ruled then
         out[#out + 1] = { code = "early", text = WORDING.fallOff.early }
     end
     if type(kind) == "table" and kind.harmful == true then

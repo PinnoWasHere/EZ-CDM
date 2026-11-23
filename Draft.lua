@@ -254,9 +254,9 @@ local function planFor(key, rules, g)
     if not same(ezOld, ezNew) then
         op(5, "ez", "upGlow", ezOld, ezNew, function() return Effects.Set(g, key, ezNew) end)
     end
-    -- The fall-off lead and its sound are EZ-CDM's own on every piece, and so is a
-    -- proc's fall-off ring (Effects.SplitFallOff).
-    local foOld, foNew = Effects.FallOff(key, g), Effects.SplitFallOff(fields, kind)
+    -- The fall-off lead and its sound are EZ-CDM's own on every piece
+    -- (Effects.SplitFallOff).
+    local foOld, foNew = Effects.FallOff(key, g), Effects.SplitFallOff(fields)
     if not same(foOld, foNew) then
         op(5, "ez", "fallOff", foOld, foNew, function() return Effects.SetFallOff(g, key, foNew) end)
     end

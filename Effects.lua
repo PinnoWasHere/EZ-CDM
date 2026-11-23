@@ -20,11 +20,8 @@ local _, ns = ...
 -- or recolored rule lights from the next /reload (Effects.Pending).
 --
 -- The fall-off lead and its sound ride on Daylight UI's recast clock (below). A
--- proc's fall-off glow is a second ring in the same button, held hidden for the
--- proc's length less the lead, and the up ring hides as it shows (below). The
--- client replays both when it rebuilds its buttons, so out of a fight EZ-CDM stops
--- the holds once the proc is inside its lead (below). A glow style per moment rides
--- on Daylight UI's own glows (below).
+-- proc the aura icon holder draws gets no fall-off lead, since its aura can't be
+-- read in a fight. A glow style per moment rides on Daylight UI's own glows (below).
 
 local Bridge = ns.Bridge
 
@@ -40,9 +37,6 @@ Effects.DRAWN = { ["aura icon"] = true, ["aura and cooldown icon"] = true }
 local weak = { __mode = "k" }
 -- Client button -> { key, frame, tex, anim, color } for each ring handed over and still on.
 local rings = setmetatable({}, weak)
--- Client button -> { key, frame, tex, anim, hold, fade, color, lead, lasts } for each
--- fall-off ring handed over and still on.
-local leads = setmetatable({}, weak)
 -- Buttons the hook has seen since load.
 local seen = 0
 
@@ -109,10 +103,6 @@ end
 function Effects.Merge(key, fields, g)
     local fo = Effects.FallOff(key, g)
     if fo then fields.ezLead, fields.ezSound = fo.lead, fo.sound end
-    if fo and fo.ring then
-        fields.clipGlow = true
-        fields.clipGlowColor = isRGB(fo.ring) and { fo.ring[1], fo.ring[2], fo.ring[3] } or nil
-    end
     fields.ezStyles = Effects.Styles(key, g)
     local v = Effects.Get(key, g)
     if v == nil then return fields end
@@ -141,19 +131,14 @@ end
 -- loop art, gray so the color tints true, reaching past each edge by pad times
 -- the side, turned by a looping flipbook. size is the button's side as Daylight UI
 -- set it, so nothing here asks the button. The texture sits two frames deep, as
--- Daylight UI's does, so it draws over the button's cooldown. above puts it one
--- frame deeper.
-local function ringFrames(btn, size, art, above)
+-- Daylight UI's does, so it draws over the button's cooldown.
+local function ringFrames(btn, size, art)
     local pad = size * art.pad
     local frame = CreateFrame("Frame", nil, btn)
     frame:SetPoint("TOPLEFT", btn, "TOPLEFT", -pad, pad)
     frame:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", pad, -pad)
     local holder = CreateFrame("Frame", nil, frame)
     holder:SetAllPoints(frame)
-    if above then
-        holder = CreateFrame("Frame", nil, holder)
-        holder:SetAllPoints(frame)
-    end
     return frame, holder
 end
 
@@ -181,33 +166,12 @@ local function ringArt(frame, holder, art, color)
     return tex, anim
 end
 
-local function buildRing(btn, size, color, above)
+local function buildRing(btn, size, color)
     local art = Bridge.RingArt()
     if not art then return nil end
-    local frame, holder = ringFrames(btn, size, art, above)
+    local frame, holder = ringFrames(btn, size, art)
     local tex, anim = ringArt(frame, holder, art, color)
     return { frame = frame, tex = tex, anim = anim }
-end
-
--- A group on frame that holds target (frame itself when nil) at alpha a for d
--- seconds from when the client plays it. Then target's own alpha comes back.
-local function holdAt(frame, target, a, d)
-    local hold = frame:CreateAnimationGroup()   -- look-ok: holds Daylight UI's ring at a set alpha until the lead
-    local fade = hold:CreateAnimation("Alpha")
-    if target then fade:SetTarget(target) end
-    fade:SetFromAlpha(a)
-    fade:SetToAlpha(a)
-    fade:SetDuration(d)
-    return hold, fade
-end
-
--- The fall-off rule and the proc's length when the piece gets a fall-off ring.
-local function leadFor(key)
-    local rule = Effects.FallOff(key)
-    if not (rule and rule.ring and rule.lead) then return nil end
-    local lasts = Effects.ProcLasts(key)
-    if not lasts or lasts <= rule.lead then return nil end
-    return rule, lasts
 end
 
 local function colorOf(v) return isRGB(v) and v or nil end
@@ -216,67 +180,17 @@ local function colorOf(v) return isRGB(v) and v or nil end
 -- and tests nothing the button or its children report. A holder made under
 -- restrictions waits for a /reload out of a fight, since its button locks as soon
 -- as this returns.
--- The fall-off ring alone: the ring, one frame deeper, and a second group that
--- holds its frame at alpha 0 for the proc's length less the lead. The client plays both as
--- the button comes up with the proc, so the ring shows lead seconds before the end.
--- Once the hold is done the frame's own alpha (1) comes back.
-local function handLead(btn, key, size, rule, lasts)
-    local r = buildRing(btn, size, colorOf(rule.ring), true)
-    if not r then return end
-    local hold, fade = holdAt(r.frame, nil, 0, lasts - rule.lead)
-    btn:AddAuraShownAnimation(r.anim)
-    btn:AddAuraShownAnimation(hold)
-    r.key, r.color, r.lead, r.lasts, r.hold, r.fade = key, rule.ring, rule.lead, lasts, hold, fade
-    leads[btn] = r
-end
-
--- Both rings on one button, each on its own frame, the fall-off ring one frame
--- deeper. The up ring's frame has alpha 0, and its hold keeps it at 1 for the
--- proc's length less the lead. The fall-off ring's hold keeps its frame at 0 for
--- the same time. So the up ring shows until the lead, then the fall-off ring alone.
--- Each hold animates its own frame: the client applies a hold to a frame, not to
--- a texture inside it. Both holds are timed from EZ-CDM's own length and lead only.
-local function handPair(btn, key, size, want, rule, lasts)
-    local up = buildRing(btn, size, colorOf(want))
-    local lead = buildRing(btn, size, colorOf(rule.ring), true)
-    if not (up and lead) then return end
-    local shown = lasts - rule.lead
-    up.frame:SetAlpha(0)
-    up.hold, up.fade = holdAt(up.frame, nil, 1, shown)
-    lead.hold, lead.fade = holdAt(lead.frame, nil, 0, shown)
-    btn:AddAuraShownAnimation(up.anim)
-    btn:AddAuraShownAnimation(up.hold)
-    btn:AddAuraShownAnimation(lead.anim)
-    btn:AddAuraShownAnimation(lead.hold)
-    up.key, up.color = key, want
-    lead.key, lead.color, lead.lead, lead.lasts = key, rule.ring, rule.lead, lasts
-    rings[btn], leads[btn] = up, lead
-end
-
 local function onButton(btn, key, size)
     seen = seen + 1
     if size == nil or Bridge.Restricted() then return end
     if type(btn.AddAuraShownAnimation) ~= "function" then return end
     local want = Effects.Get(key)
-    local rule, lasts = leadFor(key)
-    if want ~= nil and rule then
-        handPair(btn, key, size, want, rule, lasts)
-        return
-    end
-    if want ~= nil then
-        local r = buildRing(btn, size, colorOf(want))
-        if r then
-            btn:AddAuraShownAnimation(r.anim)
-            r.key, r.color = key, want
-            rings[btn] = r
-        end
-    end
-    if rule then handLead(btn, key, size, rule, lasts) end
-end
-
-local function dropHold(btn, r)
-    r.hold:Stop()
-    btn:RemoveAuraShownAnimation(r.hold)
+    if want == nil then return end
+    local r = buildRing(btn, size, colorOf(want))
+    if not r then return end
+    btn:AddAuraShownAnimation(r.anim)
+    r.key, r.color = key, want
+    rings[btn] = r
 end
 
 -- Takes a ring out of its button: hidden, stopped and out of the client's list,
@@ -285,7 +199,6 @@ local function unhand(btn, r)
     r.frame:Hide()
     r.anim:Stop()
     btn:RemoveAuraShownAnimation(r.anim)
-    if r.hold then dropHold(btn, r) end
 end
 
 local function sync()
@@ -293,21 +206,6 @@ local function sync()
         if Effects.Get(r.key) == nil then
             rings[btn] = nil
             unhand(btn, r)
-        end
-    end
-    for btn, r in pairs(leads) do
-        local rule = Effects.FallOff(r.key)
-        if not (rule and rule.ring and rule.lead) then
-            leads[btn] = nil
-            unhand(btn, r)
-
-            -- The up ring left alone shows for the whole proc again.
-            local up = rings[btn]
-            if up and up.hold then
-                dropHold(btn, up)
-                up.hold, up.fade = nil, nil
-                up.frame:SetAlpha(1)
-            end
         end
     end
 end
@@ -369,169 +267,24 @@ function Effects.Seen() return seen end
 function Effects.Ring(btn) return rings[btn] end
 
 -- ---------------------------------------------------------------------
--- A proc's fall-off ring
--- ---------------------------------------------------------------------
-
--- "When it's about to fall off (N seconds before), glow" on a proc Daylight UI's aura
--- icon holder draws (Improved Stormstrike). Nothing tells addon code in a fight when
--- the proc lands, but the client shows its aura button then and plays what it was
--- handed. So the ring and its hold go into the button inside initializeFrame, like
--- the up glow's ring, and run from when the proc lands. A new proc while the old
--- one is up keeps the button shown, so nothing replays.
---
--- The length is Daylight UI's: the one its holder last read (h.auraLasts, plain),
--- else the game's data (FACTS). A holder that can't tell up or down never reads, so
--- out of a fight, as the player's auras change, EZ-CDM asks each aura icon holder
--- with no length yet to read (CdmAuras.Read). Holders forget theirs on a /reload, so
--- EZ-CDM keeps the last one read in EZCDMDB.procLasts[key] for the next login's
--- buttons.
---
--- The rule is the fall-off rule with ring = true or a color, the glow line's.
--- Daylight UI's clipGlow stays off on such a piece (Effects.SplitFallOff).
-
-local function lastsStore()
-    if type(EZCDMDB) ~= "table" then EZCDMDB = {} end
-    if type(EZCDMDB.procLasts) ~= "table" then EZCDMDB.procLasts = {} end
-    return EZCDMDB.procLasts
-end
-
--- How long a piece's proc lasts in seconds, or nil when no one knows yet.
-function Effects.ProcLasts(key)
-    if key == nil then return nil end
-    local read = Bridge.AuraLasts(key)
-    if read then
-        lastsStore()[key] = read
-        return read
-    end
-    local kept = lastsStore()[key]
-    if type(kept) == "number" and kept > 0 then return kept end
-    return Bridge.FactLasts(key)
-end
-
--- Out of a fight: each aura icon holder whose length no one knows reads its aura,
--- and a length it learns is kept.
-local function learnLengths()
-    if Bridge.Restricted() then return end
-    local set = Bridge.Layout()
-    for key in pairs(type(set) == "table" and type(set.pieces) == "table" and set.pieces or {}) do
-        if lastsStore()[key] == nil and Effects.Drawn(key) and Effects.ProcLasts(key) == nil then
-            Bridge.ReadAura(key)
-            Effects.ProcLasts(key)
-        end
-    end
-end
-Effects.LearnLengths = learnLengths
-
--- For tests: the fall-off ring on btn ({ key, frame, tex, anim, hold, fade, color,
--- lead, lasts }) or nil.
-function Effects.Lead(btn) return leads[btn] end
-
--- Whether a fall-off ring for the piece is in a client button now, with which lead,
--- length and color.
-function Effects.LeadLit(key)
-    for _, r in pairs(leads) do
-        if r.key == key then return true, r.lead, r.lasts, r.color end
-    end
-    return false
-end
-
--- Whether the piece's proc fall-off rule has no ring like it yet: it lights after
--- the next /reload.
-function Effects.LeadPending(key)
-    local rule = Effects.FallOff(key)
-    if not (rule and rule.ring and rule.lead) then return false end
-    local lit, lead, lasts, color = Effects.LeadLit(key)
-    return not (lit and lead == rule.lead and lasts == Effects.ProcLasts(key) and sameColor(color, rule.ring))
-end
-
--- ---------------------------------------------------------------------
--- After the client rebuilds its buttons
--- ---------------------------------------------------------------------
-
--- The client's aura containers let go of every button and hand each its aura again
--- on a fight's end, entering the world, a spec change, and the unit's flags or
--- faction changing (FullAuraRefreshEvents, Blizzard_CustomAuraContainer.lua). The
--- rebuild runs on the container's next OnUpdate and plays every shown animation
--- from the start. A proc up through it starts its holds again, so the up ring came
--- back over the fall-off ring for the proc's last seconds.
---
--- Out of restrictions the holder reads the proc plainly. Two frames after the
--- rebuild, each fall-off ring's holds stop when lead seconds or less are left, so
--- the fall-off ring shows alone. With more left, one timer stops them at the lead.
--- Stopping only ends a hold early, and the next proc plays both from the start.
--- Nothing asks the groups anything. The rebuild at a fight's start is out of reach,
--- since the buttons lock as it begins.
-
--- Seconds of slack for a timer that fires a hair before the lead.
-Effects.SETTLE_SLACK = 0.05
-
--- For tests and the dev addon: what the last settle read, { at, left = { [key] =
--- seconds or false }, stopped, wait }.
-Effects.settled = nil
-
--- What a piece's proc has left, read plainly now, or false when it's down or unread.
-local function leftOf(key)
-    if Bridge.ReadAura(key) ~= true then return false end
-    local ends = Bridge.AuraEnds(key)
-    return ends and ends - GetTime() or false
-end
-
-local function stopHolds(btn, r)
-    r.hold:Stop()
-    local up = rings[btn]
-    if up and up.hold then up.hold:Stop() end
-end
-
--- final: the timer's own run, which schedules nothing more.
-local function settle(final)
-    if Bridge.Restricted() then return end
-    local left, stopped, wait = {}, 0, nil
-    for btn, r in pairs(leads) do
-        if r.hold then
-            if left[r.key] == nil then left[r.key] = leftOf(r.key) end
-            local l = left[r.key]
-            if l and l <= r.lead + Effects.SETTLE_SLACK then
-                stopHolds(btn, r)
-                stopped = stopped + 1
-            elseif l and not final then
-                local d = l - r.lead
-                if wait == nil or d < wait then wait = d end
-            end
-        end
-    end
-    Effects.settled = { at = GetTime(), left = left, stopped = stopped, wait = wait }
-    if wait then C_Timer.After(wait, function() settle(true) end) end
-end
-
--- The client rebuilds on its next frame, so settle waits two.
-local function afterRebuild()
-    if next(leads) == nil then return end
-    Bridge.AfterRestrictions(function()
-        C_Timer.After(0, function() C_Timer.After(0, function() settle(false) end) end)
-    end, "ezcdm:effects:settle")
-end
-
--- The client's rebuild events, with the units the holders watch.
-local REBUILDS = { PLAYER_REGEN_ENABLED = true, PLAYER_ENTERING_WORLD = true,
-                   PLAYER_SPECIALIZATION_CHANGED = true, UNIT_FLAGS = true, UNIT_FACTION = true }
-
--- ---------------------------------------------------------------------
 -- The fall-off lead and its sound
 -- ---------------------------------------------------------------------
 
 -- "When it's about to fall off (N seconds before)" on Daylight UI's recast clock.
--- The clock runs from your own cast (CdmAuras.lua:1194-1211) and keeps the end in
--- h.endsAt, a plain number. A wrap on ClipDue moves its due moment to N seconds
--- before that end, so Daylight UI lights its own recast glow then, in its own
--- color, style and priority, and its own timer wakes for it. A wrap on Clip hears
--- the moment come and plays the sound once. A wrap on ClipGlows keeps the clock
--- running for a sound with no glow; Daylight UI's glow checks its own clipGlow, so
--- none shows. A wrap on Told trusts the clock over the game's "down" until its end,
--- and the SetDown wrap hands that on. No frame, timer or driver of EZ-CDM's own.
+-- The end comes from Daylight UI's buff moments where they come (below: the buff
+-- landing), else from your own cast (CdmAuras.lua:1194-1211), which Daylight UI
+-- keeps in h.endsAt, a plain number. A wrap on ClipDue moves its due moment to N
+-- seconds before that end, so Daylight UI lights its own recast glow then, in its
+-- own color, style and priority, and its own timer wakes for it. A wrap on Clip
+-- hears the moment come and plays the sound once. A wrap on ClipGlows keeps the
+-- clock running for a sound with no glow; Daylight UI's glow checks its own
+-- clipGlow, so none shows. A wrap on Told holds the game's "down" while the clock
+-- is trusted, and the SetDown wrap hands that on. No per-frame driver of EZ-CDM's
+-- own; a drop's grace is one timer.
 --
--- The rule lives in EZCDMDB.fallOff[profile][key] = { lead = N, sound = key }, and
--- ring = true or a color on a proc's (above). Without one, Daylight UI's own timing
--- stands. Draft reads and writes it through Effects.Merge and Effects.SplitFallOff.
+-- The rule lives in EZCDMDB.fallOff[profile][key] = { lead = N, sound = key }.
+-- Without one, Daylight UI's own timing stands. Draft reads and writes it through
+-- Effects.Merge and Effects.SplitFallOff.
 
 local function fallOffStore()
     if type(EZCDMDB) ~= "table" then EZCDMDB = {} end
@@ -539,18 +292,34 @@ local function fallOffStore()
     return EZCDMDB.fallOff
 end
 
--- The rule as saved: a positive lead, a sound key other than "none", a ring, or nil.
+-- The rule as saved: a positive lead, a sound key other than "none", or nil. A
+-- rule with a ring is an earlier build's proc fall-off ring, which is gone.
 local function cleanFallOff(v)
-    if type(v) ~= "table" then return nil end
+    if type(v) ~= "table" or v.ring ~= nil then return nil end
     local lead = type(v.lead) == "number" and v.lead > 0 and v.lead or nil
     local sound = type(v.sound) == "string" and v.sound ~= "none" and v.sound or nil
-    local ring = clean(v.ring)
-    if lead == nil and sound == nil and ring == nil then return nil end
-    return { lead = lead, sound = sound, ring = ring }
+    if lead == nil and sound == nil then return nil end
+    return { lead = lead, sound = sound }
+end
+
+-- Drops the rules an earlier build saved for a proc's fall-off ring, and the proc
+-- lengths it kept for them. Daylight UI's clipGlow stays as it is.
+local function dropProcRings()
+    if type(EZCDMDB) ~= "table" then return end
+    EZCDMDB.procLasts = nil
+    if type(EZCDMDB.fallOff) ~= "table" then return end
+    for profile, byKey in pairs(EZCDMDB.fallOff) do
+        if type(byKey) == "table" then
+            for key, rule in pairs(byKey) do
+                if type(rule) == "table" and rule.ring ~= nil then byKey[key] = nil end
+            end
+            if next(byKey) == nil then EZCDMDB.fallOff[profile] = nil end
+        end
+    end
 end
 
 -- A piece's fall-off rule on talent set g's profile (current when nil):
--- { lead, sound, ring }, any of them nil, or nil for none.
+-- { lead, sound }, either of them nil, or nil for none.
 function Effects.FallOff(key, g)
     local profile = Bridge.ProfileOf(g)
     local byKey = profile ~= nil and fallOffStore()[profile]
@@ -570,42 +339,177 @@ function Effects.SetFallOff(g, key, rule)
 end
 
 -- After Grammar.Compile: takes the lead and the sound (ezLead, ezSound) out of
--- fields, which Daylight UI never sees. On a proc EZ-CDM rings (kind.procLead,
--- Grammar.Kind) the glow (clipGlow and its color) comes out too, so Daylight UI's
--- clipGlow is written off. Returns the rule for Effects.SetFallOff.
-function Effects.SplitFallOff(fields, kind)
-    local ring
-    if type(kind) == "table" and kind.procLead == true then
-        if fields.clipGlow == true then ring = isRGB(fields.clipGlowColor) and clean(fields.clipGlowColor) or true end
-        fields.clipGlow, fields.clipGlowColor = nil, nil
-    end
-    local rule = cleanFallOff({ lead = fields.ezLead, sound = fields.ezSound, ring = ring })
+-- fields, which Daylight UI never sees. Returns the rule for Effects.SetFallOff.
+function Effects.SplitFallOff(fields)
+    local rule = cleanFallOff({ lead = fields.ezLead, sound = fields.ezSound })
     fields.ezLead, fields.ezSound = nil, nil
     return rule
 end
 
--- The current profile's rule for a holder or watch the clock passes in. A proc's
--- ring rule is the client's to run, not the clock's.
+-- The current profile's rule for a holder or watch the clock passes in.
 local function ruleOf(h)
     local key = type(h) == "table" and h.id or nil
     if key == nil then return nil end
-    local rule = Effects.FallOff(key)
-    if rule and rule.ring then return nil end
-    return rule
+    return Effects.FallOff(key)
 end
 
--- Around CdmAuras.ClipDue. Daylight UI's own "due" stands, and so does a "not due"
--- with no time (no clock, or the recast already being cast). Otherwise the moment
--- comes N seconds before the end, or Daylight UI's own when that is sooner.
+-- ---------------------------------------------------------------------
+-- The fall-off clock on Daylight UI's buff moments (API 1.14)
+-- ---------------------------------------------------------------------
+
+-- Daylight UI fires CooldownBuffUp and CooldownBuffDown after a pass in which a
+-- piece's plain "down" changed (Fx.BuffMoment). It is the same "down" the pass hands
+-- Told, so the events add the moment it changed. A piece they come for times its
+-- fall-off from when the buff lands, not from your cast:
+--   up      the clock runs from now for the buff's length
+--   down    with no up inside DOWN_GRACE, the clock stops and a pass puts the glow out
+--   recast  up stays up and nothing fires, so Daylight UI's cast clock moving later
+--           is the refresh
+-- An up inside the grace is the same buff read again and keeps its end. An up just
+-- after a target change is a debuff seen again, so it starts no clock of its own.
+-- A piece no event comes for keeps the cast clock.
+
+-- Seconds a "down" waits for an up before the clock stops.
+Effects.DOWN_GRACE = 1
+-- Seconds after a target change in which an up is the old debuff seen again
+-- (Daylight UI's END_QUIET, CdmEffects.lua:718 at 2.2.4).
+Effects.SWAP_QUIET = 0.5
+
+-- Piece key as a string -> { up, ends, upAt, downAt, token }. ends is set only by an
+-- up that started a clock.
+local moments = {}
+-- Piece key as a string -> the watch or holder the clock last passed in.
+local clockOf = setmetatable({}, { __mode = "v" })
+local targetAt = -math.huge
+
+local function remember(h) clockOf[tostring(h.id)] = h end
+
+-- The layout's own key for a key as a string.
+local function keyFrom(k)
+    local h = clockOf[k]
+    if h then return h.id end
+    local set = Bridge.Layout()
+    for key in pairs(type(set) == "table" and type(set.pieces) == "table" and set.pieces or {}) do
+        if tostring(key) == k then return key end
+    end
+end
+
+local function plainSeconds(v)
+    if type(v) ~= "number" or (type(issecretvalue) == "function" and issecretvalue(v)) then return nil end
+    return v > 0 and v or nil
+end
+
+-- The buff's length, as Daylight UI's cast clock takes it (CdmAuras.lua:1125-1130):
+-- the length the watch or holder last read, else the holder's, else the game's data.
+local function lengthOf(key, h)
+    return plainSeconds(type(h) == "table" and h.auraLasts or nil) or Bridge.AuraLasts(key) or Bridge.FactLasts(key)
+end
+
+-- The end the fall-off times from, and which route set it: "events" when an up
+-- started the clock, else "cast" (Daylight UI's own clock, h.endsAt).
+local function endOf(h)
+    local m = moments[tostring(h.id)]
+    if m and m.ends then
+        local cast = h.endsAt
+        if type(cast) == "number" and cast > m.ends + 1 then m.ends = cast end
+        return m.ends, "events"
+    end
+    return h.endsAt, "cast"
+end
+
+local function momentFor(k)
+    local m = moments[k]
+    if not m then
+        m = { token = 0 }
+        moments[k] = m
+    end
+    return m
+end
+
+local function ruledKey(k)
+    local key = keyFrom(k)
+    return key ~= nil and Effects.FallOff(key) ~= nil
+end
+
+local function onUp(_, key)
+    if key == nil then return end
+    local k = tostring(key)
+    local m = momentFor(k)
+    local now = GetTime()
+    local blip = m.downAt ~= nil and now - m.downAt < Effects.DOWN_GRACE and m.ends ~= nil and m.ends > now
+    m.up, m.downAt, m.token = true, nil, m.token + 1
+    if not blip then
+        local lasts = now - targetAt >= Effects.SWAP_QUIET and lengthOf(keyFrom(k), clockOf[k]) or nil
+        m.ends = lasts and now + lasts or nil
+        m.upAt = now
+    end
+    if ruledKey(k) then Bridge.Refresh() end
+end
+
+local function onDown(_, key)
+    if key == nil then return end
+    local k = tostring(key)
+    local m = momentFor(k)
+    m.up, m.downAt, m.token = false, GetTime(), m.token + 1
+    local token = m.token
+    local function stop()
+        if m.token ~= token or m.up then return end
+        local left = m.downAt + Effects.DOWN_GRACE - GetTime()
+        if left > 0.01 then
+            C_Timer.After(left, stop)
+            return
+        end
+        m.ends, m.upAt, m.downAt = nil, nil, nil
+        if ruledKey(k) then Bridge.Refresh() end
+    end
+    C_Timer.After(Effects.DOWN_GRACE, stop)
+end
+
+-- Whether Daylight UI's buff moments time this piece's fall-off: one came for it this
+-- session, or its state reads up or down now (API.CooldownState).
+function Effects.Covered(key)
+    if key == nil then return false end
+    if moments[tostring(key)] ~= nil then return true end
+    return Bridge.BuffState(key) ~= nil
+end
+
+-- Which clock times the piece's fall-off now: "events" or "cast".
+function Effects.Route(key)
+    local m = key ~= nil and moments[tostring(key)] or nil
+    return m and m.ends and "events" or "cast"
+end
+
+-- For tests and the dev addon: the end the events route keeps for a piece, or nil.
+function Effects.EventEnds(key)
+    local m = key ~= nil and moments[tostring(key)] or nil
+    return m and m.ends or nil
+end
+
+Effects.heard = Bridge.OnBuff(onUp, onDown)
+
+-- Around CdmAuras.ClipDue. Daylight UI's own "due" stands. On the cast clock, so
+-- does a "not due" with no time (no clock, or the recast already being cast).
+-- Otherwise the moment comes N seconds before the end, or Daylight UI's own when
+-- that is sooner. On the events route a "not due" with no time is the recast
+-- being cast only while Daylight UI's own clock runs.
 local function clipDue(orig, h, sid)
     local due, at = orig(h, sid)
-    if due or not at then return due, at end
+    if due then return due, at end
     local rule = ruleOf(h)
-    local ends = h.endsAt
-    if not (rule and rule.lead) or type(ends) ~= "number" then return due, at end
+    if not (rule and rule.lead) then return due, at end
+    remember(h)
+    local ends, route = endOf(h)
+    if type(ends) ~= "number" then return due, at end
+    local now = GetTime()
+    if route == "events" then
+        if not at and type(h.endsAt) == "number" and h.endsAt > now then return due, at end
+        if ends <= now then return false end
+    elseif not at then
+        return due, at
+    end
     local soon = ends - rule.lead
-    if soon <= GetTime() then return true end
-    return false, math.min(at, soon)
+    if soon <= now then return true end
+    return false, at and math.min(at, soon) or soon
 end
 
 -- piece key -> the end its sound last played for. One end, one sound: a pass that
@@ -620,7 +524,7 @@ local function clip(orig, h, sid)
     local due = orig(h, sid)
     if due ~= true then return due end
     local rule = ruleOf(h)
-    local ends = h.endsAt
+    local ends = type(h) == "table" and endOf(h) or nil
     if not (rule and rule.sound) or type(ends) ~= "number" then return due end
     local was = heardFor[h.id]
     if was == nil or ends > was + 1 then
@@ -657,17 +561,23 @@ end
 -- the SetDown wrap hands on. Emptied as the pass ends.
 local heldNow = {}
 
--- Around CdmAuras.Told. In a fight the game's item says "down" while the aura is
--- still up: before your debuff lands, and mid-debuff as the item looks again (seen
--- after another spell's global cooldown). Daylight UI drops the clock on a "down"
--- (CdmAuras.lua:1370) and the pass skips Clip (CdmRows.lua:624, 883), so the moment
--- never comes. On a piece with a fall-off rule, the clock is trusted: until its end
--- a "down" is told as "can't tell", and the clock is asked as the pass would.
+-- Around CdmAuras.Told. Daylight UI drops the clock on a "down" (CdmAuras.lua:1370)
+-- and the pass skips Clip (CdmRows.lua:624, 883), so a held "down" is told as
+-- "can't tell" and the clock is asked as the pass would. On a piece with a fall-off
+-- rule:
+--   events route  a "down" is held while the buff moments say up, or for the grace
+--                 after their down. The pass tells the down before the moment fires.
+--   cast route    the game's item says "down" while the aura is up before your
+--                 debuff lands, so a "down" is held until the cast clock's end.
 -- Your recast still moves the end. After the end, the "down" stands.
 local function told(orig, h, up)
-    if type(h) ~= "table" or up ~= false then return orig(h, up) end
-    local ends = h.endsAt
-    if type(ends) ~= "number" or ends <= GetTime() or ruleOf(h) == nil then return orig(h, up) end
+    if type(h) ~= "table" or up ~= false or ruleOf(h) == nil then return orig(h, up) end
+    remember(h)
+    local now = GetTime()
+    local m = moments[tostring(h.id)]
+    if m and not (m.up or (m.downAt and now - m.downAt < Effects.DOWN_GRACE)) then return orig(h, up) end
+    local ends = endOf(h)
+    if type(ends) ~= "number" or ends <= now then return orig(h, up) end
     orig(h, nil)
     heldNow[h.id] = { due = Bridge.Clip(h, Bridge.SpellOf(h.id)) == true }
 end
@@ -854,31 +764,24 @@ Effects.wrapped = (Bridge.WrapClock("ClipDue", clipDue) and Bridge.WrapClock("Cl
 Effects.styled = (Bridge.WrapGlow("SetDown", setDown) and Bridge.WrapGlow("EndPass", endPass)
     and Bridge.WrapGlow("GlowStyle", glowStyle)) and true or false
 
--- Another profile (a talent set switch, or one picked in the editor) takes the
--- old one's rings off. The player's auras changing out of a fight lets holders
--- learn their lengths. At logout each ringed proc keeps its length for the next
--- login's buttons. The client's rebuilds settle the fall-off rings.
+-- EZ-CDM's saved variables loading drops an earlier build's proc fall-off rings.
+-- Another profile (a talent set switch, or one picked in the editor) takes the old
+-- one's rings off. A target change marks the buff moments' swap quiet.
 local events = CreateFrame("Frame")
+events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
-events:RegisterEvent("PLAYER_LOGOUT")
-events:RegisterUnitEvent("UNIT_AURA", "player")
-for _, e in ipairs({ "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD", "PLAYER_SPECIALIZATION_CHANGED" }) do
-    events:RegisterEvent(e)
-end
-events:RegisterUnitEvent("UNIT_FLAGS", "player", "target")
-events:RegisterUnitEvent("UNIT_FACTION", "player", "target")
-events:SetScript("OnEvent", function(_, event)
-    if event == "UNIT_AURA" then return learnLengths() end
-    if REBUILDS[event] then return afterRebuild() end
-    if event ~= "PLAYER_LOGOUT" then
-        moveDue = true
-        return Effects.Sync()
+events:RegisterEvent("PLAYER_TARGET_CHANGED")
+events:SetScript("OnEvent", function(_, event, name)
+    if event == "ADDON_LOADED" then
+        if name == "EZ-CDM" then dropProcRings() end
+        return
     end
-    local profile = Bridge.ProfileOf()
-    local byKey = profile ~= nil and fallOffStore()[profile]
-    for key, rule in pairs(type(byKey) == "table" and byKey or {}) do
-        if type(rule) == "table" and rule.ring then Effects.ProcLasts(key) end
+    if event == "PLAYER_TARGET_CHANGED" then
+        targetAt = GetTime()
+        return
     end
+    moveDue = true
+    Effects.Sync()
 end)
 
 local API = _G.DaylightUI and _G.DaylightUI.API

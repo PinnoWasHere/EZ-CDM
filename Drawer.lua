@@ -722,20 +722,9 @@ local function leadOf(rules)
     end
 end
 
--- The lead's strip: Daylight UI's own timing, then the seconds choices. A proc
--- EZ-CDM rings has no Daylight UI timing, and takes only leads inside its length.
-local function leadChoices(kind)
+-- The lead's strip: Daylight UI's own timing, then the seconds choices.
+local function leadChoices()
     local keys, values = { "daylight" }, { daylight = WORDING.daylightTiming }
-    if kind.procLead then
-        keys, values = {}, {}
-        for _, n in ipairs(Grammar.LEADS) do
-            if n < kind.procLasts then
-                keys[#keys + 1] = n
-                values[n] = Grammar.Seconds(n)
-            end
-        end
-        return keys, values
-    end
     for _, n in ipairs(Grammar.LEADS) do
         keys[#keys + 1] = n
         values[n] = Grammar.Seconds(n)
@@ -795,13 +784,12 @@ local function sentence(s, kind, rules, i, line)
                 if a ~= nil and not Grammar.Fits(kind, m, a) then a = actions[m][1] end
                 retarget(l, m, a)
                 if m == "recast" and l.at == nil then l.at = leadOf(r) end
-                if m == "recast" and l.at == nil and kind.procLead then l.at = Grammar.PROC_LEAD end
                 if Grammar.RingOnly(kind, m) then l.style = nil end
             end)
         end }, line.moment ~= nil, off)
     if line.moment == "recast" then
         -- "(5 seconds before)", or Daylight UI's own timing with no lead.
-        local keys, values = leadChoices(kind)
+        local keys, values = leadChoices()
         local before, after = aroundLead(line.at)
         pieces[#pieces + 1] = { text = " " .. before }
         pieces[#pieces + 1] = word(line.at and Grammar.Seconds(line.at) or WORDING.daylightTiming, id .. "lead", {
@@ -1208,9 +1196,6 @@ local function spellBody(s, key)
             for _, n in ipairs(Grammar.FallOffNotes(kind, rules.lines)) do
                 words(s, { { text = n.text, size = "small", color = "LABEL" } }).fallOff = n.code
             end
-            if kind.procLead and Effects.LeadPending(key) then
-                words(s, { { text = WORDING.ezGlowReload, size = "small", color = "LABEL" } }).ezReload = i
-            end
         end
         if i >= first and i <= last then
             words(s, { { text = WORDING.default, size = "small", color = "LABEL" } }).default = i
@@ -1222,6 +1207,10 @@ local function spellBody(s, key)
                 words(s, { { text = WORDING.ezGlowReload, size = "small", color = "LABEL" } }).ezReload = i
             end
         end
+    end
+    -- A proc EZ-CDM draws has no fall-off moment, and this says why.
+    if kind.proc then
+        words(s, { { text = WORDING.fallOff.hidden, size = "small", color = "LABEL" } }).fallOff = "hidden"
     end
     fadeLine(s, rules)
     styleLine(s, rules, key)

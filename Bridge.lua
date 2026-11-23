@@ -106,11 +106,12 @@ Bridge.NEEDS = {
     "ActionBars.CdmEffects.GlowStyle",
     "ActionBars.CdmEffects.SetDown",
     "ActionBars.CdmEffects.EndPass",
-    -- Effects: a proc's length, for its fall-off ring
+    -- Effects: an aura's length, for the fall-off clock on Daylight UI's buff moments
     "ActionBars.CdmCustom.Fact",
-    "ActionBars.CdmAuras.Read",
     -- Grammar: a buff another class puts on you is never your proc
     "ActionBars.CdmCustom.IsGroup",
+    -- Effects: a pass once the fall-off clock stops on a buff's drop
+    "ActionBars.CdmRows.Refresh",
 }
 
 -- Internals EZ-CDM uses when their module is loaded, as "<root>.<path>" like NEEDS.
@@ -182,13 +183,35 @@ function Bridge.CdmOn()
     return type(CD) == "table" and CD.enabled == true
 end
 
--- True when every internal is there and the Cooldown Manager is on.
+-- The public API version EZ-CDM is built on (EZ-CDM.lua's needs). 1.14 brings the
+-- Cooldown Manager's buff moments and state.
+Bridge.API_NEEDS = { 1, 14 }
+
+-- The public API's version, major and minor, or nil without Daylight UI.
+function Bridge.ApiVersion()
+    local API = _G.DaylightUI and _G.DaylightUI.API
+    if type(API) ~= "table" or type(API.major) ~= "number" or type(API.minor) ~= "number" then return nil end
+    return API.major, API.minor
+end
+
+-- Whether the public API is the one EZ-CDM needs: same major, minor as new or newer.
+function Bridge.ApiFits()
+    local major, minor = Bridge.ApiVersion()
+    return major == Bridge.API_NEEDS[1] and minor >= Bridge.API_NEEDS[2]
+end
+
+-- True when the API fits, every internal is there and the Cooldown Manager is on.
 function Bridge.Ready()
-    return #Bridge.Missing() == 0 and Bridge.CdmOn()
+    return Bridge.ApiFits() and #Bridge.Missing() == 0 and Bridge.CdmOn()
 end
 
 -- The one chat line, or nil when ready.
 function Bridge.OffLine()
+    if not Bridge.ApiFits() then
+        local major, minor = Bridge.ApiVersion()
+        return string.format("EZ-CDM is off: it needs Daylight UI's API %d.%d (this one is %s).",
+            Bridge.API_NEEDS[1], Bridge.API_NEEDS[2], major and (major .. "." .. minor) or "unknown")
+    end
     local missing = Bridge.Missing()
     if #missing > 0 then
         local more = #missing > 1 and string.format(" (and %d more)", #missing - 1) or ""
@@ -200,10 +223,12 @@ function Bridge.OffLine()
 end
 
 -- Checked once Daylight UI has finished loading, so its Cooldown Manager has started.
+-- An API too old gets no line of EZ-CDM's. Daylight UI printed its own "needs a
+-- newer DaylightUI" as EZ-CDM registered (Plugins.Fits).
 function Bridge.Check()
     local line = Bridge.OffLine()
     Bridge.off = line ~= nil
-    if line and DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage(line) end
+    if line and Bridge.ApiFits() and DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage(line) end
     return not Bridge.off
 end
 
@@ -696,7 +721,7 @@ Bridge.GLOW_WRAPS = { GlowStyle = "ActionBars.CdmEffects", SetDown = "ActionBars
 function Bridge.WrapGlow(name, fn) return wrapListed(Bridge.GLOW_WRAPS, name, fn) end
 
 -- ---------------------------------------------------------------------
--- A proc's length (CdmAuras, CdmCustom)
+-- An aura's length (CdmAuras, CdmCustom)
 -- ---------------------------------------------------------------------
 
 local function seconds(v)
@@ -709,25 +734,6 @@ end
 function Bridge.AuraLasts(key)
     local h = call("ActionBars.CdmAuras.Frame", key)
     return type(h) == "table" and seconds(h.auraLasts) or nil
-end
-
--- When a piece's aura ends as its aura icon holder last read it (h.endsAt, set from
--- a plain read, CdmAuras.lua:934), or nil. Only fresh right after a read that found
--- it up (Bridge.ReadAura).
-function Bridge.AuraEnds(key)
-    local h = call("ActionBars.CdmAuras.Frame", key)
-    local v = type(h) == "table" and h.endsAt or nil
-    if type(v) ~= "number" or (type(issecretvalue) == "function" and issecretvalue(v)) then return nil end
-    return v
-end
-
--- Asks a piece's aura icon holder to read its aura now (CdmAuras.Read). Daylight UI
--- reads only where auras read plainly, out of a fight, and learns the length
--- (h.auraLasts) when the aura is up. Returns its answer: up, down, or nil.
-function Bridge.ReadAura(key)
-    local h = call("ActionBars.CdmAuras.Frame", key)
-    if type(h) ~= "table" then return nil end
-    return call("ActionBars.CdmAuras.Read", h)
 end
 
 -- How long a piece's aura lasts by the game's data (CdmSpells.FACTS through
@@ -747,6 +753,37 @@ function Bridge.FactLasts(key)
         if n then return n end
     end
 end
+
+-- ---------------------------------------------------------------------
+-- The Cooldown Manager's buff moments (public, API.md 1.14)
+-- ---------------------------------------------------------------------
+
+-- up(spellID, key) on CooldownBuffUp and down(spellID, key) on CooldownBuffDown: a
+-- piece's buff or debuff turns up or down, as the game's own item says, plain in a
+-- fight. key is the piece's key as a string. Returns true when both are registered,
+-- false on an API older than 1.14.
+function Bridge.OnBuff(up, down)
+    local API = _G.DaylightUI and _G.DaylightUI.API
+    if not (Bridge.ApiFits() and type(API.On) == "function") then return false end
+    local a = API.On("CooldownBuffUp", up, addonName)
+    local b = API.On("CooldownBuffDown", down, addonName)
+    return a ~= nil and b ~= nil
+end
+
+-- What a shown piece's buff reads now (API.CooldownState): true up, false down, or
+-- nil when the piece isn't on show or the game won't say. Then what draws it.
+function Bridge.BuffState(key)
+    local API = _G.DaylightUI and _G.DaylightUI.API
+    if key == nil or not (Bridge.ApiFits() and type(API.CooldownState) == "function") then return nil end
+    local state = API.CooldownState(tostring(key))
+    if type(state) ~= "table" then return nil end
+    local up = state.buffUp
+    if type(up) ~= "boolean" then up = nil end
+    return up, state.drawnBy
+end
+
+-- Asks Daylight UI for a pass on the next frame (CdmRows.Refresh, coalesced).
+function Bridge.Refresh() return call("ActionBars.CdmRows.Refresh") end
 
 local API = _G.DaylightUI and _G.DaylightUI.API
 if type(API) == "table" and type(API.On) == "function" then
