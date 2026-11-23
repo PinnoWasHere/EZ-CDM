@@ -17,6 +17,8 @@ local _, ns = ...
 -- builds the ring itself from Daylight UI's art and measures, setting only. A ring
 -- is built once, in the color the rule has then, and only turned off later. A new
 -- or recolored rule lights from the next /reload (Effects.Pending).
+--
+-- The fall-off lead and its sound ride on Daylight UI's recast clock (below).
 
 local Bridge = ns.Bridge
 
@@ -88,9 +90,12 @@ end
 -- Draft's one place
 -- ---------------------------------------------------------------------
 
--- Before Grammar.Decompile: a piece's saved fields with EZ-CDM's rule in
--- Daylight UI's words (upGlow, upGlowColor), so it reads back as one line.
+-- Before Grammar.Decompile: a piece's saved fields with EZ-CDM's rules in the
+-- grammar's words (upGlow and upGlowColor, ezLead and ezSound), so each reads back
+-- as its line.
 function Effects.Merge(key, fields, g)
+    local fo = Effects.FallOff(key, g)
+    if fo then fields.ezLead, fields.ezSound = fo.lead, fo.sound end
     local v = Effects.Get(key, g)
     if v == nil then return fields end
     fields.upGlow = true
@@ -206,9 +211,170 @@ end
 function Effects.Seen() return seen end
 function Effects.Ring(btn) return rings[btn] end
 
+-- ---------------------------------------------------------------------
+-- The fall-off lead and its sound
+-- ---------------------------------------------------------------------
+
+-- "When it's about to fall off (N seconds before)" on Daylight UI's recast clock.
+-- The clock runs from your own cast (CdmAuras.lua:1194-1211) and keeps the end in
+-- h.endsAt, a plain number. A wrap on ClipDue moves its due moment to N seconds
+-- before that end, so Daylight UI lights its own recast glow then, in its own
+-- color, style and priority, and its own timer wakes for it. A wrap on Clip hears
+-- the moment come and plays the sound once. A wrap on ClipGlows keeps the clock
+-- running for a sound with no glow; Daylight UI's glow checks its own clipGlow, so
+-- none shows. A wrap on Told keeps a game-drawn piece's clock until its debuff
+-- lands. No frame, timer or driver of EZ-CDM's own.
+--
+-- The rule lives in EZCDMDB.fallOff[profile][key] = { lead = N, sound = key }.
+-- Without one, Daylight UI's own timing stands. Draft reads and writes it through
+-- Effects.Merge and Effects.SplitFallOff.
+
+local function fallOffStore()
+    if type(EZCDMDB) ~= "table" then EZCDMDB = {} end
+    if type(EZCDMDB.fallOff) ~= "table" then EZCDMDB.fallOff = {} end
+    return EZCDMDB.fallOff
+end
+
+-- The rule as saved: a positive lead, a sound key other than "none", or nil.
+local function cleanFallOff(v)
+    if type(v) ~= "table" then return nil end
+    local lead = type(v.lead) == "number" and v.lead > 0 and v.lead or nil
+    local sound = type(v.sound) == "string" and v.sound ~= "none" and v.sound or nil
+    if lead == nil and sound == nil then return nil end
+    return { lead = lead, sound = sound }
+end
+
+-- A piece's fall-off rule on talent set g's profile (current when nil):
+-- { lead, sound }, either one nil, or nil for none.
+function Effects.FallOff(key, g)
+    local profile = Bridge.ProfileOf(g)
+    local byKey = profile ~= nil and fallOffStore()[profile]
+    return type(byKey) == "table" and cleanFallOff(byKey[key]) or nil
+end
+
+-- Sets or clears a piece's fall-off rule, as Effects.Set does the up glow's.
+function Effects.SetFallOff(g, key, rule)
+    local profile, why = Bridge.SavedProfile(g)
+    if not profile then return false, why end
+    local all = fallOffStore()
+    all[profile] = all[profile] or {}
+    all[profile][key] = cleanFallOff(rule)
+    if next(all[profile]) == nil then all[profile] = nil end
+    return true
+end
+
+-- After Grammar.Compile: takes the lead and the sound (ezLead, ezSound) out of
+-- fields, which Daylight UI never sees. Returns the rule for Effects.SetFallOff.
+function Effects.SplitFallOff(fields)
+    local rule = cleanFallOff({ lead = fields.ezLead, sound = fields.ezSound })
+    fields.ezLead, fields.ezSound = nil, nil
+    return rule
+end
+
+-- The current profile's rule for a holder or watch the clock passes in.
+local function ruleOf(h)
+    local key = type(h) == "table" and h.id or nil
+    if key == nil then return nil end
+    return Effects.FallOff(key)
+end
+
+-- Around CdmAuras.ClipDue. Daylight UI's own "due" stands, and so does a "not due"
+-- with no time (no clock, or the recast already being cast). Otherwise the moment
+-- comes N seconds before the end, or Daylight UI's own when that is sooner.
+local function clipDue(orig, h, sid)
+    local due, at = orig(h, sid)
+    if due or not at then return due, at end
+    local rule = ruleOf(h)
+    local ends = h.endsAt
+    if not (rule and rule.lead) or type(ends) ~= "number" then return due, at end
+    local soon = ends - rule.lead
+    if soon <= GetTime() then return true end
+    return false, math.min(at, soon)
+end
+
+-- piece key -> the end its sound last played for. One end, one sound: a pass that
+-- asks again, or a second holder of the same piece, plays nothing more. A recast
+-- moves the end later and re-arms it. An end that moves a second or less is the
+-- same cast, read again (Daylight UI's own test for a new application,
+-- CdmAuras.lua:1017).
+local heardFor = {}
+
+-- Around CdmAuras.Clip: the pass's answer, unchanged.
+local function clip(orig, h, sid)
+    local due = orig(h, sid)
+    if due ~= true then return due end
+    local rule = ruleOf(h)
+    local ends = h.endsAt
+    if not (rule and rule.sound) or type(ends) ~= "number" then return due end
+    local was = heardFor[h.id]
+    if was == nil or ends > was + 1 then
+        heardFor[h.id] = ends
+        Bridge.PlayAlert(rule.sound)
+    end
+    return due
+end
+
+-- Saved piece table -> its key, for ClipGlows, which gets only the table.
+local keyOf = setmetatable({}, weak)
+
+local function pieceKey(p)
+    local k = keyOf[p]
+    if k ~= nil then return k end
+    local set = Bridge.Layout()
+    for key, t in pairs(type(set) == "table" and type(set.pieces) == "table" and set.pieces or {}) do
+        if type(t) == "table" then keyOf[t] = key end
+    end
+    return keyOf[p]
+end
+
+-- Around CdmEffects.ClipGlows: also true for a piece with a fall-off sound.
+local function clipGlows(orig, p)
+    local on = orig(p)
+    if on or type(p) ~= "table" then return on end
+    local key = pieceKey(p)
+    local rule = key ~= nil and Effects.FallOff(key) or nil
+    if rule and rule.sound then return true end
+    return on
+end
+
+-- Watch -> { ends, since }: the clock a "down" is held against, and when it came.
+local heldDown = setmetatable({}, weak)
+
+-- Around CdmAuras.Told. The game's cooldown icon says "down" until your debuff
+-- lands, and a pass in that gap made Daylight UI drop the clock your cast had just
+-- started (CdmAuras.lua:1370), with nothing to start it again in a fight. For the
+-- watch of a piece with a fall-off rule, a "down" against a running clock is told
+-- as "can't tell" for Daylight UI's landing time (CAST_LANDS); a longer one stands.
+-- The pass skips Clip while its item says down (CdmRows.lua:624), so nothing
+-- lights or plays early.
+local function told(orig, h, up)
+    if type(h) ~= "table" or h.watch ~= true then return orig(h, up) end
+    if up ~= false then
+        heldDown[h] = nil
+        return orig(h, up)
+    end
+    local ends, now = h.endsAt, GetTime()
+    if type(ends) ~= "number" or ends <= now or ruleOf(h) == nil then return orig(h, up) end
+    local held = heldDown[h]
+    if not held or held.ends ~= ends then
+        held = { ends = ends, since = now }
+        heldDown[h] = held
+    end
+    if now - held.since < Bridge.CastLands() then return orig(h, nil) end
+    heldDown[h] = nil
+    return orig(h, up)
+end
+
+-- For tests: the end a piece's sound last played for, or nil.
+function Effects.Heard(key) return heardFor[key] end
+
 -- In place before Daylight UI makes any holder button: its modules start at
 -- PLAYER_LOGIN, and the .toc's OptionalDeps loads its action bars first.
 Effects.hooked = Bridge.HookAuraButtons(onButton) and true or false
+
+-- The clock wraps, in place before the first pass for the same reason.
+Effects.wrapped = (Bridge.WrapClock("ClipDue", clipDue) and Bridge.WrapClock("Clip", clip)
+    and Bridge.WrapClock("ClipGlows", clipGlows) and Bridge.WrapClock("Told", told)) and true or false
 
 -- Another profile (a talent set switch, or one picked in the editor) takes the
 -- old one's rings off.

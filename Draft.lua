@@ -4,8 +4,8 @@ local _, ns = ...
 -- UI's editor shows. A write goes only through ns.Bridge, in stages: group words
 -- on the spell's group, what it shows (track), the spell fields the grammar owns
 -- (Grammar.FIELDS and hideIn<Key>), its look keys (Grammar.LOOK_FIELDS), then
--- EZ-CDM's own up glow (Effects). Only fields that change are written, and no
--- piece ever moves.
+-- EZ-CDM's own rules (Effects): the up glow, and the fall-off lead and sound.
+-- Only fields that change are written, and no piece ever moves.
 
 local Bridge, Grammar, Effects = ns.Bridge, ns.Grammar, ns.Effects
 
@@ -225,7 +225,7 @@ end
 -- key's plan on talent set g: { changes, notes, ops }. Each change is { key, kind,
 -- field, old, new } (kinds: group, track, set, clear, ez), each op { stage, change,
 -- run }. Stages: 1 group words, 2 track, 3 spell fields, 4 look keys, 5 EZ-CDM's
--- up glow.
+-- own rules.
 local function planFor(key, rules, g)
     local name = nameOf(key)
     local pieces, chains = layout(g)
@@ -252,6 +252,11 @@ local function planFor(key, rules, g)
     local ezOld, ezNew = Effects.Get(key, g), Effects.Split(key, fields)
     if not same(ezOld, ezNew) then
         op(5, "ez", "upGlow", ezOld, ezNew, function() return Effects.Set(g, key, ezNew) end)
+    end
+    -- The fall-off lead and its sound are EZ-CDM's own on every piece.
+    local foOld, foNew = Effects.FallOff(key, g), Effects.SplitFallOff(fields)
+    if not same(foOld, foNew) then
+        op(5, "ez", "fallOff", foOld, foNew, function() return Effects.SetFallOff(g, key, foNew) end)
     end
 
     -- Group words, on the spell's group, as Daylight UI's Group tab writes them

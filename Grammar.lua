@@ -66,6 +66,8 @@ end
 --                  at the line's seconds (line.at)
 --   slot           lines sharing a slot set one choice (CdmCard.lua:313-333, Buff missing)
 --   all            "always show": every show rule
+--   lead           the line's seconds (line.at) are EZ-CDM's fall-off lead (ezLead),
+--                  one per piece (Effects)
 local MAP = {
     always = { show = { all = SHOW_RULES, value = "show" } },
     ready = showRule("onReady"),
@@ -94,7 +96,11 @@ local MAP = {
         -- The empty bar pulses (CdmCard.lua:698-700). It needs "show it" here too.
         flash = { field = "inactiveFlash", value = true },
     },
-    recast = { glow = { field = "clipGlow", value = true, color = "clipGlowColor" } },
+    -- The glow is Daylight UI's; the lead and the sound are EZ-CDM's (Effects).
+    recast = {
+        glow = { field = "clipGlow", value = true, color = "clipGlowColor", lead = true },
+        sound = { field = "ezSound", sound = true, lead = true },
+    },
 }
 MAP.ready.glow = { field = "readyGlow", value = true, color = "readyGlowColor" }
 MAP.ready.sound = { field = "readySound", sound = true }
@@ -120,6 +126,10 @@ Grammar.FIELDS = {
 }
 -- Every look key the grammar writes (fields.look), through Data.SetLook.
 Grammar.LOOK_FIELDS = { "low", "lowAt", "lowColor" }
+-- The fields EZ-CDM keeps itself (Effects.SplitFallOff), never Daylight UI's.
+Grammar.EZ_FIELDS = { "ezLead", "ezSound" }
+-- The fall-off lead's choices, in seconds.
+Grammar.LEADS = { 2, 3, 4, 5, 8, 10 }
 
 -- Which glow shows when several could (CdmEffects.lua:502-527): proc, then missing,
 -- recast, up, usable and ready. The game's proc glow has no word here.
@@ -154,6 +164,11 @@ local function styleKnown(key)
         if st.key == key then return true end
     end
     return false
+end
+
+-- A fall-off lead: whole seconds, 1 to the longest choice.
+local function isLead(n)
+    return type(n) == "number" and n >= 1 and n <= Grammar.LEADS[#Grammar.LEADS] and n % 1 == 0
 end
 
 local function isColor(c)
@@ -217,6 +232,17 @@ local function castable(key)
     return false
 end
 
+-- Whether a piece's spell is cast on an enemy: true, false, or nil when it has no
+-- spell or the game won't say.
+local function harmful(key)
+    local sid = Bridge.SpellOf(key)
+    local S = type(C_Spell) == "table" and C_Spell or {}
+    if sid == nil or type(S.IsSpellHarmful) ~= "function" then return nil end
+    local v = plain(S.IsSpellHarmful(sid))
+    if v == nil then return nil end
+    return v == true
+end
+
 -- Describes a piece through Daylight UI's own answers. piece is its saved table or a
 -- draft one (the layout's own when nil). Mirrors the card's predicates:
 --   isIcon / isBar   CdmCard.lua:227-228
@@ -233,6 +259,9 @@ end
 --   missingShown     Buff missing is set to Show (the Flash row, CdmCard.lua:698)
 --   ezGlow           EZ-CDM draws its up glow inside the client's button (Effects),
 --                    which needs no told state
+--   drawnBy          what draws it since the last pass (Bridge.DrawnBy), or nil
+--   harmful          its spell is cast on an enemy, so its aura is a debuff on the
+--                    target (C_Spell.IsSpellHarmful); nil when the game won't say
 -- Form rows show for cooldowns of a class with forms (CdmCard.lua:806).
 -- Totems take no case of their own. Bridge.Shows (CdmOwn.Track) says "totem" for a
 -- totem with no buff and "both" for a Shaman element piece (CdmOwn.lua:108-130), and
@@ -288,6 +317,8 @@ function Grammar.Kind(key, piece, shows)
         missingShown = Bridge.Option(piece, "missing") == true,
         numbers = Bridge.PieceLook(key, "cdNumbers") ~= false,
         ezGlow = Effects.Drawn(key),
+        drawnBy = Bridge.DrawnBy(key),
+        harmful = harmful(key),
     }
     -- What the card's What it shows reads now (CdmCard.lua:358-365), in the grammar's words.
     if trackRow then
@@ -472,6 +503,8 @@ function Grammar.Compile(rules, kind)
             problem({ line = i, code = "value" })
         elseif entry.sound and not isSound(line.value) then
             problem({ line = i, code = "value" })
+        elseif entry.lead and line.at ~= nil and not isLead(line.at) then
+            problem({ line = i, code = "value" })
         elseif entry.alpha and line.value ~= nil
             and not (type(line.value) == "number" and line.value >= 0 and line.value <= 1) then
             problem({ line = i, code = "value" })
@@ -499,6 +532,7 @@ function Grammar.Compile(rules, kind)
                 fields[entry.color] = line.value and copyRGB(line.value) or nil
             end
             if entry.alpha and line.value ~= nil then set(i, "cdAlpha", line.value) end
+            if entry.lead and line.at ~= nil then set(i, "ezLead", line.at) end
         end
     end
     -- "always show" sets every show rule no line names.
@@ -609,6 +643,7 @@ function Grammar.Decompile(fields, kind)
                         line.value, alphaTaken = fields.cdAlpha, true
                     end
                 end
+                if line and entry.lead and isLead(fields.ezLead) then line.at = fields.ezLead end
                 if line then
                     lines[#lines + 1] = line
                     if not Grammar.Fits(kind, m, a) then problems[#problems + 1] = { line = #lines, code = "kind" } end
@@ -718,6 +753,18 @@ Grammar.WORDING = {
     -- while that glow waits for a /reload (Effects.Pending).
     ezGlow = "Ring style; drawn by EZ so it works in combat.",
     ezGlowReload = "It lights after your next /reload.",
+    -- The fall-off lead after "When it's about to fall off" (%s is its seconds), and
+    -- with no lead, when Daylight UI's own timing stands (%s is daylightTiming).
+    lead = "(%s before)",
+    leadNone = "(%s)",
+    daylightTiming = "Daylight's timing",
+    -- Under the first "When it's about to fall off" line: own on every piece, early
+    -- where Daylight UI's aura holder draws it, target on a debuff you cast.
+    fallOff = {
+        own = "Counts from your own cast.",
+        early = "In a fight it can't tell if it falls off early.",
+        target = "One timer per spell, not per target.",
+    },
     -- In place of the glow style line on such a piece, and under it when another
     -- style is saved (%s is that style's name), which Daylight UI keeps for the rest.
     ezRingStyle = "Its combat glow is always a ring.",
@@ -808,11 +855,31 @@ local function actionWords(line)
     return WORDING.actions[a] or tostring(a)
 end
 
+-- The fall-off lead as words: "(5 seconds before)".
+function Grammar.LeadWords(n) return WORDING.lead:format(Grammar.Seconds(n)) end
+
 -- The line as one sentence, in US English.
 function Grammar.Describe(line)
     if type(line) ~= "table" then return "" end
     local phrase, joint = Grammar.MomentWords(line.moment)
+    local entry = MAP[line.moment] and MAP[line.moment][line.action]
+    if entry and entry.lead and line.at ~= nil then phrase = phrase .. " " .. Grammar.LeadWords(line.at) end
     return phrase:sub(1, 1):upper() .. phrase:sub(2) .. joint .. actionWords(line) .. "."
+end
+
+-- The limit notes on a piece's fall-off moment, each { code, text }: own always,
+-- early where Daylight UI's aura holder draws it (a game item can still say it
+-- dropped), target on a debuff you cast on an enemy.
+function Grammar.FallOffNotes(kind)
+    local out = { { code = "own", text = WORDING.fallOff.own } }
+    local by = type(kind) == "table" and kind.drawnBy
+    if type(by) == "string" and by:find("^aura") then
+        out[#out + 1] = { code = "early", text = WORDING.fallOff.early }
+    end
+    if type(kind) == "table" and kind.harmful == true then
+        out[#out + 1] = { code = "target", text = WORDING.fallOff.target }
+    end
+    return out
 end
 
 -- The glow a moment lights, in plain words: "the glow when it's ready".

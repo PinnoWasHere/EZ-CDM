@@ -314,7 +314,7 @@ local function words(s, pieces, opts)
     b.line, b.group, b.form, b.note, b.notice, b.refusal, b.adds, b.fade, b.shared, b.choices, b.hint, b.default,
         b.groupHead, b.shows, b.style, b.styleNote, b.ezGlow, b.ezReload = nil, nil, nil, nil, nil, nil, nil, nil, nil,
         nil, nil, nil, nil, nil, nil, nil, nil, nil
-    b.ezRingStyle, b.ezRingOther = nil, nil
+    b.ezRingStyle, b.ezRingOther, b.fallOff = nil, nil, nil
     b.onRemove = opts.onRemove
     b.remove:SetShown(opts.onRemove ~= nil)
     return b
@@ -695,11 +695,47 @@ local function firstSound()
 end
 
 -- A line on a new moment or action. The value goes with an action change; a sound
--- line takes the first sound.
+-- line takes the first sound. The fall-off lead stays while the line stays on
+-- "When it's about to fall off", and goes when it leaves.
 local function retarget(line, moment, action)
-    if action ~= line.action then line.value, line.at = nil, nil end
+    local keepAt = moment == "recast" and line.moment == "recast"
+    if action ~= line.action then
+        line.value = nil
+        if not keepAt then line.at = nil end
+    end
+    if line.moment == "recast" and moment ~= "recast" then line.at = nil end
     line.moment, line.action = moment, action
     if action == "sound" and line.value == nil then line.value = firstSound() end
+end
+
+-- The fall-off lead is one per piece: it goes on every "about to fall off" line.
+local function setLead(rules, n)
+    for _, l in ipairs(rules.lines) do
+        if l.moment == "recast" then l.at = n end
+    end
+end
+
+-- The piece's fall-off lead, from any line that has one.
+local function leadOf(rules)
+    for _, l in ipairs(rules.lines) do
+        if l.moment == "recast" and l.at ~= nil then return l.at end
+    end
+end
+
+-- The lead's strip: Daylight UI's own timing, then the seconds choices.
+local function leadChoices()
+    local keys, values = { "daylight" }, { daylight = WORDING.daylightTiming }
+    for _, n in ipairs(Grammar.LEADS) do
+        keys[#keys + 1] = n
+        values[n] = Grammar.Seconds(n)
+    end
+    return keys, values
+end
+
+-- The words around a lead word: one for seconds, one for Daylight UI's timing.
+local function aroundLead(at)
+    local text = (at ~= nil and WORDING.lead or WORDING.leadNone):format("\1")
+    return text:match("^(.-)\1(.*)$")
 end
 
 -- A word: a link for a chosen word, a chip for a blank, and the strip it opens.
@@ -732,8 +768,19 @@ local function sentence(s, kind, rules, i, line)
                 local a = l.action
                 if a ~= nil and not Grammar.Fits(kind, m, a) then a = actions[m][1] end
                 retarget(l, m, a)
+                if m == "recast" and l.at == nil then l.at = leadOf(r) end
             end)
         end }, line.moment ~= nil, off)
+    if line.moment == "recast" then
+        -- "(5 seconds before)", or Daylight UI's own timing with no lead.
+        local keys, values = leadChoices()
+        local before, after = aroundLead(line.at)
+        pieces[#pieces + 1] = { text = " " .. before }
+        pieces[#pieces + 1] = word(line.at and Grammar.Seconds(line.at) or WORDING.daylightTiming, id .. "lead", {
+            kind = "seconds", keys = keys, values = values, current = line.at or "daylight",
+            onPick = function(n) edit(function(r) setLead(r, n ~= "daylight" and n or nil) end) end }, true, off)
+        pieces[#pieces + 1] = { text = after }
+    end
     pieces[#pieces + 1] = { text = joint }
     pieces[#pieces + 1] = word(line.action and (line.action == "sound" and "play" or WORDING.actions[line.action])
         or WORDING.chooseWhat, id .. "action", {
@@ -1116,8 +1163,16 @@ local function spellBody(s, key)
     local kind = Grammar.Kind(key)
     local rules, first, last = current()
     showsLine(s, kind, rules)
+    local fallOffNoted = false
     for i, line in ipairs(rules.lines) do
         sentence(s, kind, rules, i, line)
+        -- What the fall-off moment can't know, once, under its first line.
+        if line.moment == "recast" and not fallOffNoted then
+            fallOffNoted = true
+            for _, n in ipairs(Grammar.FallOffNotes(kind)) do
+                words(s, { { text = n.text, size = "small", color = "LABEL" } }).fallOff = n.code
+            end
+        end
         if i >= first and i <= last then
             words(s, { { text = WORDING.default, size = "small", color = "LABEL" } }).default = i
         end

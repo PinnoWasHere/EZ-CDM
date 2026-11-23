@@ -96,6 +96,13 @@ Bridge.NEEDS = {
     "ActionBars.CdmRows.DrawnBy",
     "DaylightUI.Restricted",
     "DaylightUI.AfterRestrictions",
+    -- Effects: the fall-off lead and its sound on Daylight UI's recast clock (me.Wrap)
+    "ActionBars.CdmAuras.ClipDue",
+    "ActionBars.CdmAuras.Clip",
+    "ActionBars.CdmEffects.ClipGlows",
+    "DaylightUI.Sound.Alert",
+    "ActionBars.CdmAuras.Told",
+    "ActionBars.CdmAuras.CAST_LANDS",
 }
 
 -- Internals EZ-CDM uses when their module is loaded, as "<root>.<path>" like NEEDS.
@@ -605,6 +612,44 @@ function Bridge.HookAuraButtons(fn)
         end
     end)
 end
+
+-- ---------------------------------------------------------------------
+-- The recast clock (CdmAuras, CdmEffects)
+-- ---------------------------------------------------------------------
+
+-- The clock functions EZ-CDM wraps, each by the table that holds it. Daylight UI
+-- calls each by table lookup (CdmAuras.lua:1316, 1335; CdmRows.lua:620, 624, 856,
+-- 883), so a wrap sees every call.
+--   ClipDue(h, sid)  whether it's time to recast, and if not, when
+--   Clip(h, sid)     the pass's answer for one holder or watch
+--   ClipGlows(p)     whether a piece's pass runs the clock
+--   Told(h, up)      what the game's item says, up or down; a down drops the clock
+-- h.id is the piece key and h.endsAt the end the clock keeps, both plain numbers
+-- Daylight UI sets itself (CdmAuras.lua:518, 1128). h.watch is true on the watch of
+-- a piece the game's item draws (:518).
+Bridge.CLOCK_WRAPS = { ClipDue = "ActionBars.CdmAuras", Clip = "ActionBars.CdmAuras",
+                       ClipGlows = "ActionBars.CdmEffects", Told = "ActionBars.CdmAuras" }
+
+-- How long after a cast its aura may still land, in seconds (CdmAuras.lua:1120).
+function Bridge.CastLands()
+    local v = Bridge.Resolve("ActionBars.CdmAuras.CAST_LANDS")
+    return type(v) == "number" and v or 0
+end
+
+-- Wraps one of the clock functions with fn(original, ...) through Daylight UI's
+-- public wrap (API.For(...).Wrap). A wrap that errors falls back to Daylight UI's
+-- own. Returns the handle, or false.
+function Bridge.WrapClock(name, fn)
+    local path = Bridge.CLOCK_WRAPS[name]
+    local tbl = path and Bridge.Resolve(path)
+    if type(tbl) ~= "table" or type(tbl[name]) ~= "function" or type(fn) ~= "function" then return false end
+    me = me or _G.DaylightUI.API.For(addonName)
+    return me.Wrap(tbl, name, fn)
+end
+
+-- Plays a sound key from Daylight UI's list (Bridge.SoundChoices), as its own
+-- piece sounds do (CdmEffects.lua:727-734).
+function Bridge.PlayAlert(key) return call("DaylightUI.Sound.Alert", key) end
 
 local API = _G.DaylightUI and _G.DaylightUI.API
 if type(API) == "table" and type(API.On) == "function" then
