@@ -21,8 +21,10 @@ local _, ns = ...
 --
 -- The fall-off lead and its sound ride on Daylight UI's recast clock (below). A
 -- proc's fall-off glow is a second ring in the same button, held hidden for the
--- proc's length less the lead, and the up ring hides as it shows (below). A glow style per moment rides on Daylight
--- UI's own glows (below).
+-- proc's length less the lead, and the up ring hides as it shows (below). The
+-- client replays both when it rebuilds its buttons, so out of a fight EZ-CDM stops
+-- the holds once the proc is inside its lead (below). A glow style per moment rides
+-- on Daylight UI's own glows (below).
 
 local Bridge = ns.Bridge
 
@@ -140,8 +142,7 @@ end
 -- the side, turned by a looping flipbook. size is the button's side as Daylight UI
 -- set it, so nothing here asks the button. The texture sits two frames deep, as
 -- Daylight UI's does, so it draws over the button's cooldown. above puts it one
--- frame deeper. Frame nesting sets no draw order between sibling frames, so two
--- rings on one button share a holder and differ by draw-layer sublevel (handPair).
+-- frame deeper.
 local function ringFrames(btn, size, art, above)
     local pad = size * art.pad
     local frame = CreateFrame("Frame", nil, btn)
@@ -156,11 +157,9 @@ local function ringFrames(btn, size, art, above)
     return frame, holder
 end
 
--- The ring's texture on holder and its looping flipbook on frame. sub, when given,
--- is the texture's OVERLAY sublevel.
-local function ringArt(frame, holder, art, color, sub)
+-- The ring's texture on holder and its looping flipbook on frame.
+local function ringArt(frame, holder, art, color)
     local tex = holder:CreateTexture(nil, "OVERLAY")
-    if sub then tex:SetDrawLayer("OVERLAY", sub) end
     tex:SetAllPoints(holder)
     tex:SetAtlas(art.atlas)
     tex:SetDesaturated(true)
@@ -213,9 +212,6 @@ end
 
 local function colorOf(v) return isRGB(v) and v or nil end
 
--- Fall-off ring over the up ring, by draw layer under one holder.
-local UP_SUB, LEAD_SUB = 6, 7
-
 -- Inside initializeFrame (Bridge.HookAuraButtons). It only makes and sets things,
 -- and tests nothing the button or its children report. A holder made under
 -- restrictions waits for a /reload out of a fight, since its button locks as soon
@@ -234,27 +230,26 @@ local function handLead(btn, key, size, rule, lasts)
     leads[btn] = r
 end
 
--- Both rings on one button: one frame and holder, the fall-off ring a draw-layer
--- sublevel over the up ring. The up ring's own alpha is 0, and its hold keeps it
--- at 1 for the proc's length less the lead. The fall-off ring's hold keeps it at 0
--- for the same time. So the up ring shows until the lead, then the fall-off ring
--- alone. Both holds are timed from EZ-CDM's own length and lead only.
+-- Both rings on one button, each on its own frame, the fall-off ring one frame
+-- deeper. The up ring's frame has alpha 0, and its hold keeps it at 1 for the
+-- proc's length less the lead. The fall-off ring's hold keeps its frame at 0 for
+-- the same time. So the up ring shows until the lead, then the fall-off ring alone.
+-- Each hold animates its own frame: the client applies a hold to a frame, not to
+-- a texture inside it. Both holds are timed from EZ-CDM's own length and lead only.
 local function handPair(btn, key, size, want, rule, lasts)
-    local art = Bridge.RingArt()
-    if not art then return end
-    local frame, holder = ringFrames(btn, size, art)
+    local up = buildRing(btn, size, colorOf(want))
+    local lead = buildRing(btn, size, colorOf(rule.ring), true)
+    if not (up and lead) then return end
     local shown = lasts - rule.lead
-    local up = { frame = frame, shared = true, key = key, color = want }
-    up.tex, up.anim = ringArt(frame, holder, art, colorOf(want), UP_SUB)
-    up.tex:SetAlpha(0)
-    up.hold, up.fade = holdAt(frame, up.tex, 1, shown)
-    local lead = { frame = frame, shared = true, key = key, color = rule.ring, lead = rule.lead, lasts = lasts }
-    lead.tex, lead.anim = ringArt(frame, holder, art, colorOf(rule.ring), LEAD_SUB)
-    lead.hold, lead.fade = holdAt(frame, lead.tex, 0, shown)
+    up.frame:SetAlpha(0)
+    up.hold, up.fade = holdAt(up.frame, nil, 1, shown)
+    lead.hold, lead.fade = holdAt(lead.frame, nil, 0, shown)
     btn:AddAuraShownAnimation(up.anim)
     btn:AddAuraShownAnimation(up.hold)
     btn:AddAuraShownAnimation(lead.anim)
     btn:AddAuraShownAnimation(lead.hold)
+    up.key, up.color = key, want
+    lead.key, lead.color, lead.lead, lead.lasts = key, rule.ring, rule.lead, lasts
     rings[btn], leads[btn] = up, lead
 end
 
@@ -285,10 +280,9 @@ local function dropHold(btn, r)
 end
 
 -- Takes a ring out of its button: hidden, stopped and out of the client's list,
--- so it never plays again. A ring sharing its frame hides only its texture. Out of
--- restrictions only.
+-- so it never plays again. Out of restrictions only.
 local function unhand(btn, r)
-    if r.shared then r.tex:Hide() else r.frame:Hide() end
+    r.frame:Hide()
     r.anim:Stop()
     btn:RemoveAuraShownAnimation(r.anim)
     if r.hold then dropHold(btn, r) end
@@ -312,7 +306,7 @@ local function sync()
             if up and up.hold then
                 dropHold(btn, up)
                 up.hold, up.fade = nil, nil
-                up.tex:SetAlpha(1)
+                up.frame:SetAlpha(1)
             end
         end
     end
@@ -449,6 +443,77 @@ function Effects.LeadPending(key)
     local lit, lead, lasts, color = Effects.LeadLit(key)
     return not (lit and lead == rule.lead and lasts == Effects.ProcLasts(key) and sameColor(color, rule.ring))
 end
+
+-- ---------------------------------------------------------------------
+-- After the client rebuilds its buttons
+-- ---------------------------------------------------------------------
+
+-- The client's aura containers let go of every button and hand each its aura again
+-- on a fight's end, entering the world, a spec change, and the unit's flags or
+-- faction changing (FullAuraRefreshEvents, Blizzard_CustomAuraContainer.lua). The
+-- rebuild runs on the container's next OnUpdate and plays every shown animation
+-- from the start. A proc up through it starts its holds again, so the up ring came
+-- back over the fall-off ring for the proc's last seconds.
+--
+-- Out of restrictions the holder reads the proc plainly. Two frames after the
+-- rebuild, each fall-off ring's holds stop when lead seconds or less are left, so
+-- the fall-off ring shows alone. With more left, one timer stops them at the lead.
+-- Stopping only ends a hold early, and the next proc plays both from the start.
+-- Nothing asks the groups anything. The rebuild at a fight's start is out of reach,
+-- since the buttons lock as it begins.
+
+-- Seconds of slack for a timer that fires a hair before the lead.
+Effects.SETTLE_SLACK = 0.05
+
+-- For tests and the dev addon: what the last settle read, { at, left = { [key] =
+-- seconds or false }, stopped, wait }.
+Effects.settled = nil
+
+-- What a piece's proc has left, read plainly now, or false when it's down or unread.
+local function leftOf(key)
+    if Bridge.ReadAura(key) ~= true then return false end
+    local ends = Bridge.AuraEnds(key)
+    return ends and ends - GetTime() or false
+end
+
+local function stopHolds(btn, r)
+    r.hold:Stop()
+    local up = rings[btn]
+    if up and up.hold then up.hold:Stop() end
+end
+
+-- final: the timer's own run, which schedules nothing more.
+local function settle(final)
+    if Bridge.Restricted() then return end
+    local left, stopped, wait = {}, 0, nil
+    for btn, r in pairs(leads) do
+        if r.hold then
+            if left[r.key] == nil then left[r.key] = leftOf(r.key) end
+            local l = left[r.key]
+            if l and l <= r.lead + Effects.SETTLE_SLACK then
+                stopHolds(btn, r)
+                stopped = stopped + 1
+            elseif l and not final then
+                local d = l - r.lead
+                if wait == nil or d < wait then wait = d end
+            end
+        end
+    end
+    Effects.settled = { at = GetTime(), left = left, stopped = stopped, wait = wait }
+    if wait then C_Timer.After(wait, function() settle(true) end) end
+end
+
+-- The client rebuilds on its next frame, so settle waits two.
+local function afterRebuild()
+    if next(leads) == nil then return end
+    Bridge.AfterRestrictions(function()
+        C_Timer.After(0, function() C_Timer.After(0, function() settle(false) end) end)
+    end, "ezcdm:effects:settle")
+end
+
+-- The client's rebuild events, with the units the holders watch.
+local REBUILDS = { PLAYER_REGEN_ENABLED = true, PLAYER_ENTERING_WORLD = true,
+                   PLAYER_SPECIALIZATION_CHANGED = true, UNIT_FLAGS = true, UNIT_FACTION = true }
 
 -- ---------------------------------------------------------------------
 -- The fall-off lead and its sound
@@ -792,13 +857,19 @@ Effects.styled = (Bridge.WrapGlow("SetDown", setDown) and Bridge.WrapGlow("EndPa
 -- Another profile (a talent set switch, or one picked in the editor) takes the
 -- old one's rings off. The player's auras changing out of a fight lets holders
 -- learn their lengths. At logout each ringed proc keeps its length for the next
--- login's buttons.
+-- login's buttons. The client's rebuilds settle the fall-off rings.
 local events = CreateFrame("Frame")
 events:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
 events:RegisterEvent("PLAYER_LOGOUT")
 events:RegisterUnitEvent("UNIT_AURA", "player")
+for _, e in ipairs({ "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD", "PLAYER_SPECIALIZATION_CHANGED" }) do
+    events:RegisterEvent(e)
+end
+events:RegisterUnitEvent("UNIT_FLAGS", "player", "target")
+events:RegisterUnitEvent("UNIT_FACTION", "player", "target")
 events:SetScript("OnEvent", function(_, event)
     if event == "UNIT_AURA" then return learnLengths() end
+    if REBUILDS[event] then return afterRebuild() end
     if event ~= "PLAYER_LOGOUT" then
         moveDue = true
         return Effects.Sync()

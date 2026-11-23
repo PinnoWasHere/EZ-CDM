@@ -324,6 +324,20 @@ local function harmful(key)
     return false
 end
 
+-- Whether a piece's aura never falls off: true when its spell and every id it holds
+-- are untimed auras by the client's tables (AuraLinks.untimed), as Ghost Wolf,
+-- Shadowform and Moonkin Aura. nil when any of them is timed or not in the table.
+local function untimed(key)
+    local set = type(ns.AuraLinks) == "table" and ns.AuraLinks.untimed
+    local sid = Bridge.SpellOf(key)
+    if type(set) ~= "table" or sid == nil or not set[sid] then return nil end
+    local held = Bridge.SpellIDs(key)
+    for id in pairs(type(held) == "table" and held or {}) do
+        if not set[id] then return nil end
+    end
+    return true
+end
+
 -- Describes a piece through Daylight UI's own answers. piece is its saved table or a
 -- draft one (the layout's own when nil). Mirrors the card's predicates:
 --   isIcon / isBar   CdmCard.lua:227-228
@@ -354,6 +368,8 @@ end
 --                    target (C_Spell.IsSpellHarmful); nil when the game won't say
 --   groupBuff        another class's buff on you, the tray's Group buffs
 --                    (CdmCustom.IsGroup)
+--   untimed          its aura never falls off (AuraLinks.untimed: Ghost Wolf,
+--                    Shadowform); nil when any id is timed or unknown
 -- Form rows show for cooldowns of a class with forms (CdmCard.lua:806).
 -- Totems take no case of their own. Bridge.Shows (CdmOwn.Track) says "totem" for a
 -- totem with no buff and "both" for a Shaman element piece (CdmOwn.lua:108-130), and
@@ -412,6 +428,7 @@ function Grammar.Kind(key, piece, shows)
         drawnBy = Bridge.DrawnBy(key),
         harmful = harmful(key),
         groupBuff = Bridge.IsGroup(key),
+        untimed = untimed(key),
     }
     -- A proc is your own: a buff with a spell (a weapon enchant has none, so the card
     -- hides its recast row, CdmCard.lua:411-415) that no other class puts on you. The
@@ -478,6 +495,8 @@ function Grammar.Fits(kind, moment, action)
         if action == "glow" then return kind.showsBuff and (told or kind.ezGlow == true) end
         return kind.showsBuff and told
     elseif moment == "ends" then
+        -- An aura with no timer is on or off; it never wears off.
+        if kind.untimed then return false end
         return kind.showsBuff and told
     elseif moment == "missing" then
         -- The card shows this glow on a Buff only piece once something shows while the
@@ -488,6 +507,8 @@ function Grammar.Fits(kind, moment, action)
         if action == "flash" then return kind.shape == "bar" and kind.buffOnly and kind.missingShown end
         return kind.buffOnly
     elseif moment == "recast" then
+        -- An aura that never falls off has no moment before it does.
+        if kind.untimed then return false end
         -- A proc EZ-CDM draws takes the glow as its own ring, timed from its length.
         -- The lead must fit inside that length, so the proc outlasts the shortest one.
         if action == "glow" and kind.procLead == true then

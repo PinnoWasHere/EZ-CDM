@@ -711,6 +711,16 @@ function Bridge.AuraLasts(key)
     return type(h) == "table" and seconds(h.auraLasts) or nil
 end
 
+-- When a piece's aura ends as its aura icon holder last read it (h.endsAt, set from
+-- a plain read, CdmAuras.lua:934), or nil. Only fresh right after a read that found
+-- it up (Bridge.ReadAura).
+function Bridge.AuraEnds(key)
+    local h = call("ActionBars.CdmAuras.Frame", key)
+    local v = type(h) == "table" and h.endsAt or nil
+    if type(v) ~= "number" or (type(issecretvalue) == "function" and issecretvalue(v)) then return nil end
+    return v
+end
+
 -- Asks a piece's aura icon holder to read its aura now (CdmAuras.Read). Daylight UI
 -- reads only where auras read plainly, out of a fight, and learns the length
 -- (h.auraLasts) when the aura is up. Returns its answer: up, down, or nil.
