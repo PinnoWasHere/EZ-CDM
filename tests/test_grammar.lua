@@ -1817,7 +1817,7 @@ T.test("grammar recipes: the owner's twelve, their lines and names", function()
     end
     T.eq(table.concat(said, "\n"), table.concat({
         "Ready alert: When it's ready, glow. When it's ready, play \"Proc\".",
-        "Out of the way: While it's cooling down, hide it.",
+        "Hidden: While it's cooling down, hide it.",
         "Dim while cooling: While it's cooling down, make it see-through.",
         "Can't cast: When I can't cast it, turn it gray.",
         "Mana check: When I don't have enough " .. G.PowerName() .. ", tint it blue.",

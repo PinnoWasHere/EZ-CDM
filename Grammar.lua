@@ -1035,7 +1035,7 @@ Grammar.WORDING = {
     },
     -- Each recipe's name on its chip (Grammar.RECIPES).
     recipes = {
-        readyAlert = "Ready alert", outOfWay = "Out of the way", dimCooling = "Dim while cooling",
+        readyAlert = "Ready alert", outOfWay = "Hidden", dimCooling = "Dim while cooling",
         canCast = "Can't cast", manaCheck = "Mana check", almostThere = "Almost there", nowUsable = "Now usable", procPop = "Proc pop",
         missingReminder = "Missing reminder", refreshWarning = "Refresh warning", endedPing = "Ended ping",
         fightOnly = "Fight only",
