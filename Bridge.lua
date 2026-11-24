@@ -115,18 +115,24 @@ Bridge.NEEDS = {
     "ActionBars.CdmCustom.IsGroup",
     -- Effects: a pass once the fall-off clock stops on a buff's drop
     "ActionBars.CdmRows.Refresh",
+    -- Overlay: the washes' blue and strength
+    "DaylightUI.Style.PowerColor",
+    "ActionBars.Skin.FLASH_ALPHA",
 }
 
 -- Internals EZ-CDM uses when their module is loaded, as "<root>.<path>" like NEEDS.
 -- One missing doesn't switch EZ-CDM off; the call behind it answers nil and the
 -- drawer keeps its plain header. The info panel's fold tab (DaylightUI_InfoPanel,
--- an addon of its own a player can turn off) lends its look and slide.
+-- an addon of its own a player can turn off) lends its look and slide. The copy
+-- box (Profiles.ShowText) is in the core, but a Daylight UI without it hides the
+-- drawer's Copy report link.
 Bridge.OPTIONAL = {
     "InfoPanel.Panel.TAB",
     "InfoPanel.Panel.ARROW",
     "InfoPanel.Panel.ARROW_COLOR",
     "InfoPanel.Panel.SLIDE",
     "InfoPanel.Panel.XP_BORDER",
+    "DaylightUI.Profiles.ShowText",
 }
 
 -- The table a root name stands for, or nil.
@@ -310,13 +316,13 @@ function Bridge.SpellIDs(key) return call("ActionBars.CdmAuras.SpellIDs", key) e
 -- (CdmCustom.IsGroup). The player never casts it, so it is no proc of theirs.
 function Bridge.IsGroup(key) return call("ActionBars.CdmCustom.IsGroup", key) == true end
 -- Whether a piece's spell is a totem. A totem picks what it shows from its own rows,
--- not the card's What it shows (CdmCard.lua:242-256).
+-- not the card's What it shows (CdmCard.lua:251-265).
 function Bridge.IsTotem(key)
     local sid = Bridge.SpellOf(key)
     return sid ~= nil and call("ActionBars.CdmCustom.Totem", sid) ~= nil
 end
 
--- A look key's value for a placed piece as the card reads it (CdmCard.lua:219-225):
+-- A look key's value for a placed piece as the card reads it (CdmCard.lua:228-234):
 -- its own, its group's, else Daylight UI's fallback.
 function Bridge.PieceLook(key, field)
     local set = Bridge.Layout()
@@ -332,7 +338,7 @@ end
 function Bridge.LookDefault(field) return call("ActionBars.CdmCard.Fallback", field) end
 
 -- The glow styles the card's Style row offers, { { key, label } }, in its order:
--- Ring, Daylight UI's default, then API.GlowStyles()'s (CdmCard.lua:490-495).
+-- Ring, Daylight UI's default, then API.GlowStyles()'s (CdmCard.lua:499-504).
 function Bridge.GlowStyles()
     local rows = Bridge.Resolve("ActionBars.CdmCard.ROWS")
     for _, row in ipairs(type(rows) == "table" and type(rows.look) == "table" and rows.look or {}) do
@@ -406,7 +412,7 @@ function Bridge.SetSpellValue(g, key, field, value)
 end
 
 -- One look key of a piece, its own (CdmData.LOOK_FIELDS), as the card's Look tab
--- writes it (CdmCard.lua:157-160). Daylight UI keeps even a value equal to its
+-- writes it (CdmCard.lua:166-169). Daylight UI keeps even a value equal to its
 -- fallback, so a key goes back by writing Bridge.LookDefault.
 function Bridge.SetLook(g, key, field, value)
     local set, why = savedSet(g)
@@ -422,7 +428,7 @@ function Bridge.SetTrack(g, key, track)
 end
 
 -- One group option (CdmData.CHAIN_FIELDS), set from any piece in the group onto the
--- group, as Daylight UI's Group tab does (CdmCard.lua:165-175).
+-- group, as Daylight UI's Group tab does (CdmCard.lua:174-184).
 function Bridge.SetChainValue(g, key, field, value)
     local set, why = savedSet(g)
     if not set then return false, why end
@@ -499,7 +505,7 @@ function Bridge.SpellTexture(key) return call("ActionBars.CdmEditor.SpellTexture
 -- The game's color picker as Daylight UI opens it, starting at { r, g, b }.
 -- onChange({ r, g, b }) runs on each pick (once on release for a drag), and with
 -- the start color on Cancel. alpha adds the opacity bar, and colors come as
--- { r, g, b, a }, as the card's colors with alpha (CdmCard.lua:688).
+-- { r, g, b, a }, as the card's colors with alpha (CdmCard.lua:697).
 function Bridge.PickColor(start, onChange, alpha)
     return call("DaylightUI.Widgets.OpenColorPicker", start, onChange, alpha == true)
 end
@@ -565,6 +571,12 @@ end
 -- the accent while on (b.SetOn). b.FitWidth() sizes it; the caller sets OnClick.
 function Bridge.Chip(parent, text) return call("DaylightUI.Widgets.Chip", parent, text) end
 
+-- Whether Daylight UI has its copy box.
+function Bridge.CanShowText() return type(Bridge.Resolve("DaylightUI.Profiles.ShowText")) == "function" end
+-- Daylight UI's copy box (Profiles.ShowText): title, a hint line, and text shown
+-- selected and read-only. Answers nil when this Daylight UI has no box.
+function Bridge.ShowText(title, hint, text) return call("DaylightUI.Profiles.ShowText", title, hint, text) end
+
 -- ---------------------------------------------------------------------
 -- The info panel's fold tab and slide (DaylightUI_InfoPanel/Panel.lua)
 -- ---------------------------------------------------------------------
@@ -573,7 +585,9 @@ function Bridge.Chip(parent, text) return call("DaylightUI.Widgets.Chip", parent
 -- { tab = { thickness, length }, arrow = chevron px, color = { r, g, b },
 --   slide = seconds, border = the tab's borderPx for API.Skin }.
 function Bridge.FoldTab()
-    if #Bridge.MissingOptional() > 0 then return nil end
+    for _, path in ipairs(Bridge.OPTIONAL) do
+        if path:find("^InfoPanel%.") and not present(path) then return nil end
+    end
     return {
         tab = Bridge.Resolve("InfoPanel.Panel.TAB"),
         arrow = Bridge.Resolve("InfoPanel.Panel.ARROW"),
@@ -807,6 +821,31 @@ function Bridge.BuffState(key)
     if type(up) ~= "boolean" then up = nil end
     return up, state.drawnBy
 end
+
+-- What a shown piece reads now (API.CooldownState): usable (castable now) and
+-- noPower (only short of power), each true, false, or nil where the game won't say.
+-- Both nil while the piece isn't on show.
+function Bridge.UsableState(key)
+    local API = _G.DaylightUI and _G.DaylightUI.API
+    if key == nil or not (Bridge.ApiFits() and type(API.CooldownState) == "function") then return nil end
+    local state = API.CooldownState(tostring(key))
+    if type(state) ~= "table" then return nil end
+    local usable, noPower = state.usable, state.noPower
+    if type(usable) ~= "boolean" then usable = nil end
+    if type(noPower) ~= "boolean" then noPower = nil end
+    return usable, noPower
+end
+
+-- ---------------------------------------------------------------------
+-- The washes' look (Overlay)
+-- ---------------------------------------------------------------------
+
+-- Daylight UI's mana blue, softened as its power bars show it (Style.PowerColor).
+function Bridge.ManaColor() return call("DaylightUI.Style.PowerColor", "MANA") end
+
+-- Daylight UI's wash strength, the auto attack wash on its action buttons
+-- (Skin.FLASH_ALPHA).
+function Bridge.WashAlpha() return Bridge.Resolve("ActionBars.Skin.FLASH_ALPHA") end
 
 -- Asks Daylight UI for a pass on the next frame (CdmRows.Refresh, coalesced).
 function Bridge.Refresh() return call("ActionBars.CdmRows.Refresh") end

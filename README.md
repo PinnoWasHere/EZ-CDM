@@ -72,3 +72,12 @@ What EZ-CDM adds on top of Daylight UI:
 ### Coming later
 
 Ready-made recipes, sharing one spell's sentences as a text string, and settings in `/dui`.
+
+### Contributing
+
+Setup, the tests and the rules a change follows are in [CONTRIBUTING.md](CONTRIBUTING.md).
+Every pull request runs the test suite on GitHub.
+
+### License
+
+Source-available, all rights reserved. See [LICENSE](LICENSE).

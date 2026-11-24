@@ -6,14 +6,19 @@
 ## X-License: All Rights Reserved
 ## X-Curse-Project-ID: 1827220
 ## Dependencies: DaylightUI
+## Category: DaylightUI Plugins
+## Group: EZ-CDM
 ## OptionalDeps: DaylightUI_ActionBars
 ## SavedVariables: EZCDMDB
 
 EZ-CDM.lua
 Bridge.lua
 Effects.lua
+Conditions.lua
+Overlay.lua
 AuraLinks.lua
 Grammar.lua
 Draft.lua
 Start.lua
 Drawer.lua
+Report.lua

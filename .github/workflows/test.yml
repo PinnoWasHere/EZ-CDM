@@ -1,0 +1,37 @@
+name: Tests
+
+# Every pull request, and by hand from the Actions tab. A v* tag runs release.yml.
+# The fake game is Daylight UI's test harness, cloned at the tag in tests/pin.lua and
+# loaded at run time (tests/ez_harness.lua). Neither it nor the game's UI code is
+# committed here.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # A hosted runner is slower than a desktop; the per-file CPU limit is for local runs.
+      EZCDM_FILE_BUDGET: "180"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LuaJIT
+        run: sudo apt-get update -q && sudo apt-get install -y -q luajit
+
+      - name: Clone Daylight UI at the pinned tag
+        run: |
+          tag=$(luajit -e 'io.write(dofile("tests/pin.lua").tag)')
+          git clone --quiet --depth 1 --branch "$tag" https://github.com/dayightt/DaylightUI .daylight/DaylightUI
+
+      - name: Fetch the game's UI code
+        run: python3 tools/fetch_blizzard.py
+
+      - name: Run the suite
+        run: luajit tests/run.lua --par
