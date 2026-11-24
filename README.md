@@ -31,7 +31,8 @@ needs a newer Daylight UI.
 3. Place spells with Daylight UI's own editor, as usual.
 4. Click a spell in your layout. The EZ drawer under the spell list shows its sentences.
    The tab on the list's edge folds the drawer away and opens it again.
-5. Click a word to change it, or "+ add a line" for a new one.
+5. Click a word to change it, or "+ add a line" for a new one. "+ a recipe" adds a
+   ready-made set of lines in one click.
 
 ### What you can set
 
@@ -45,6 +46,9 @@ needs a newer Daylight UI.
 - What a spell shows: its buff, its cooldown, or both.
 - Rules for a whole group: only in combat, only with a target, only in a group, hide while
   mounted, only in dungeons and raids or only in the open world, hide in a form.
+- Recipes, ready-made lines that fit the spell: Ready alert, Hidden, Dim while cooling,
+  Can't cast, Mana check, Almost there, Now usable, Proc pop, Missing reminder, Refresh
+  warning, Ended ping and Fight only.
 
 What EZ-CDM adds on top of Daylight UI:
 
@@ -52,11 +56,16 @@ What EZ-CDM adds on top of Daylight UI:
   as Improved Stormstrike. This glow is always a ring.
 - A glow and a sound a set number of seconds (2 to 10) before your buff or debuff falls off.
 - A different glow style for each moment of the same spell.
+- A gray wash over the icon when you can't cast the spell, and a blue wash when you don't
+  have enough power.
 
 ### Limits
 
 - The editor and the drawer close in combat. You set things up out of a fight.
-- A new or recolored in-combat proc glow lights after your next `/reload`.
+- A new or recolored in-combat proc glow lights at once. If the game refuses it, EZ-CDM
+  asks for a `/reload` as you close the editor.
+- A glow goes back to your accent color only with Daylight UI 2.2.6 or newer. On an older
+  Daylight UI it keeps the color you picked, and the drawer says so.
 - Procs whose timer the game hides in a fight (Improved Stormstrike, for example) get no
   "about to fall off" moment. The drawer says so on those spells.
 - "About to fall off" counts from your own cast, or from when the buff lands where Daylight
@@ -71,7 +80,7 @@ What EZ-CDM adds on top of Daylight UI:
 
 ### Coming later
 
-Ready-made recipes, sharing one spell's sentences as a text string, and settings in `/dui`.
+Sharing one spell's sentences as a text string, and settings in `/dui`.
 
 ### Contributing
 

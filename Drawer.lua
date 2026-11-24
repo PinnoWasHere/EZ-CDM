@@ -597,7 +597,8 @@ local function commit(rules)
         end
     end
     if not ok then refused = refusal(why, report) end
-    -- A glow color Daylight UI can't set back to the accent says so.
+    -- A color Daylight UI can't set back to the accent says so. That is the sweep's
+    -- color, and a glow's before API 1.15.
     for _, n in ipairs(report and report.notes or {}) do
         if n.code == "accent" then notices[#notices + 1] = n.words end
     end

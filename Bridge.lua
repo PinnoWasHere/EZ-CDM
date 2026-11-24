@@ -209,6 +209,13 @@ function Bridge.ApiFits()
     return major == Bridge.API_NEEDS[1] and minor >= Bridge.API_NEEDS[2]
 end
 
+-- Whether Daylight UI's setter takes nil for a glow color, which sets it back to the
+-- accent. API 1.15 (Daylight UI 2.2.6) brings it.
+function Bridge.GlowResets()
+    local major, minor = Bridge.ApiVersion()
+    return major == 1 and minor >= 15
+end
+
 -- True when the API fits, every internal is there and the Cooldown Manager is on.
 function Bridge.Ready()
     return Bridge.ApiFits() and #Bridge.Missing() == 0 and Bridge.CdmOn()

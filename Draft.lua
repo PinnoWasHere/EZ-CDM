@@ -321,12 +321,16 @@ local function planFor(key, rules, g)
         local old, new = norm(f, live[f]), fields[f]
         local glow = GLOW_OF[f]
         if glow then
-            -- Daylight UI's setter takes no "none" for a color, so an unset color
-            -- can't be written back. Only a lit glow shows it.
+            -- A lit glow's color goes back to the accent as nil. Before API 1.15
+            -- Daylight UI's setter refuses nil, so the color stays and a note says so.
+            -- An unlit color stays, as the card leaves it.
             if new == nil then
                 if old ~= nil and fields[glow] == true then
-                    note("accent", string.format("%s: Daylight UI can't set a glow back to the accent color, so it stays %s.",
-                        name, colorName(old)))
+                    if Bridge.GlowResets() then
+                        op(3, "clear", f, old, nil, function() return Bridge.SetSpellValue(g, key, f, nil) end)
+                    else
+                        note("accent", Grammar.WORDING.glowAccent:format(name, colorName(old)))
+                    end
                 end
             elseif not same(old, new) then
                 op(3, "set", f, old, new, function() return Bridge.SetSpellValue(g, key, f, new) end)

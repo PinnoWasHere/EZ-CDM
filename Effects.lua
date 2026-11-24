@@ -272,7 +272,8 @@ function Effects.Sync() Bridge.AfterRestrictions(sync, "ezcdm:effects:sync") end
 -- Whether a rule's up glow may need to change hands (Effects.MoveBack).
 local moveDue = true
 
--- Writes Daylight UI's upGlow for a piece: on in the rule's color, or off.
+-- Writes Daylight UI's upGlow for a piece: on in the rule's color, or off. An accent
+-- rule clears an old color where the setter takes nil (API 1.15).
 local function daylightGlow(g, p, key, v)
     if v == nil then
         if p.upGlow ~= true then return true end
@@ -281,6 +282,8 @@ local function daylightGlow(g, p, key, v)
     local ok = p.upGlow == true or Bridge.SetSpellValue(g, key, "upGlow", true)
     if ok and isRGB(v) and not sameColor(p.upGlowColor, v) then
         ok = Bridge.SetSpellValue(g, key, "upGlowColor", { v[1], v[2], v[3] })
+    elseif ok and not isRGB(v) and p.upGlowColor ~= nil and Bridge.GlowResets() then
+        ok = Bridge.SetSpellValue(g, key, "upGlowColor", nil)
     end
     return ok
 end

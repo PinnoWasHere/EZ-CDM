@@ -1026,6 +1026,8 @@ Grammar.WORDING = {
     -- Notes on a write: %s is the line "flash it" needs; the spell and its color.
     needs = "needs \"%s\" too",
     sweepAccent = "%s: Daylight UI can't set the sweep back to the accent color, so it stays %s.",
+    -- Before Daylight UI 2.2.6 (API 1.15) only: the spell and its glow's color.
+    glowAccent = "%s: Daylight UI can't set a glow back to the accent color, so it stays %s.",
     -- The drawer's strip heading for each kind of word.
     headings = {
         moment = "Choose a moment:", action = "Choose what happens:", color = "Choose a color:",

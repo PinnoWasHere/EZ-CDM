@@ -1022,8 +1022,21 @@ T.test("drawer form words: + hide it in a form adds one, its strip swaps it, rem
     noErrors()
 end)
 
-T.test("drawer writes: a glow color back to the accent says Daylight UI can't, small, in LABEL", function()
+T.test("drawer writes: a glow color back to the accent writes nil on Daylight UI 2.2.6 (API 1.15)", function()
+    local _, _, Drawer, _, k, _, Ed = editorWorld()
+    Ed.Select(k.clap)
+    wordOf(Drawer, 1, "color"):Click()
+    pick(Drawer, "accent")
+    T.isnil(pieceOf(k.clap).readyGlowColor, "the accent again")
+    T.eq(pieceOf(k.clap).readyGlow, true, "still lit")
+    T.eq(#blocksWith(Drawer, "notice"), 0, "no note")
+    T.eq(sentences(Drawer)[1].said, "When it's ready, glow with the spell's style in the accent color.")
+    noErrors()
+end)
+
+T.test("drawer writes: on API 1.14 a glow color back to the accent says Daylight UI can't, small, in LABEL", function()
     local DUI, _, Drawer, _, k, _, Ed = editorWorld()
+    DUI.API.minor = 14
     Ed.Select(k.clap)
     local before = db()
     wordOf(Drawer, 1, "color"):Click()
@@ -1760,12 +1773,12 @@ T.test("drawer recipes: + a recipe opens chips of the fitting recipes; a pick me
     T.isnil(Drawer.Slot(), "a pick closes the strip")
     T.eq(pieceOf(k.clap).readyGlow, true)
     T.eq(pieceOf(k.clap).readySound, "file:568016", "Daylight UI's Proc sound")
-    -- The glow is replaced by one in the accent, which Daylight UI's setter can't
-    -- write back, so the gold stays and the drawer says so, as for any such pick.
-    T.eq(said(Drawer), "When it's ready, glow with the spell's style in gold.\n"
+    -- The glow is replaced by one in the accent, which Daylight UI 2.2.6 writes back.
+    T.isnil(pieceOf(k.clap).readyGlowColor, "the gold is gone")
+    T.eq(said(Drawer), "When it's ready, glow with the spell's style in the accent color.\n"
         .. "When it's ready, play Proc.\nWhile it's cooling down, make it see-through.",
         "the glow replaced, the sound added, read back in the grammar's order")
-    T.truthy(blockWith(Drawer, "notice"), "the accent note")
+    T.falsy(blockWith(Drawer, "notice"), "no accent note")
     -- Every word stays clickable.
     T.truthy(wordOf(Drawer, 2, "sound"), "the sound is a word to change")
     -- The same family: hide replaces the fade.

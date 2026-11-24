@@ -128,6 +128,26 @@ T.test("bridge: an older Daylight UI (API 1.13) switches EZ-CDM off with Dayligh
     noErrors()
 end)
 
+T.test("bridge: GlowResets is API 1.15 and newer, which takes nil for a glow color", function()
+    local DUI, _, B, AB = world()
+    T.eq(DUI.API.minor, 15, "the pinned Daylight UI")
+    T.truthy(B.GlowResets())
+    -- The real setter: nil clears a glow color, and still refuses it for the sweep's.
+    local D = AB.CdmData
+    local set = D.Ensure(1)
+    local key = CW.ID(REND, 0)
+    D.AddPiece(set, key, "icon", 0, 0)
+    T.truthy(D.SetSpellValue(set, key, "readyGlowColor", { 1, 0, 0 }))
+    T.truthy(D.SetSpellValue(set, key, "readyGlowColor", nil), "nil taken")
+    T.isnil(set.pieces[key].readyGlowColor)
+    T.falsy(D.SetSpellValue(set, key, "activeColor", nil), "the sweep's color takes no nil")
+    DUI.API.minor = 14
+    T.falsy(B.GlowResets(), "1.14 has no reset")
+    DUI.API.major, DUI.API.minor = 2, 0
+    T.falsy(B.GlowResets(), "another major")
+    noErrors()
+end)
+
 T.test("bridge: the buff moments (API 1.14): OnBuff hears them, BuffState reads them, Refresh asks a pass", function()
     local _, _, B, AB = world()
     T.truthy(B.ApiFits(), "API 1.14")

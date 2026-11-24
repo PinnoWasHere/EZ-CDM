@@ -656,6 +656,34 @@ T.test("effects face: a holder with client buttons says so, and its rule stays E
     noErrors()
 end)
 
+T.test("effects face: an accent rule handed back clears an old glow color on API 1.15", function()
+    local _, ns, AB = weaponWorld()
+    local D = AB.CdmData
+    local profile = ns.Bridge.SavedProfile(1)
+    D.SetSpellValue(D.Ensure(1), "offhand", "upGlowColor", BLUE)
+    EZCDMDB.upGlow = { [profile] = { offhand = true } }
+    local db = { dui = deep(DaylightUIDB), ez = deep(EZCDMDB) }
+    local _, ns2, AB2 = weaponWorld(db)
+    T.isnil(ns2.Effects.Get("offhand"), "EZ-CDM's rule is gone")
+    T.eq(pieceOf(AB2, "offhand").upGlow, true, "Daylight UI's upGlow is on")
+    T.isnil(pieceOf(AB2, "offhand").upGlowColor, "in the accent, the blue gone")
+    T.deq(ns2.Draft.Rules("offhand").lines, { L("up", "glow") }, "the same line")
+    noErrors()
+end)
+
+T.test("effects face: on API 1.14 an accent rule handed back keeps an old glow color", function()
+    local _, ns, AB = weaponWorld()
+    local D = AB.CdmData
+    local profile = ns.Bridge.SavedProfile(1)
+    D.SetSpellValue(D.Ensure(1), "offhand", "upGlowColor", BLUE)
+    EZCDMDB.upGlow = { [profile] = { offhand = true } }
+    DaylightUI.API.minor = 14
+    ns.Effects.MoveBack()
+    T.eq(pieceOf(AB, "offhand").upGlow, true)
+    T.deq(pieceOf(AB, "offhand").upGlowColor, BLUE, "Daylight UI's setter takes no nil before 1.15")
+    noErrors()
+end)
+
 T.test("effects face: a rule an earlier build saved on a face piece goes back to Daylight UI at load", function()
     local _, ns, AB = weaponWorld()
     local profile = ns.Bridge.SavedProfile(1)
