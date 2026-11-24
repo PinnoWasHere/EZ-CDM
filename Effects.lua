@@ -12,12 +12,14 @@ local _, ns = ...
 -- Daylight UI draws on its own face, with no client button (Effects.Drawn). Draft
 -- reads and writes the rule through Effects.Merge and Effects.Split.
 --
--- The client takes a button's animations only while it makes the button, and then
--- the button and its children answer secrets (IsShown, IsVisible, GetWidth,
--- GetHeight, IsPlaying), so Daylight UI's own SetGlow can't run there. EZ-CDM
--- builds the ring itself from Daylight UI's art and measures, setting only. A ring
--- is built once, in the color the rule has then, and only turned off later. A new
--- or recolored rule lights from the next /reload (Effects.Pending).
+-- While the client makes a button, the button and its children answer secrets
+-- (IsShown, IsVisible, GetWidth, GetHeight, IsPlaying), so Daylight UI's own
+-- SetGlow can't run there. EZ-CDM builds the ring itself from Daylight UI's art and
+-- measures, setting only. Later the client locks the button only while auras are
+-- secret (DenyTaintedAccessWhenAurasAreSecret), so out of that a new rule builds
+-- and hands over a ring on each button the hook has seen, and a new color repaints
+-- the ring in place. A rule the client still won't take waits for a /reload
+-- (Effects.Pending), and the editor asks for one as it closes (Effects.AskReload).
 --
 -- The fall-off lead and its sound ride on Daylight UI's recast clock (below). A
 -- proc the aura icon holder draws gets no fall-off lead, since its aura can't be
@@ -39,6 +41,12 @@ local weak = { __mode = "k" }
 local rings = setmetatable({}, weak)
 -- Buttons the hook has seen since load.
 local seen = 0
+-- Piece key -> { [client button] = its side in px } for every button the hook has seen.
+local buttonsOf = {}
+-- Client buttons that refused a ring handed over later. Tried again after a /reload.
+local refused = setmetatable({}, weak)
+-- Whether a rule changed since the rings last matched every rule (Effects.ReloadDue).
+local changed = false
 
 -- ---------------------------------------------------------------------
 -- The rule
@@ -77,6 +85,7 @@ function Effects.Set(g, key, value)
     all[profile] = all[profile] or {}
     all[profile][key] = clean(value)
     if next(all[profile]) == nil then all[profile] = nil end
+    changed = true
     Effects.Sync()
     return true
 end
@@ -142,17 +151,23 @@ local function ringFrames(btn, size, art)
     return frame, holder
 end
 
+-- The rule's color, or the accent as Daylight UI paints its ring (paintGlow,
+-- CdmEffects.lua:278-295).
+local function paint(tex, color)
+    if color then
+        tex:SetVertexColor(color[1], color[2], color[3], 1)
+    else
+        Bridge.PaintAccent(tex)
+    end
+end
+
 -- The ring's texture on holder and its looping flipbook on frame.
 local function ringArt(frame, holder, art, color)
     local tex = holder:CreateTexture(nil, "OVERLAY")
     tex:SetAllPoints(holder)
     tex:SetAtlas(art.atlas)
     tex:SetDesaturated(true)
-    if color then
-        tex:SetVertexColor(color[1], color[2], color[3], 1)
-    else
-        Bridge.PaintAccent(tex)
-    end
+    paint(tex, color)
     local anim = frame:CreateAnimationGroup()   -- look-ok: Daylight UI's ring flipbook, its constants via the Bridge
     anim:SetLooping("REPEAT")
     local fb = anim:CreateAnimation("FlipBook")
@@ -177,12 +192,17 @@ end
 local function colorOf(v) return isRGB(v) and v or nil end
 
 -- Inside initializeFrame (Bridge.HookAuraButtons). It only makes and sets things,
--- and tests nothing the button or its children report. A holder made under
--- restrictions waits for a /reload out of a fight, since its button locks as soon
--- as this returns.
+-- and tests nothing the button or its children report. A button made under
+-- restrictions locks as soon as this returns, so it gets its ring once they lift.
 local function onButton(btn, key, size)
     seen = seen + 1
-    if size == nil or Bridge.Restricted() then return end
+    if size == nil then return end
+    buttonsOf[key] = buttonsOf[key] or setmetatable({}, weak)
+    buttonsOf[key][btn] = size
+    if Bridge.Restricted() then
+        Effects.Sync()
+        return
+    end
     if type(btn.AddAuraShownAnimation) ~= "function" then return end
     local want = Effects.Get(key)
     if want == nil then return end
@@ -201,6 +221,23 @@ local function unhand(btn, r)
     btn:RemoveAuraShownAnimation(r.anim)
 end
 
+-- A ring on a button the client made earlier, handed over out of restrictions.
+-- The loop starts at once, since a button already up plays no shown moment until
+-- its next aura; on a hidden button nothing shows. A button that refuses keeps
+-- the rule waiting for a /reload, and its frame stays hidden.
+local function handLate(btn, key, size, want)
+    local r = buildRing(btn, size, colorOf(want))
+    if not r then return end
+    if not Bridge.SafeCall(btn.AddAuraShownAnimation, btn, r.anim) then
+        r.frame:Hide()
+        refused[btn] = true
+        return
+    end
+    r.anim:Play()
+    r.key, r.color = key, want
+    rings[btn] = r
+end
+
 local function sync()
     for btn, r in pairs(rings) do
         if Effects.Get(r.key) == nil then
@@ -208,9 +245,26 @@ local function sync()
             unhand(btn, r)
         end
     end
+    if Bridge.AurasSecret() then return end
+    for _, r in pairs(rings) do
+        local want = Effects.Get(r.key)
+        if not sameColor(r.color, want) then
+            paint(r.tex, colorOf(want))
+            r.color = want
+        end
+    end
+    for key, set in pairs(buttonsOf) do
+        local want = Effects.Get(key)
+        if want ~= nil and Effects.Drawn(key) then
+            for btn, size in pairs(set) do
+                if rings[btn] == nil and not refused[btn] then handLate(btn, key, size, want) end
+            end
+        end
+    end
 end
 
--- Turns off every ring whose rule is gone (a removed line, another profile).
+-- Matches every ring to its rule: off where the rule is gone (a removed line,
+-- another profile), repainted in a new color, and built on a button that has none.
 -- Waits for restrictions to lift.
 function Effects.Sync() Bridge.AfterRestrictions(sync, "ezcdm:effects:sync") end
 
@@ -259,6 +313,30 @@ function Effects.Pending(key)
     if want == nil or not Effects.Drawn(key) then return false end
     local lit, color = Effects.Lit(key)
     return not (lit and sameColor(color, want))
+end
+
+-- Whether a rule changed since the rings last matched, and some rule of the current
+-- profile still waits for a /reload. Cheap while nothing changed.
+function Effects.ReloadDue()
+    if not changed then return false end
+    local profile = Bridge.ProfileOf()
+    local byKey = profile ~= nil and store()[profile]
+    for key in pairs(type(byKey) == "table" and byKey or {}) do
+        if Effects.Pending(key) then return true end
+    end
+    changed = false
+    return false
+end
+
+-- Asks for a /reload in Daylight UI's question box when a ring waits for one.
+-- Out of restrictions only. "Later" keeps quiet until another rule changes.
+-- Returns whether it asked.
+function Effects.AskReload()
+    if Bridge.Restricted() or not Effects.ReloadDue() then return false end
+    local W = ns.Grammar and ns.Grammar.WORDING or {}
+    Bridge.AskReload("ezcdm:reload", W.reloadAsk, _G.RELOADUI or W.reloadYes, _G.LATER or W.reloadLater,
+        function() changed = false end)
+    return true
 end
 
 -- For tests: client buttons the hook has seen, and the ring on btn ({ key, frame,
@@ -792,6 +870,7 @@ if type(API) == "table" and type(API.On) == "function" then
                 moveDue = true
                 Effects.Sync()
             end)
+            Bridge.HookEditor("Close", function() Effects.AskReload() end)
         end
     end, "EZ-CDM")
 end

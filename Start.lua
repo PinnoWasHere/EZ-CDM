@@ -1,11 +1,11 @@
-local addonName, ns = ...
+local _, ns = ...
 
 -- The start block beside Daylight UI's CDM editor tray, shown whenever the editor
 -- is open, at the tray's height. "EZ-Start Blank" asks for a name, then makes a new
 -- empty layout. "EZ-Load Layout" turns the block into the class's layouts, picked
 -- on a copy while "Work on a copy" is on. The open editor shows the new layout at
--- once. /ezcdm (or /dui ezcdm) opens Daylight UI's editor. Every look is Daylight
--- UI's: the setup guide's choice cards, its window parts and API.md calls, through
+-- once. Daylight UI's /cdm opens the editor. Every look is Daylight UI's: the
+-- setup guide's choice cards, its window parts and API.md calls, through
 -- ns.Bridge. The words are Grammar.WORDING's.
 
 local Bridge = ns.Bridge
@@ -306,18 +306,6 @@ function Start.Frame() return blk end
 -- the name box's name, input, create, nameBack, noName.
 function Start.Parts() return parts end
 function Start.Shown() return on and blk ~= nil and blk:IsShown() end
-
--- /ezcdm: Daylight UI's editor, with the block beside it. Refuses in combat and
--- while EZ-CDM is off, with one chat line.
-function Start.Open()
-    if InCombatLockdown() then return refuse("combat") end
-    if not Bridge.Ready() then return refuse("off") end
-    return Bridge.OpenEditor()
-end
-
-SLASH_EZCDM1 = "/ezcdm"
-SlashCmdList.EZCDM = function() Start.Open() end
-API.For(addonName).RegisterCommand("ezcdm", function() Start.Open() end, "Start a cooldown layout in EZ mode.")
 
 -- Hooks go on once Daylight UI has started its modules and the Bridge is ready.
 local function hookEditor()

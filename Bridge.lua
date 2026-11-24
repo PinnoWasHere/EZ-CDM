@@ -96,6 +96,9 @@ Bridge.NEEDS = {
     "ActionBars.CdmRows.DrawnBy",
     "DaylightUI.Restricted",
     "DaylightUI.AfterRestrictions",
+    "DaylightUI.SafeCall",
+    -- Effects: the /reload question as the editor closes, Daylight UI's own question box
+    "DaylightUI.Widgets.Ask",
     -- Effects: the fall-off lead and its sound on Daylight UI's recast clock (me.Wrap)
     "ActionBars.CdmAuras.ClipDue",
     "ActionBars.CdmAuras.Clip",
@@ -620,6 +623,29 @@ function Bridge.Restricted() return call("DaylightUI.Restricted") == true end
 -- a waiting one.
 function Bridge.AfterRestrictions(fn, key) return call("DaylightUI.AfterRestrictions", fn, key) end
 
+-- Whether the game holds auras secret now (C_Secrets.ShouldAurasBeSecret). A client
+-- aura button refuses addon code then (DenyTaintedAccessWhenAurasAreSecret), also
+-- between fights in a PvP match.
+function Bridge.AurasSecret()
+    local S = _G.C_Secrets
+    if type(S) ~= "table" or type(S.ShouldAurasBeSecret) ~= "function" then return false end
+    local yes = S.ShouldAurasBeSecret()
+    if type(issecretvalue) == "function" and issecretvalue(yes) then return true end
+    return yes == true
+end
+
+-- Runs fn(...) through Daylight UI's SafeCall: an error goes to its bug report.
+-- Returns whether it ran without one.
+function Bridge.SafeCall(fn, ...) return call("DaylightUI.SafeCall", fn, ...) == true end
+
+-- Daylight UI's own question box (Options/Widgets.lua W.Ask) asking for a /reload.
+-- Its Reload is a secure /reload button, since addon code can't reload on this
+-- client, and it waits out a fight. onLater runs on the other answer.
+function Bridge.AskReload(key, text, yes, later, onLater)
+    return call("DaylightUI.Widgets.Ask", { key = key, text = text, yes = yes, no = later, reload = true,
+                                            onNo = onLater })
+end
+
 -- Daylight UI's ring glow, the game's proc loop it draws (CdmEffects.lua:184-189):
 -- { atlas, rows, columns, frames, loop = seconds per turn, pad = how far it
 -- reaches past each edge, as a share of the item's short side }. nil when any is gone.
@@ -644,8 +670,8 @@ end
 function Bridge.PaintAccent(tex) return call("DaylightUI.Style.PaintAccent", tex, 1) end
 
 -- fn(btn, key, size) runs inside the client's initializeFrame for each button an
--- aura icon holder (CdmAuras) is given, after Daylight UI dresses it: the one time
--- the client lets an addon add to the button. key is the holder's piece and size
+-- aura icon holder (CdmAuras) is given, after Daylight UI dresses it, the one time
+-- the button isn't locked under restrictions. key is the holder's piece and size
 -- the button's side in px, as Daylight UI sets it (h.size), or nil. Hooked on
 -- CdmEffects.MakeSlide, the last call of that dressing, through Daylight UI's
 -- public hook. Aura bars (CdmBars) call it too and are skipped. Returns the hook's

@@ -314,7 +314,7 @@ local function words(s, pieces, opts)
     b.line, b.group, b.form, b.note, b.notice, b.refusal, b.adds, b.fade, b.shared, b.choices, b.hint, b.default,
         b.groupHead, b.shows, b.style, b.ezGlow, b.ezReload = nil, nil, nil, nil, nil, nil, nil, nil, nil,
         nil, nil, nil, nil, nil, nil, nil, nil
-    b.ezRingStyle, b.ezRingOther, b.fallOff = nil, nil, nil
+    b.ezRingOther, b.fallOff = nil, nil
     b.onRemove = opts.onRemove
     b.remove:SetShown(opts.onRemove ~= nil)
     return b
@@ -879,15 +879,15 @@ end
 
 -- The spell's glow style, for its glows with no style of their own: shown while a
 -- line glows or a style is saved. A piece whose up glow is EZ-CDM's combat ring
--- offers no style, since that glow is always the ring. A saved style stays as it
--- is: Daylight UI uses it for the piece's other glows, and a note says so.
+-- offers no style, since its line's note already says the glow is a ring. A saved
+-- style stays as it is: Daylight UI uses it for the piece's other glows, and a note
+-- says so.
 local function styleLine(s, rules, key)
     local glows = rules.style ~= nil
     for _, l in ipairs(rules.lines) do glows = glows or l.action == "glow" end
     if not glows then return end
     local keys, values = styleChoices(false)
     if Effects.Drawn(key) and Effects.Get(key) ~= nil then
-        words(s, { { text = WORDING.ezRingStyle, size = "small", color = "LABEL" } }).ezRingStyle = true
         if rules.style ~= nil then
             local name = values[rules.style] or tostring(rules.style)
             words(s, { { text = WORDING.ezRingOther:format(name), size = "small", color = "LABEL" } }).ezRingOther = true

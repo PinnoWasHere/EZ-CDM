@@ -898,9 +898,14 @@ Grammar.WORDING = {
     -- Under a finished line that asks for what Daylight UI does anyway.
     default = "Daylight already does this.",
     -- Under "While it's active, glow" on a piece EZ-CDM draws that glow for, and
-    -- while that glow waits for a /reload (Effects.Pending).
+    -- while the client won't take that glow until a /reload (Effects.Pending).
     ezGlow = "Ring style; drawn by EZ so it works in combat.",
-    ezGlowReload = "It lights after your next /reload.",
+    ezGlowReload = "It lights after a /reload. EZ asks for one as the editor closes.",
+    -- The question as the editor closes with such a glow waiting (Effects.AskReload),
+    -- and its buttons where the game has no words of its own (RELOADUI, LATER).
+    reloadAsk = "EZ-CDM: /reload to light the new glow.",
+    reloadYes = "Reload",
+    reloadLater = "Later",
     -- The fall-off lead after "When it's about to fall off" (%s is its seconds), and
     -- with no lead, when Daylight UI's own timing stands (%s is daylightTiming).
     lead = "(%s before)",
@@ -920,7 +925,6 @@ Grammar.WORDING = {
     },
     -- In place of the glow style line on such a piece, and under it when another
     -- style is saved (%s is that style's name), which Daylight UI keeps for the rest.
-    ezRingStyle = "Its combat glow is always a ring.",
     ezRingOther = "Its other glows still use %s.",
     -- Over the group words: every spell in the group (%s), or the spell alone.
     wholeGroup = "For its whole group: %s",
