@@ -141,6 +141,11 @@ Bridge.OPTIONAL = {
     "DaylightUI.Tour.Stop",
     "DaylightUI.Tour.Pop",
     "ActionBars.CdmEditor.PreviewOf",
+    -- The tour's demo spell: picked from the tray, added as the tray adds one, and
+    -- removed from its profile. Without them, the tour runs on the player's spells.
+    "ActionBars.CdmEditor.Spells",
+    "ActionBars.CdmEditor.Add",
+    "ActionBars.CdmData.RemovePiece",
 }
 
 -- The table a root name stands for, or nil.
@@ -450,6 +455,14 @@ function Bridge.SetChainValue(g, key, field, value)
     return answer(call("ActionBars.CdmData.SetChainValue", set, key, field, value))
 end
 
+-- fn() runs before EZ-CDM points a talent set at another profile (the start
+-- block's Blank and Load). The tour takes its demo spell out of the old layout then.
+local switchHooks = {}
+function Bridge.BeforeSwitch(fn) switchHooks[#switchHooks + 1] = fn end
+local function switching()
+    for _, fn in ipairs(switchHooks) do fn() end
+end
+
 -- Copies profile from into a new one (named name, or its name made unique) and
 -- picks the copy for talent set g. g's own layout isn't saved first, so a set with
 -- none gets no extra profile. Every other profile is left as it was. Returns the
@@ -460,6 +473,7 @@ function Bridge.CopyAndAssign(g, from, name)
     g = g or Bridge.CurrentIndex()
     if not isSet(g) then return false, "set" end
     if not Bridge.Profile(from) then return false, "rejected" end
+    switching()
     local id = call("ActionBars.CdmData.CopyProfile", from, name)
     if not id then return false, "rejected" end
     if not call("ActionBars.CdmData.Assign", g, id) then return false, "rejected" end
@@ -473,6 +487,7 @@ function Bridge.Assign(g, id)
     g = g or Bridge.CurrentIndex()
     if not isSet(g) then return false, "set" end
     if not Bridge.Profile(id) then return false, "rejected" end
+    switching()
     return answer(call("ActionBars.CdmData.Assign", g, id))
 end
 
@@ -486,6 +501,7 @@ function Bridge.NewAndAssign(g, name)
     if not isSet(g) then return false, "set" end
     local class = Bridge.MyClass()
     if not class then return false, "unsaved" end
+    switching()
     local id = call("ActionBars.CdmData.NewProfile", name, class)
     if not id then return false, "rejected" end
     if not call("ActionBars.CdmData.Assign", g, id) then return false, "rejected" end
@@ -673,6 +689,15 @@ function Bridge.SafeCall(fn, ...) return call("DaylightUI.SafeCall", fn, ...) ==
 function Bridge.AskReload(key, text, yes, later, onLater)
     return call("DaylightUI.Widgets.Ask", { key = key, text = text, yes = yes, no = later, reload = true,
                                             onNo = onLater })
+end
+
+-- A note in the same box, with a title and one button: What's New and the newer
+-- version notice. It waits its turn behind a question that is up. False when this
+-- Daylight UI has no box.
+function Bridge.Note(key, title, text, okay)
+    if type(Bridge.Resolve("DaylightUI.Widgets.Ask")) ~= "function" then return false end
+    call("DaylightUI.Widgets.Ask", { key = key, title = title, text = text, yes = okay, no = false })
+    return true
 end
 
 -- Daylight UI's ring glow, the game's proc loop it draws (CdmEffects.lua:184-189):
@@ -907,6 +932,71 @@ function Bridge.StopTour() return call("DaylightUI.Tour.Stop") end
 function Bridge.TourPop(text) return call("DaylightUI.Tour.Pop", text) or text end
 -- A placed piece's frame in the editor, or nil.
 function Bridge.PiecePreview(key) return call("ActionBars.CdmEditor.PreviewOf", key) end
+
+-- ---------------------------------------------------------------------
+-- The tour's demo spell
+-- ---------------------------------------------------------------------
+
+-- Whether this Daylight UI can place and remove a demo spell.
+function Bridge.CanDemo()
+    for _, path in ipairs({ "ActionBars.CdmEditor.Spells", "ActionBars.CdmEditor.Add",
+                            "ActionBars.CdmData.RemovePiece" }) do
+        if type(Bridge.Resolve(path)) ~= "function" then return false end
+    end
+    return true
+end
+
+-- The open editor's tray: { id, kind, aura, name, placed, unlearned, custom }, in
+-- its order (CdmEditor.Spells).
+function Bridge.TraySpells() return call("ActionBars.CdmEditor.Spells") end
+
+-- Picks a piece in the open editor (nil for none).
+function Bridge.Select(key) return call("ActionBars.CdmEditor.Select", key) end
+
+-- Adds key to the open editor's layout as shape, at a free spot, as a tray pick
+-- does (CdmEditor.Add). The editor picks it.
+function Bridge.AddPiece(key, shape)
+    local ok, why = canWrite()
+    if not ok then return false, why end
+    if not Bridge.EditorOpen() then return false, "rejected" end
+    local set = Bridge.Layout()
+    if type(set) ~= "table" or type(set.pieces) ~= "table" or set.pieces[key] then return false, "rejected" end
+    call("ActionBars.CdmEditor.Add", key, shape)
+    return answer(set.pieces[key] ~= nil)
+end
+
+-- The top-level keys of profile id's layout, { [k] = true }, or nil.
+function Bridge.LayoutKeys(id)
+    local p = Bridge.Profile(id)
+    if not p then return nil end
+    local keys = {}
+    for k in pairs(p.set) do keys[k] = true end
+    return keys
+end
+
+-- Removes key from profile id's layout when it's there (CdmData.RemovePiece).
+-- keys, from Bridge.LayoutKeys before key came: a plain value Daylight UI added to
+-- the layout since goes too (tracksKept, its mark once a layout first holds a
+-- piece). The open editor drops its pick of key and redraws.
+function Bridge.RemovePiece(id, key, keys)
+    local ok, why = canWrite()
+    if not ok then return false, why end
+    local p = Bridge.Profile(id)
+    if not (p and type(p.set.pieces) == "table") then return false, "rejected" end
+    if p.set.pieces[key] then call("ActionBars.CdmData.RemovePiece", p.set, key) end
+    if type(keys) == "table" then
+        for k, v in pairs(p.set) do
+            if type(v) ~= "table" and not keys[k] then p.set[k] = nil end
+        end
+    end
+    if Bridge.EditorOpen() then
+        if Bridge.Selected() == key then Bridge.Select(nil) end
+        Bridge.EditorChanged()
+    else
+        Bridge.Refresh()
+    end
+    return true
+end
 
 local API = _G.DaylightUI and _G.DaylightUI.API
 if type(API) == "table" and type(API.On) == "function" then

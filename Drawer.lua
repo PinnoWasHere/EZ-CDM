@@ -6,7 +6,10 @@ local _, ns = ...
 -- that spell's sentences. A chosen word is Daylight UI's link in the accent, a
 -- blank is its chip. Clicking either fills the strip at the drawer's bottom with
 -- chips for the words that fit, and a pick writes the spell at once (Draft.Write),
--- then the editor redraws. The drawer comes and goes with the editor (/cdm too),
+-- then the editor redraws. The strip stays open on its word, with the new pick lit,
+-- until the word is clicked again, another word or spell is picked, a press lands on
+-- empty space, or the drawer folds or the editor closes. The drawer comes and goes
+-- with the editor (/cdm too),
 -- through Daylight UI's public hook on the editor's Open, Close, Select, Draw and
 -- EndTrayMove. Every look is Daylight UI's, through ns.Bridge and API.md calls.
 -- Without the info panel loaded, a header row with Daylight UI's chevron folds it.
@@ -64,13 +67,14 @@ local on = false   -- attached to an open editor
 local waiting      -- hidden while a + on the picked piece waits for a spell
 local shown        -- the piece the drawer shows, or nil
 local parts = {}   -- body, bodyStack, strip, stripStack, rule
-local slot         -- the open strip: { id, kind, heading, keys, values, current, onPick }
+local slot         -- the open strip: { id, kind, heading, keys, values, current, onPick, follow }
 local pending = {} -- the shown spell's lines not finished yet, after its own
 local kept = {}    -- the shown spell's finished lines that ask for Daylight UI's default
 local refused      -- the last pick that didn't write: { why, text, notes }
 local notices = {} -- what the last write couldn't do, in plain words
 local openNext     -- a word id whose strip opens on the next draw
 local drawn = {}   -- the word ids the body shows now; a strip lives only while its word does
+local stripFor     -- the word id the strip was last drawn for, so its scroll is kept across picks
 
 local function pad() return Bridge.Gap() or 0 end
 
@@ -354,13 +358,41 @@ end
 -- Whether EZ-CDM's frames are on top.
 function Drawer.Front() return front end
 
+-- Whether the mouse is over a control the strip works with: a word or chip, a remove
+-- button, a scroll bar, or Daylight UI's color picker.
+local function overControl()
+    for _, name in ipairs({ "bodyStack", "stripStack" }) do
+        local s = parts[name]
+        if s then
+            if s.bar:IsMouseEnabled() and s.bar:IsMouseOver() then return true end
+            if s.scroll:IsMouseOver() then
+                for _, b in ipairs(s.pieces) do
+                    if b:IsShown() and b.remove and b.remove:IsShown() and b.remove:IsMouseOver() then return true end
+                    for _, t in ipairs(b.tokens or {}) do
+                        if t.piece and t.piece.kind and t:IsShown() and t:IsMouseOver() then return true end
+                    end
+                end
+            end
+        end
+    end
+    local picker = rawget(_G, "ColorPickerFrame")
+    return type(picker) == "table" and type(picker.IsShown) == "function" and picker:IsShown()
+        and picker:IsMouseOver() or false
+end
+
 -- A mouse press anywhere decides: over one of EZ-CDM's frames it lifts them,
 -- anywhere else it drops them, so a click on Daylight UI's card brings it back.
+-- A press on empty space, inside the drawer or out, closes the open strip.
 function Drawer.Press()
+    local inside = false
     for _, f in pairs(frames()) do
-        if f:IsVisible() and f:IsMouseOver() then return Drawer.Lift() end
+        if f:IsVisible() and f:IsMouseOver() then inside = true end
     end
-    Drawer.Drop()
+    if inside then Drawer.Lift() else Drawer.Drop() end
+    if slot and not overControl() then
+        slot = nil
+        Drawer.Refresh()
+    end
 end
 
 -- EZ-CDM's own listener for the game's GLOBAL_MOUSE_DOWN, on while the editor is open.
@@ -570,15 +602,48 @@ local function refusal(why, report)
     return { why = why, text = text, notes = notes }
 end
 
+-- Points the open strip at its word after a write. A line's word ids carry the
+-- line's index, and the grammar can move the line, so target (the line the strip
+-- is on) is found again. A group or form word's id carries the word, so it
+-- follows the pick. A word that is gone closes the strip.
+local function follow(target, open)
+    if not slot then return end
+    local was = slot.id
+    local at, what = slot.id:match("^line:(%d+):(.+)$")
+    if at then
+        local line
+        if target then
+            local rules, _, last = current()
+            for p, l in ipairs(open) do
+                if l == target then line = last + p end
+            end
+            if not line then
+                for i = 1, last do
+                    local l = rules.lines[i]
+                    if l.moment == target.moment and l.action == target.action then line = i; break end
+                end
+            end
+        end
+        if line then slot.id = "line:" .. line .. ":" .. what else slot = nil end
+    elseif slot.follow and slot.picked ~= nil then
+        slot.id = slot.follow(slot.picked)
+    end
+    if slot then
+        -- The strip is the same one at its new id, so its scroll stays.
+        if stripFor == was then stripFor = slot.id end
+        slot.picked = nil
+    end
+end
+
 -- Writes the shown spell's finished lines, group and form words at once. Lines
--- with a blank wait in the drawer. A refusal writes nothing and says why.
-local function commit(rules)
+-- with a blank wait in the drawer. A write leaves the strip open on its word;
+-- target is the line it is on. A refusal writes nothing, says why and closes it.
+local function commit(rules, target)
     local done, open = {}, {}
     for _, l in ipairs(rules.lines) do
         if l.moment ~= nil and l.action ~= nil then done[#done + 1] = l else open[#open + 1] = l end
     end
-    -- Any write closes the strip.
-    pending, refused, notices, slot = open, nil, {}, nil
+    pending, refused, notices = open, nil, {}
     local ok, why, report = Draft.Write(shown, { lines = done, group = rules.group, forms = rules.forms,
         shows = rules.shows, style = rules.style })
     if ok then
@@ -595,8 +660,10 @@ local function commit(rules)
         for i, l in ipairs(done) do
             if not beaten[i] and Grammar.IsDefault(l, kind) then kept[#kept + 1] = copy(l) end
         end
+        follow(target, open)
+    else
+        refused, slot = refusal(why, report), nil
     end
-    if not ok then refused = refusal(why, report) end
     -- A color Daylight UI can't set back to the accent says so. That is the sweep's
     -- color, and a glow's before API 1.15.
     for _, n in ipairs(report and report.notes or {}) do
@@ -611,21 +678,27 @@ local function commit(rules)
     return ok, why
 end
 
--- Changes the shown spell's rules and writes them.
+-- Changes the shown spell's rules and writes them. The strip stays on its word,
+-- unless the change removes the line the word is on.
 local function edit(fn)
     if shown == nil then return end
     local rules = current()
+    local target = slot and rules.lines[tonumber(slot.id:match("^line:(%d+):") or "")]
     fn(rules)
-    return commit(rules)
+    if target then
+        local found = false
+        for _, l in ipairs(rules.lines) do found = found or l == target end
+        if not found then slot, target = nil, nil end
+    end
+    return commit(rules, target)
 end
 
--- A strip chip: closes the strip, then drops the word in.
+-- A strip chip: drops the word in. The strip stays open for the next pick.
 local function drop(k)
     local t = slot
     if not t then return end
-    slot = nil
+    t.picked = k
     t.onPick(k)
-    if slot == nil and not t.writes then Drawer.Refresh() end
 end
 
 -- Group words apply to the whole group: a note names the others in it.
@@ -749,7 +822,8 @@ end
 local function word(text, id, def, chosen, color)
     def.writes = def.writes ~= false
     drawn[id] = true
-    if openNext == id then
+    -- An open strip takes the fresh word, so its choices and lit pick are current.
+    if openNext == id or (slot and slot.id == id) then
         openNext = nil
         slot = def
         def.id, def.heading = id, Drawer.HEADINGS[def.kind] or ""
@@ -1062,7 +1136,7 @@ local function groupLines(s, rules)
         end
         local b = words(s, {
             word(upper(GROUP_VALUES[k]), "group:" .. k, { kind = "group", keys = keys, values = GROUP_VALUES,
-                current = k, onPick = function(x)
+                current = k, follow = function(x) return "group:" .. x end, onPick = function(x)
                     edit(function(r)
                         setGroup(r, k, false)
                         setGroup(r, x, true)
@@ -1094,7 +1168,7 @@ local function formLines(s, kind, rules)
         local b = words(s, {
             { text = upper(Grammar.FormWords("")) },
             word(names[k] or k, "form:" .. k, { kind = "form", keys = keys, values = names, current = k,
-                onPick = function(x)
+                follow = function(x) return "form:" .. x end, onPick = function(x)
                     edit(function(r)
                         for j, y in ipairs(r.forms) do
                             if y == k then r.forms[j] = x; break end
@@ -1111,6 +1185,18 @@ local function formLines(s, kind, rules)
         end })
         b.form = k
     end
+end
+
+-- An add link's strip, built on every draw. The open one takes the fresh choices, so
+-- what was just added is gone from it.
+local function adder(id, def)
+    def.writes = true
+    drawn[id] = true
+    if slot and slot.id == id then
+        slot = def
+        def.id, def.heading = id, Drawer.HEADINGS[def.kind] or ""
+    end
+    return def
 end
 
 -- "+ add a line", "+ a rule for its whole group", "+ a recipe" and "+ hide it in a form …".
@@ -1133,18 +1219,18 @@ local function addLinks(s, kind, rules)
         if not taken then free[#free + 1] = k end
     end
     if #free > 0 then
-        drawn["group:+"] = true
+        local def = adder("group:+", { kind = "group", keys = free, values = GROUP_VALUES,
+            onPick = function(k) edit(function(r) setGroup(r, k, true) end) end })
         pieces[#pieces + 1] = { kind = "add", text = Drawer.ADD_GROUP, word = "group", onClick = function()
-            Drawer.Choose("group:+", { kind = "group", keys = free, values = GROUP_VALUES,
-                onPick = function(k) edit(function(r) setGroup(r, k, true) end) end, writes = true })
+            Drawer.Choose("group:+", def)
         end }
     end
     local recipes = Grammar.Recipes(kind)
     if #recipes > 0 then
-        drawn["recipe:+"] = true
+        local def = adder("recipe:+", { kind = "recipe", keys = recipes, values = WORDING.recipes,
+            onPick = function(k) edit(function(r) Grammar.ApplyRecipe(r, k) end) end })
         pieces[#pieces + 1] = { kind = "add", text = Drawer.ADD_RECIPE, word = "recipe", onClick = function()
-            Drawer.Choose("recipe:+", { kind = "recipe", keys = recipes, values = WORDING.recipes,
-                onPick = function(k) edit(function(r) Grammar.ApplyRecipe(r, k) end) end, writes = true })
+            Drawer.Choose("recipe:+", def)
         end }
     end
     if kind.forms and #kind.forms > 0 then
@@ -1154,15 +1240,15 @@ local function addLinks(s, kind, rules)
             if not chosen[k] then rest[#rest + 1] = k end
         end
         if #rest > 0 then
-            drawn["form:+"] = true
+            local def = adder("form:+", { kind = "form", keys = rest, values = formNames(),
+                onPick = function(k)
+                    edit(function(r)
+                        r.forms = r.forms or {}
+                        r.forms[#r.forms + 1] = k
+                    end)
+                end })
             pieces[#pieces + 1] = { kind = "add", text = Drawer.ADD_FORM, word = "form", onClick = function()
-                Drawer.Choose("form:+", { kind = "form", keys = rest, values = formNames(),
-                    onPick = function(k)
-                        edit(function(r)
-                            r.forms = r.forms or {}
-                            r.forms[#r.forms + 1] = k
-                        end)
-                    end, writes = true })
+                Drawer.Choose("form:+", def)
             end }
         end
     end
@@ -1304,9 +1390,13 @@ function Drawer.Refresh()
         end
     end
     local key = Bridge.Selected()
-    if key ~= shown then
+    local same = key == shown
+    if not same then
         shown, slot, pending, kept, refused, notices, openNext = key, nil, {}, {}, nil, {}, nil
     end
+    -- The same spell and word redraw where they were scrolled to, so a pick doesn't jump.
+    local bodyAt, stripAt = 0, 0
+    if same then bodyAt, stripAt = parts.bodyStack:Scrolled(), parts.stripStack:Scrolled() end
     local tray = Bridge.EditorTray()
     local w = tray:GetWidth() or 0
     innerW = w - 2 * Bridge.Edge()
@@ -1334,8 +1424,10 @@ function Drawer.Refresh()
     parts.strip:SetShown(stripH > 0)
     fullH = bodyH + stripH
     d:SetHeight(fullH)
-    parts.bodyStack:ScrollTo(0)
-    parts.stripStack:ScrollTo(0)
+    parts.bodyStack:ScrollTo(bodyAt)
+    local stay = slot ~= nil and slot.id == stripFor
+    stripFor = slot and slot.id
+    parts.stripStack:ScrollTo(stay and stripAt or 0)
     if slider then
         tab:Show()
         slide(open)

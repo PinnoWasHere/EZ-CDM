@@ -80,7 +80,7 @@ What EZ-CDM adds on top of Daylight UI:
 
 ### Coming later
 
-Sharing one spell's sentences as a text string, and settings in `/dui`.
+Sharing one spell's sentences as a text string.
 
 ### Contributing
 

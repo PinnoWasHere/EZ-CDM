@@ -1103,29 +1103,38 @@ Grammar.WORDING = {
         blank = "EZ-Start Blank", load = "EZ-Load Layout",
         name = "Name your layout", create = "Create", noName = "Give the layout a name first.",
     },
-    -- EZ-CDM's rows on Daylight UI's Cooldown Manager page (Settings.lua). Labels
+    -- EZ-CDM's page in its own section under /dui's Plugins (Settings.lua). Labels
     -- stay 4 words or fewer, tips 8 or fewer (tests/test_settings.lua).
     settings = {
+        page = "Settings", pageDesc = "The editor, its sounds, and news of updates.",
         editor = "EZ Editor", updates = "Updates",
         startBlock = "Show Start Block", startBlockTip = "The cards beside the spell tray.",
         drawer = "Drawer Starts", drawerTip = "Each time the editor opens.",
         drawerLast = "As Left", drawerOpen = "Open", drawerClosed = "Closed",
         sounds = "Play Sounds", soundsTip = "Fall-off sounds and sound previews.",
-        updateCheck = "Newer Version Notice", updateCheckTip = "Trades versions with your guild and group.",
+        updateCheck = "Newer Version Notice", updateCheckTip = "Swaps versions with guild, group and friends.",
         whatsNew = "Show What's New", whatsNewTip = "Once after each update.",
         news = "What's New", newsShow = "Show",
-        -- In chat: a newer version heard (%s), and the note's heading (%s, this version).
-        newer = "EZ-CDM: version %s is out. Get it on CurseForge.",
-        newsTitle = "EZ-CDM %s: what's new",
+        -- What's New in Daylight UI's window (News.lua), and its one button.
+        newsTitle = "What's New in EZ-CDM", okay = "Okay",
+        -- A newer version heard (%s), in the same window.
+        newerTitle = "EZ-CDM", newer = "EZ-CDM %s is out. Get it on CurseForge or WowUp.",
     },
-    -- The what's-new note, newest first, from CHANGELOG.md.
+    -- What's New, newest first, from CHANGELOG.md.
     news = {
+        { version = "0.3.0", lines = {
+            "Settings have their own EZ-CDM page under Plugins in /dui.",
+            "A short tour the first time /cdm opens. Replay Tour shows it again.",
+            "A sound chip plays its sound as you pick it.",
+            "The row of choices stays open after a pick, so you can try a few.",
+            "What's New shows in its own window, once after each update.",
+            "A newer version notice from your guild, group and Battle.net friends.",
+        } },
         { version = "0.2.0", lines = {
             "Recipes: \"+ a recipe\" adds a ready-made set of lines in one click.",
             "\"Turn it gray\" when you can't cast, \"tint it blue\" when short on power.",
             "A glow can follow your accent color again (Daylight UI 2.2.6).",
             "\"Copy report\" at the drawer's bottom, for bug reports.",
-            "Settings on Daylight UI's Cooldown Manager page.",
         } },
     },
     -- The first-run tour's steps (Tour.lua). Each %s is a name in the tour's accent.
@@ -1133,7 +1142,10 @@ Grammar.WORDING = {
         start = { title = "Start here",
             text = "%s makes a new empty layout. %s picks one of your class's layouts." },
         pick = { title = "Pick a spell",
-            text = "Click a spell in your layout. EZ-CDM shows what it does in plain sentences." },
+            text = "Click a spell in your layout. EZ-CDM shows what it does in plain sentences.",
+            -- With the tour's demo spell (%s), which goes when the tour ends.
+            demo = "The tour put %s in your layout to try things on. It goes when the tour ends. "
+                .. "Click it, and EZ-CDM shows what it does in plain sentences." },
         drawer = { title = "The drawer",
             text = "The sentences live in this drawer. The %s tab folds it away and back." },
         word = { title = "Change a word",
@@ -1141,13 +1153,15 @@ Grammar.WORDING = {
         line = { title = "Add a line",
             text = "%s starts a new sentence. Choose a moment, then what happens." },
         recipe = { title = "Use a recipe",
-            text = "%s adds ready-made lines, like %s." },
+            text = "%s adds ready-made lines, like %s.",
+            -- With the demo spell: the link, the recipe the tour put on it.
+            demo = "%s adds ready-made lines. The tour just added %s, so its lines appeared above." },
         group = { title = "Rules for the group",
             text = "%s sets a rule for every spell in the group, like %s." },
         report = { title = "Something wrong?",
             text = "%s puts your layout in a box to copy. Paste it into a bug report." },
-        -- The skipped line: the settings row (%s) and its group (%s), on the
-        -- Cooldown Manager page in /dui.
+        -- The skipped line: the settings row (%s) and EZ-CDM's section under
+        -- Plugins in /dui (%s).
         skipped = "Tour skipped. %s under %s in /dui shows it again.",
         -- The settings row that runs it again, and its button.
         replay = "Replay Tour", replayShow = "Show",

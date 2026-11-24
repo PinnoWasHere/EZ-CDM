@@ -1,26 +1,22 @@
 # EZ-CDM
 
-## 0.2.0
+## 0.3.0
 
 Needs Daylight UI 2.2.4 or newer, on WoW Forever.
 
-- Recipes. "+ a recipe" in the drawer adds a ready-made set of lines to a spell in one
-  click. There are twelve: Ready alert, Hidden, Dim while cooling, Can't cast, Mana check,
-  Almost there, Now usable, Proc pop, Missing reminder, Refresh warning, Ended ping and
-  Fight only. The drawer offers only the ones that fit the spell you picked.
-- Two new lines lay a wash over the icon. "When I can't cast it, turn it gray" lays a gray
-  one, and "When I don't have enough mana, tint it blue" a blue one. The line names your
-  own power, such as rage or energy.
-- A glow can go back to your accent color. Pick "accent" for its color, or add a recipe
-  with a glow, and the glow follows your accent again. This needs Daylight UI 2.2.6 or
-  newer. On an older Daylight UI the glow keeps its color and the drawer says so.
-- A "Copy report" link at the bottom of the drawer. It opens your layout and EZ-CDM's
-  settings as text to paste into a bug report. It holds no names.
-- The game's AddOns list shows EZ-CDM under "DaylightUI Plugins".
-
-### Fixes
-
-- "While it's active, glow" now goes to whatever draws the spell. Since Daylight UI 2.2.5
-  the game draws some placed buffs itself, and those now get Daylight UI's glow in your
-  color. Improved Stormstrike still doesn't show on Daylight UI 2.2.5 and 2.2.6, a Daylight
-  UI bug with a fix waiting.
+- Settings. EZ-CDM has its own section under Plugins in `/dui`, with Daylight UI's
+  Cooldown Manager icon. Its page holds Show Start Block, Drawer Starts (as left, open or
+  closed), Play Sounds, Replay Tour, Newer Version Notice and Show What's New. Each change
+  works at once, with no `/reload`.
+- A short tour the first time `/cdm` opens with EZ-CDM. It lights each part in turn on
+  Daylight UI's own tour card, with Back, Next and Skip tour. Replay Tour on the settings
+  page shows it again.
+- A sound chip in the drawer plays its sound as you pick it. Play Sounds off keeps it quiet.
+- The row of choices under a word stays open after a pick, so you can try a few. A click
+  on empty space closes it.
+- What's New. After an update, the changes show once in Daylight UI's own window. The
+  What's New button on the settings page shows them again any time.
+- Newer version notice. EZ-CDM tells other copies in your guild, your group and your
+  Battle.net friends' games which version it runs, in a hidden addon message. When one of
+  them runs a newer version, a window says so once a session. Nothing is sent in a fight
+  or while the game locks chat down.

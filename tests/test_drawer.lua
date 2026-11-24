@@ -574,7 +574,6 @@ T.test("drawer wording: every moment chip is the same phrase the sentence shows"
         T.eq(stub.Text(strip(Drawer).chip[m].text), (G.MomentWords(m)), m .. "'s chip is its phrase")
         pick(Drawer, m)
         T.eq(stub.Text(wordOf(Drawer, 3, "moment").text), (G.MomentWords(m)), m .. ": the sentence shows the same")
-        wordOf(Drawer, 3, "moment"):Click()
     end
     -- Always takes no comma: "Always show it."
     pick(Drawer, "always")
@@ -667,17 +666,15 @@ T.test("drawer strip: shows only while a word is picked, else only the hint", fu
     sentences(Drawer)[1].remove:Click()
     T.eq(#sentences(Drawer), 0)
     noStrip(Drawer, "the line went")
-    -- After a pick, the strip is gone.
+    -- After a pick, the strip stays on its word.
     addLink(Drawer, "line"):Click()
     pick(Drawer, "cooldown")
-    noStrip(Drawer, "after a pick")
+    T.eq(strip(Drawer).heading, Drawer.HEADINGS.moment, "after a pick")
     wordOf(Drawer, 1, "action"):Click()
     T.eq(strip(Drawer).heading, Drawer.HEADINGS.action)
     pick(Drawer, "hide")
-    noStrip(Drawer, "after a pick that writes")
+    T.eq(strip(Drawer).heading, Drawer.HEADINGS.action, "after a pick that writes")
     -- A change of spell.
-    wordOf(Drawer, 1, "action"):Click()
-    T.truthy(Drawer.Slot())
     Ed.Select(k.clap)
     noStrip(Drawer, "another spell")
     addLink(Drawer, "group"):Click()
@@ -708,7 +705,7 @@ T.test("drawer writes: a pick writes the right fields live, and Daylight UI's ca
     T.eq(pieceOf(k.clap).onCd, "hide", "saved at once")
     T.eq(cardReads(AB, "onCd"), "hide", "Daylight UI's card reads it back")
     T.eq(redraws, 1, "the editor redrew")
-    T.isnil(Drawer.Slot(), "the strip closes")
+    T.eq(Drawer.Slot().kind, "action", "the strip stays")
     T.eq(said(Drawer), "When it's ready, glow with the spell's style in gold.\nWhile it's cooling down, hide it.", "drawn again from the layout")
     -- When it's ready to when it becomes castable: the glow moves, its color with it.
     for i = #log, 1, -1 do log[i] = nil end
@@ -758,7 +755,6 @@ T.test("drawer writes: the see-through amount, a sound and a glow color", functi
     _G.ColorPickerFrame = { SetupColorPickerAndShow = function(_, t) info = t end,
         GetColorRGB = function() return 1, 0, 0 end, HookScript = function() end }
     local ok, err = pcall(function()
-        wordOf(Drawer, 1, "action"):Click()
         pick(Drawer, "glow")
         wordOf(Drawer, 1, "color"):Click()
         pick(Drawer, "pick")
@@ -1083,7 +1079,6 @@ T.test("drawer shows: What it shows reads the card's pick, and a pick writes it 
     T.eq(cardReads(AB, "track"), "both", "Daylight UI's card reads it back")
     T.eq(select(2, showsWord(Drawer)).said, "Show its buff and its cooldown.")
     -- Buff only drops the lines a buff doesn't take, as the card clears them.
-    showsWord(Drawer):Click()
     pick(Drawer, "buff")
     T.eq(pieceOf(k.clap).track, "buff")
     T.eq(#sentences(Drawer), 0, "ready and cooldown lines went")
@@ -1115,7 +1110,6 @@ T.test("drawer buff extras: hide the sweep, color it (with its alpha), offered a
         GetColorRGB = function() return 0, 0, 1 end, GetColorAlpha = function() return 0.5 end,
         HookScript = function() end }
     local ok, err = pcall(function()
-        wordOf(Drawer, 1, "action"):Click()
         pick(Drawer, "tint")
         T.isnil(pieceOf(k.shout).noDurationSwipe, "the sweep is back")
         T.eq(sentences(Drawer)[1].said, "While it's active, color the sweep in the accent color.")
@@ -1206,12 +1200,10 @@ T.test("drawer style: each glow line has its own style word, written live", func
     T.eq(sentences(Drawer)[1].said, "When it's ready, glow with a Comet in gold.")
     T.eq(blockWith(Drawer, "style").said, "Other glows use Comet.", "the piece's style, for the rest")
     -- Back to the spell's style.
-    wordOf(Drawer, 1, "style"):Click()
     pick(Drawer, "piece")
     T.isnil(EZCDMDB.glowStyle[profile], "cleared")
     T.eq(sentences(Drawer)[1].said, "When it's ready, glow with the spell's style in gold.")
     -- Another action drops the style; a line that isn't a glow has no style word.
-    wordOf(Drawer, 1, "style"):Click()
     pick(Drawer, "shine")
     wordOf(Drawer, 1, "action"):Click()
     pick(Drawer, "sound")
@@ -1647,7 +1639,6 @@ T.test("drawer fall-off: the lead and the sound, picked in the drawer, round-tri
         T.eq(EZCDMDB.fallOff[profile][k.rend].sound, rule.sound)
         T.eq(sentences(Drawer)[sound].said, "When it's about to fall off (Daylight's timing), play Proc.")
         -- Moved to another moment, a line drops its lead.
-        wordOf(Drawer, glow, "seconds"):Click()
         pick(Drawer, 3)
         wordOf(Drawer, glow, "moment"):Click()
         pick(Drawer, "up")
@@ -1808,7 +1799,7 @@ T.test("drawer recipes: + a recipe opens chips of the fitting recipes; a pick me
     -- The same chips as every other strip.
     T.eq(s.chip.readyAlert.piece.kind, "chip")
     pick(Drawer, "readyAlert")
-    T.isnil(Drawer.Slot(), "a pick closes the strip")
+    T.eq(Drawer.Slot().kind, "recipe", "a pick leaves the strip open")
     T.eq(pieceOf(k.clap).readyGlow, true)
     T.eq(pieceOf(k.clap).readySound, "file:568016", "Daylight UI's Proc sound")
     -- The glow is replaced by one in the accent, which Daylight UI 2.2.6 writes back.
@@ -1820,13 +1811,11 @@ T.test("drawer recipes: + a recipe opens chips of the fitting recipes; a pick me
     -- Every word stays clickable.
     T.truthy(wordOf(Drawer, 2, "sound"), "the sound is a word to change")
     -- The same family: hide replaces the fade.
-    addLink(Drawer, "recipe"):Click()
     pick(Drawer, "outOfWay")
     T.eq(pieceOf(k.clap).onCd, "hide")
     T.eq(#sentences(Drawer), 3, "nothing doubled")
     T.eq(sentences(Drawer)[3].said, "While it's cooling down, hide it.")
     -- The group recipe writes the group word.
-    addLink(Drawer, "recipe"):Click()
     pick(Drawer, "fightOnly")
     T.eq(chainOf(k.rend).combat, true, "on the group")
     T.eq(blocksWith(Drawer, "group")[1].said, "Only show it in combat.")
@@ -1915,5 +1904,294 @@ T.test("drawer report link: in combat a click opens nothing", function()
     T.eq(calls, 0, "refused in a fight")
     link:Click()
     T.eq(calls, 1, "and works after it")
+    noErrors()
+end)
+
+-- ---------------------------------------------------------------------
+-- The choice strip stays open (docs/tasks/strip-stays.md)
+-- ---------------------------------------------------------------------
+
+-- The sentence whose text starts with s, or nil.
+local function sentenceStarting(Drawer, s)
+    for i, b in ipairs(sentences(Drawer)) do
+        if b.said:sub(1, #s) == s then return i, b end
+    end
+end
+
+-- A mouse press with the mouse over a control of the drawer: the control, the
+-- scroll frame it sits in and the drawer.
+local function pressOn(Drawer, control, stackName)
+    stub.MouseEnter(Drawer.Clip())
+    local scroll = stackName and Drawer.Parts()[stackName].scroll
+    if scroll then stub.MouseEnter(scroll) end
+    stub.MouseEnter(control)
+    stub.FireEvent("GLOBAL_MOUSE_DOWN", "LeftButton")
+    stub.MouseLeave(control)
+    if scroll then stub.MouseLeave(scroll) end
+    stub.MouseLeave(Drawer.Clip())
+end
+
+T.test("drawer strip stays: a pick keeps it open on the same word with the new pick lit", function()
+    local _, _, Drawer, _, k, _, Ed = editorWorld()
+    Ed.Select(k.clap)
+    T.isnil(Drawer.Slot(), "closed to start with")
+    wordOf(Drawer, 2, "action"):Click()
+    T.eq(strip(Drawer).heading, Drawer.HEADINGS.action)
+    T.truthy(strip(Drawer).chip.fade.on, "see-through is lit")
+    local stripFrame, hides = Drawer.Parts().strip, 0
+    local keep = stripFrame.SetShown
+    stripFrame.SetShown = function(self, on) if not on then hides = hides + 1 end return keep(self, on) end
+    pick(Drawer, "hide")
+    T.eq(pieceOf(k.clap).onCd, "hide", "the pick wrote")
+    T.truthy(Drawer.Slot(), "the strip stays")
+    T.eq(Drawer.Slot().kind, "action", "on the same word")
+    T.eq(strip(Drawer).heading, Drawer.HEADINGS.action, "same heading")
+    T.truthy(strip(Drawer).chip.hide.on, "the new pick is lit")
+    T.falsy(strip(Drawer).chip.fade.on, "the old one is not")
+    T.eq(sentences(Drawer)[2].said, "While it's cooling down, hide it.", "the sentence above redrew")
+    -- Several picks in a row, no click on the word between them.
+    pick(Drawer, "fade")
+    T.eq(pieceOf(k.clap).onCd, "fade")
+    T.truthy(strip(Drawer).chip.fade.on and not strip(Drawer).chip.hide.on, "back to see-through, lit")
+    pick(Drawer, "hide")
+    T.eq(pieceOf(k.clap).onCd, "hide", "a third pick still lands on line 2")
+    T.truthy(Drawer.Slot() and strip(Drawer).chip.hide.on)
+    T.eq(hides, 0, "the strip's frame never hid between picks")
+    stripFrame.SetShown = keep
+    noErrors()
+end)
+
+T.test("drawer strip stays: it follows a line the grammar moves, and a blank filling in", function()
+    local _, _, Drawer, _, k, _, Ed = editorWorld()
+    Ed.Select(k.clap)
+    -- "When it's ready" becomes "When it becomes castable", which reads after the cooldown line.
+    wordOf(Drawer, 1, "moment"):Click()
+    pick(Drawer, "usable")
+    local at = sentenceStarting(Drawer, "When it becomes castable")
+    T.eq(at, 2, "the line moved down")
+    T.eq(Drawer.Slot().id, "line:2:moment", "the strip went with it")
+    T.eq(Drawer.Slot().kind, "moment")
+    T.truthy(strip(Drawer).chip.usable.on and not strip(Drawer).chip.ready.on, "lit on its new moment")
+    -- A pick from here changes that line, not the one now at index 1.
+    pick(Drawer, "ready")
+    T.eq(sentenceStarting(Drawer, "When it's ready"), 1, "back up")
+    T.eq(Drawer.Slot().id, "line:1:moment")
+    T.truthy(strip(Drawer).chip.ready.on)
+    T.eq(pieceOf(k.clap).readyGlow, true)
+    -- A new line: the first blank stays open, then each pick moves on to the next click.
+    addLink(Drawer, "line"):Click()
+    T.eq(Drawer.Slot().id, "line:3:moment")
+    pick(Drawer, "unusable")
+    T.eq(Drawer.Slot().id, "line:3:moment", "half a line: the strip stays on its moment")
+    T.truthy(strip(Drawer).chip.unusable.on, "the pick lit")
+    wordOf(Drawer, 3, "action"):Click()
+    pick(Drawer, "hide")
+    T.eq(pieceOf(k.clap).onUnusable, "hide", "written once both were filled")
+    local now = sentenceStarting(Drawer, "When I can't cast it")
+    T.eq(Drawer.Slot().id, "line:" .. now .. ":action", "the strip stays on that line's action, wherever it went")
+    T.truthy(strip(Drawer).chip.hide.on)
+    noErrors()
+end)
+
+T.test("drawer strip stays: a group word's strip follows it when it changes", function()
+    local _, _, Drawer, _, k, _, Ed = editorWorld()
+    Ed.Select(k.clap)
+    addLink(Drawer, "group"):Click()
+    pick(Drawer, "combat")
+    T.eq(chainOf(k.rend).combat, true)
+    T.eq(Drawer.Slot().id, "group:+", "the + strip stays for the next one")
+    T.falsy(strip(Drawer).chip.combat, "the one just added is gone from it")
+    pick(Drawer, "target")
+    T.eq(#blocksWith(Drawer, "group"), 2, "two group words")
+    local function groupWord(text)
+        for _, b in ipairs(blocksWith(Drawer, "group")) do
+            if b.said == text then return b.tokens[1] end
+        end
+    end
+    groupWord("Only show it in combat."):Click()
+    T.eq(Drawer.Slot().id, "group:combat")
+    T.truthy(strip(Drawer).chip.combat.on, "its own word lit")
+    pick(Drawer, "mounted")
+    T.eq(chainOf(k.rend).mounted, true, "the word changed")
+    T.falsy(chainOf(k.rend).combat == true, "and the old one went")
+    T.eq(Drawer.Slot().id, "group:mounted", "the strip went to the new word")
+    T.truthy(strip(Drawer).chip.mounted.on and not strip(Drawer).chip.combat.on)
+    -- Daylight UI's own order can't move it: another pick from the same strip.
+    pick(Drawer, "combat")
+    T.eq(Drawer.Slot().id, "group:combat")
+    T.eq(chainOf(k.rend).combat, true)
+    noErrors()
+end)
+
+T.test("drawer strip stays: the spell's other words and the + links keep theirs open too", function()
+    local _, _, Drawer, _, k, _, Ed = editorWorld()
+    Ed.Select(k.clap)
+    fadeWord(Drawer):Click()
+    pick(Drawer, 25)
+    T.eq(Drawer.Slot().kind, "fade")
+    T.truthy(strip(Drawer).chip[25].on)
+    pick(Drawer, 50)
+    T.eq(pieceOf(k.clap).cdAlpha, 0.5)
+    T.truthy(strip(Drawer).chip[50].on and not strip(Drawer).chip[25].on, "the amount follows")
+    addLink(Drawer, "recipe"):Click()
+    pick(Drawer, "outOfWay")
+    T.eq(pieceOf(k.clap).onCd, "hide")
+    T.eq(Drawer.Slot().kind, "recipe", "a recipe's strip stays for the next recipe")
+    pick(Drawer, "dimCooling")
+    T.eq(pieceOf(k.clap).onCd, "fade", "and a second recipe lands")
+    noErrors()
+end)
+
+T.test("drawer strip stays: scroll positions are kept while the spell and word are the same", function()
+    local _, _, Drawer, _, k, _, Ed = editorWorld()
+    Ed.Select(k.clap)
+    local B, S = Drawer.Parts().bodyStack, Drawer.Parts().stripStack
+    local at = {}
+    B.Scrolled = function() return 37 end
+    S.Scrolled = function() return 21 end
+    B.ScrollTo = function(_, v) at.body = v end
+    S.ScrollTo = function(_, v) at.strip = v end
+    wordOf(Drawer, 2, "action"):Click()
+    T.eq(at.body, 37, "opening a strip leaves the body where it was")
+    T.eq(at.strip, 0, "a strip just opened starts at its top")
+    pick(Drawer, "hide")
+    T.eq(at.body, 37, "a pick leaves the body where it was")
+    T.eq(at.strip, 21, "and the strip too")
+    wordOf(Drawer, 1, "moment"):Click()
+    T.eq(at.strip, 0, "another word's strip starts at the top")
+    T.eq(at.body, 37)
+    Ed.Select(k.rage)
+    T.eq(at.body, 0, "another spell starts at the top")
+    T.eq(at.strip, 0)
+    noErrors()
+end)
+
+T.test("drawer strip closes: the same word again, another word switches it, a spell change, a fold", function()
+    local _, _, Drawer, _, k, _, Ed = editorWorld()
+    Ed.Select(k.clap)
+    wordOf(Drawer, 1, "moment"):Click()
+    pick(Drawer, "usable")
+    T.truthy(Drawer.Slot(), "open after a pick")
+    wordOf(Drawer, 2, "moment"):Click()
+    T.isnil(Drawer.Slot(), "a click on the same word closes it")
+    noStrip(Drawer, "the same word again")
+    wordOf(Drawer, 1, "moment"):Click()
+    T.eq(Drawer.Slot().kind, "moment")
+    wordOf(Drawer, 1, "action"):Click()
+    T.eq(Drawer.Slot().kind, "action", "a click on another word moves the strip")
+    T.eq(strip(Drawer).heading, Drawer.HEADINGS.action)
+    pick(Drawer, "hide")
+    T.truthy(Drawer.Slot())
+    Ed.Select(k.rend)
+    noStrip(Drawer, "another spell")
+    addLink(Drawer, "line"):Click()
+    pick(Drawer, "cooldown")
+    T.truthy(Drawer.Slot())
+    Drawer.Tab():Click()
+    T.isnil(Drawer.Slot(), "a fold")
+    Drawer.Tab():Click()
+    noStrip(Drawer, "unfolded again")
+    noErrors()
+end)
+
+T.test("drawer strip closes: the editor closing", function()
+    local _, _, Drawer, _, k, _, Ed = editorWorld()
+    Ed.Select(k.clap)
+    wordOf(Drawer, 2, "action"):Click()
+    pick(Drawer, "hide")
+    T.truthy(Drawer.Slot())
+    Ed.Close()
+    T.isnil(Drawer.Slot(), "closed with the editor")
+    Ed.Open()
+    Ed.Select(k.clap)
+    noStrip(Drawer, "back open")
+    noErrors()
+end)
+
+T.test("drawer strip closes: a press in empty drawer space or outside it, not on a control", function()
+    local _, _, Drawer, _, k, _, Ed = editorWorld()
+    Ed.Select(k.clap)
+    wordOf(Drawer, 2, "action"):Click()
+    pick(Drawer, "hide")
+    T.truthy(Drawer.Slot())
+    -- A chip, a word, the + links, a remove button and the scroll bars are controls.
+    pressOn(Drawer, strip(Drawer).chip.fade, "stripStack")
+    T.truthy(Drawer.Slot(), "a press on a chip keeps it")
+    pick(Drawer, "fade")
+    T.truthy(Drawer.Slot() and strip(Drawer).chip.fade.on, "and the click still picks")
+    pressOn(Drawer, wordOf(Drawer, 1, "moment"), "bodyStack")
+    T.truthy(Drawer.Slot(), "a press on a word keeps it, its click moves it")
+    wordOf(Drawer, 1, "moment"):Click()
+    T.eq(Drawer.Slot().kind, "moment")
+    pressOn(Drawer, addLink(Drawer, "group"), "bodyStack")
+    T.truthy(Drawer.Slot(), "a press on an add link keeps it")
+    pressOn(Drawer, sentences(Drawer)[1].remove, "bodyStack")
+    T.truthy(Drawer.Slot(), "a press on a remove button keeps it")
+    local bar = Drawer.Parts().stripStack.bar
+    bar:EnableMouse(true)
+    pressOn(Drawer, bar)
+    T.truthy(Drawer.Slot(), "a press on the strip's scroll bar keeps it")
+    -- Daylight UI's color picker, while it is up.
+    local keepPicker = rawget(_G, "ColorPickerFrame")
+    _G.ColorPickerFrame = { IsShown = function() return true end, IsMouseOver = function() return true end,
+        HookScript = function() end }
+    stub.FireEvent("GLOBAL_MOUSE_DOWN", "LeftButton")
+    _G.ColorPickerFrame = keepPicker
+    T.truthy(Drawer.Slot(), "a press in the color picker keeps it")
+    -- Empty space in the drawer.
+    stub.MouseEnter(Drawer.Clip())
+    stub.FireEvent("GLOBAL_MOUSE_DOWN", "LeftButton")
+    stub.MouseLeave(Drawer.Clip())
+    noStrip(Drawer, "a press on empty drawer space")
+    T.eq(sentences(Drawer)[2].said, "While it's cooling down, make it see-through.", "the pick stays written")
+    -- Anywhere outside.
+    wordOf(Drawer, 1, "moment"):Click()
+    T.truthy(Drawer.Slot())
+    press(nil)
+    noStrip(Drawer, "a press outside the drawer")
+    -- With no strip open a press does nothing to the drawer.
+    local before = Drawer.Frame():GetHeight()
+    press(nil)
+    T.eq(Drawer.Frame():GetHeight(), before)
+    noErrors()
+end)
+
+T.test("drawer strip stays: a refused write closes it and says why", function()
+    local _, _, Drawer, _, k, _, Ed = editorWorld()
+    Ed.Select(k.clap)
+    wordOf(Drawer, 2, "action"):Click()
+    stub.combat = true
+    pick(Drawer, "hide")
+    stub.combat = false
+    T.eq(Drawer.Refused().why, "combat")
+    T.isnil(Drawer.Slot(), "closed, the reason in its place")
+    T.eq(blocksWith(Drawer, "refusal")[1].said, Drawer.REFUSED.combat)
+    noErrors()
+end)
+
+T.test("drawer strip stays: a sound chip previews and the strip stays for the next one", function()
+    local DUI, _, Drawer, _, k, _, Ed = editorWorld()
+    Ed.Select(k.clap)
+    wordOf(Drawer, 1, "action"):Click()
+    pick(Drawer, "sound")
+    T.eq(Drawer.Slot().kind, "action")
+    local played = {}
+    local keep = DUI.Sound.Alert
+    DUI.Sound.Alert = function(key) played[#played + 1] = key; return keep(key) end
+    wordOf(Drawer, 1, "sound"):Click()
+    local first, second
+    for _, key in ipairs(strip(Drawer).keys) do
+        if key ~= "none" and not first then first = key elseif key ~= "none" and not second and key ~= first then second = key end
+    end
+    pick(Drawer, first)
+    stub.RunTimers()
+    T.eq(Drawer.Slot().kind, "sound", "the sound list stays")
+    T.truthy(strip(Drawer).chip[first].on, "the sound lit")
+    pick(Drawer, second)
+    stub.RunTimers()
+    T.deq(played, { first, second }, "each chip played its own sound")
+    T.eq(pieceOf(k.clap).readySound, second)
+    T.truthy(strip(Drawer).chip[second].on and not strip(Drawer).chip[first].on)
+    DUI.Sound.Alert = keep
     noErrors()
 end)
