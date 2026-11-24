@@ -9,8 +9,9 @@ local _, ns = ...
 -- The rule lives in EZCDMDB.upGlow[profile][key]: true for the accent, or a color.
 -- Daylight UI's own upGlow stays off on such a piece, so the two never stack. A
 -- piece the game's item draws keeps Daylight UI's upGlow, and so does a piece
--- Daylight UI draws on its own face, with no client button (Effects.Drawn). Draft
--- reads and writes the rule through Effects.Merge and Effects.Split.
+-- Daylight UI draws on its own face, with no client button (Effects.Drawn). When
+-- what draws a piece changes, Effects.MoveBack hands the rule over. Draft reads
+-- and writes the rule through Effects.Merge and Effects.Split.
 --
 -- While the client makes a button, the button and its children answer secrets
 -- (IsShown, IsVisible, GetWidth, GetHeight, IsPlaying), so Daylight UI's own
@@ -268,13 +269,31 @@ end
 -- Waits for restrictions to lift.
 function Effects.Sync() Bridge.AfterRestrictions(sync, "ezcdm:effects:sync") end
 
--- Whether a face piece's rule waits to go back to Daylight UI (Effects.MoveBack).
+-- Whether a rule's up glow may need to change hands (Effects.MoveBack).
 local moveDue = true
 
--- An up glow rule on a piece Daylight UI draws on its own face goes back to
--- Daylight UI's upGlow, in its color, and EZ-CDM's rule is cleared. Only the
--- current profile's placed pieces; one whose holder can't say yet waits for a
--- later pass. Out of restrictions only, since it writes the layout.
+-- Writes Daylight UI's upGlow for a piece: on in the rule's color, or off.
+local function daylightGlow(g, p, key, v)
+    if v == nil then
+        if p.upGlow ~= true then return true end
+        return Bridge.SetSpellValue(g, key, "upGlow", false)
+    end
+    local ok = p.upGlow == true or Bridge.SetSpellValue(g, key, "upGlow", true)
+    if ok and isRGB(v) and not sameColor(p.upGlowColor, v) then
+        ok = Bridge.SetSpellValue(g, key, "upGlowColor", { v[1], v[2], v[3] })
+    end
+    return ok
+end
+
+-- Hands each up glow rule to whatever draws its piece now. A client aura button
+-- takes EZ-CDM's ring, and Daylight UI's upGlow stays off. On Daylight UI's own
+-- face the rule goes to its upGlow, in its color, and EZ-CDM's rule is cleared.
+-- Anything else (the game's item, a stand-in, a bar) lights Daylight UI's upGlow
+-- and keeps the rule, so the ring comes back if a holder draws the piece again.
+-- The game's item can draw a piece only for a moment, as at login before a
+-- viewer hides. Only the current profile's placed pieces; a piece the last pass
+-- didn't draw stays, and a holder that can't say yet waits for a later pass.
+-- Out of restrictions only, since it writes the layout.
 function Effects.MoveBack()
     if Bridge.Restricted() then return end
     local g = Bridge.CurrentIndex()
@@ -282,21 +301,27 @@ function Effects.MoveBack()
     local byKey = profile ~= nil and store()[profile]
     local set = Bridge.Layout(g)
     local pieces = type(set) == "table" and type(set.pieces) == "table" and set.pieces or {}
-    local waiting = false
+    local due = false
     for key, v in pairs(type(byKey) == "table" and byKey or {}) do
-        if pieces[key] ~= nil and Effects.DRAWN[Bridge.DrawnBy(key) or ""] then
-            local client = Bridge.ClientButtons(key)
-            if client == false then
-                local color = clean(v)
-                local ok = Bridge.SetSpellValue(g, key, "upGlow", true)
-                if ok and isRGB(color) then ok = Bridge.SetSpellValue(g, key, "upGlowColor", color) end
-                if ok then Effects.Set(g, key, nil) else waiting = true end
-            elseif client == nil then
-                waiting = true
+        local p = pieces[key]
+        local by = p ~= nil and Bridge.DrawnBy(key) or nil
+        if by ~= nil then
+            local client
+            if Effects.DRAWN[by] then client = Bridge.ClientButtons(key) end
+            if client == true then
+                daylightGlow(g, p, key, nil)
+                due = true
+            elseif client == false then
+                if daylightGlow(g, p, key, clean(v)) then Effects.Set(g, key, nil) else due = true end
+            elseif Effects.DRAWN[by] then
+                due = true
+            else
+                daylightGlow(g, p, key, clean(v))
+                due = true
             end
         end
     end
-    moveDue = waiting
+    moveDue = due
 end
 
 -- Whether a ring for the piece is in a client button now, and in which color.
