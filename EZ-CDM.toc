@@ -6,6 +6,8 @@
 ## X-License: All Rights Reserved
 ## X-Curse-Project-ID: 1827220
 ## Dependencies: DaylightUI
+## Category: DaylightUI Plugins
+## Group: EZ-CDM
 ## OptionalDeps: DaylightUI_ActionBars
 ## SavedVariables: EZCDMDB
 

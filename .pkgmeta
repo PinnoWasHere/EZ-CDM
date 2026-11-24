@@ -4,6 +4,9 @@ package-as: EZ-CDM
 # repo itself. Files and folders starting with a dot never package.
 ignore:
   - README.md
+  - CONTRIBUTING.md
+  - tests
+  - tools
 
 # The CurseForge changelog is this file, not the commit log.
 manual-changelog:
