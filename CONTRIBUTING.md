@@ -85,8 +85,6 @@ client does.
 ## Pull requests
 
 - One change per pull request, kept small. Say what changes for the player and why.
-- Paste the result line of `luajit tests/run.lua --par` in the description. The suite
-  must pass on GitHub before review.
 - Don't change the version, the `.toc`'s metadata or `CHANGELOG.md`; that happens at
   release.
 - For a bug report, open an issue with what you did, what you expected, and the error
