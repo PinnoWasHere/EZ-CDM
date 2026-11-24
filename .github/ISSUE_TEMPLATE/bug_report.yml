@@ -1,0 +1,50 @@
+name: Bug report
+description: Something EZ-CDM does wrong in game.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. The report string lets us rebuild your class, your Cooldown
+        Manager layout and your EZ-CDM rules on our side, so please paste it.
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: What you saw, and when (in a fight, on a proc, after a /reload...).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: class
+    attributes:
+      label: Class and spec
+      placeholder: Mage, Arcane
+    validations:
+      required: true
+  - type: input
+    id: spell
+    attributes:
+      label: The spell it's about
+      placeholder: Clearcasting
+  - type: textarea
+    id: report
+    attributes:
+      label: Report string
+      description: |
+        Open /cdm, then the EZ drawer, and click "Copy report" at the bottom. The box
+        selects the text for you: press Ctrl+C, then paste it here with Ctrl+V. It starts
+        with EZCDM1: and holds no names, only your layout and EZ-CDM's settings.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: EZ-CDM and Daylight UI versions (if you know them)
+      placeholder: EZ-CDM 0.1.0, Daylight UI 2.2.4

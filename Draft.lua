@@ -8,7 +8,7 @@ local _, ns = ...
 -- glow lines' own styles.
 -- Only fields that change are written, and no piece ever moves.
 
-local Bridge, Grammar, Effects = ns.Bridge, ns.Grammar, ns.Effects
+local Bridge, Grammar, Effects, Conditions = ns.Bridge, ns.Grammar, ns.Effects, ns.Conditions
 
 local Draft = {}
 ns.Draft = Draft
@@ -265,6 +265,11 @@ local function planFor(key, rules, g)
     if not same(stOld, stNew) then
         op(5, "ez", "glowStyles", stOld, stNew, function() return Effects.SetStyles(g, key, stNew) end)
     end
+    -- So are EZ-CDM's conditions (Conditions.Split).
+    local cnOld, cnNew = Conditions.Rule(key, g), Conditions.Split(fields)
+    if not same(cnOld, cnNew) then
+        op(5, "ez", "conditions", cnOld, cnNew, function() return Conditions.SetRule(g, key, cnNew) end)
+    end
 
     -- Group words, on the spell's group, as Daylight UI's Group tab writes them
     -- (Data.SetChainValue from any piece in it). Everyone in the group shares them.
@@ -405,7 +410,7 @@ function Draft.Rules(key)
     local pieces, chains = layout(g)
     local live = pieces[key]
     if not live then return nil end
-    local fields = Effects.Merge(key, copy(live), g)
+    local fields = Conditions.Merge(key, Effects.Merge(key, copy(live), g), g)
     fields.chain = copy(chains[Bridge.Root(key, g)] or {})
     return Grammar.Decompile(fields, Grammar.Kind(key))
 end

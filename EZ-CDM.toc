@@ -12,8 +12,11 @@
 EZ-CDM.lua
 Bridge.lua
 Effects.lua
+Conditions.lua
+Overlay.lua
 AuraLinks.lua
 Grammar.lua
 Draft.lua
 Start.lua
 Drawer.lua
+Report.lua

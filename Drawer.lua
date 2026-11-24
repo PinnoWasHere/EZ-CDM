@@ -31,6 +31,8 @@ Drawer.HINT = "Click a word to change it."
 Drawer.ADD_LINE = WORDING.addLine
 Drawer.ADD_GROUP = WORDING.addGroup
 Drawer.ADD_FORM = WORDING.addForm
+Drawer.ADD_RECIPE = WORDING.addRecipe
+Drawer.COPY_REPORT = WORDING.copyReport
 
 -- The strip's heading per kind of word.
 Drawer.HEADINGS = WORDING.headings
@@ -314,7 +316,7 @@ local function words(s, pieces, opts)
     b.line, b.group, b.form, b.note, b.notice, b.refusal, b.adds, b.fade, b.shared, b.choices, b.hint, b.default,
         b.groupHead, b.shows, b.style, b.ezGlow, b.ezReload = nil, nil, nil, nil, nil, nil, nil, nil, nil,
         nil, nil, nil, nil, nil, nil, nil, nil
-    b.ezRingOther, b.fallOff = nil, nil
+    b.ezRingOther, b.fallOff, b.copy = nil, nil, nil
     b.onRemove = opts.onRemove
     b.remove:SetShown(opts.onRemove ~= nil)
     return b
@@ -1106,7 +1108,7 @@ local function formLines(s, kind, rules)
     end
 end
 
--- "+ add a line", "+ a rule for its whole group" and "+ hide it in a form …".
+-- "+ add a line", "+ a rule for its whole group", "+ a recipe" and "+ hide it in a form …".
 local function addLinks(s, kind, rules)
     local pieces = {}
     local n = #rules.lines + 1
@@ -1130,6 +1132,14 @@ local function addLinks(s, kind, rules)
         pieces[#pieces + 1] = { kind = "add", text = Drawer.ADD_GROUP, word = "group", onClick = function()
             Drawer.Choose("group:+", { kind = "group", keys = free, values = GROUP_VALUES,
                 onPick = function(k) edit(function(r) setGroup(r, k, true) end) end, writes = true })
+        end }
+    end
+    local recipes = Grammar.Recipes(kind)
+    if #recipes > 0 then
+        drawn["recipe:+"] = true
+        pieces[#pieces + 1] = { kind = "add", text = Drawer.ADD_RECIPE, word = "recipe", onClick = function()
+            Drawer.Choose("recipe:+", { kind = "recipe", keys = recipes, values = WORDING.recipes,
+                onPick = function(k) edit(function(r) Grammar.ApplyRecipe(r, k) end) end, writes = true })
         end }
     end
     if kind.forms and #kind.forms > 0 then
@@ -1231,6 +1241,17 @@ local function spellBody(s, key)
     end
 end
 
+-- The last link: Daylight UI's copy box with the bug report in it. It shows only
+-- while this Daylight UI has the box, and opens nothing in a fight.
+local function reportLink(s)
+    if not Bridge.CanShowText() then return end
+    local b = words(s, { { kind = "add", text = Drawer.COPY_REPORT, onClick = function()
+        if InCombatLockdown() then return end
+        Bridge.ShowText(WORDING.copyReportTitle, WORDING.copyReportHint, ns.Report.Build())
+    end } }, { gap = pad() })
+    b.copy = true
+end
+
 -- whole draws the spell; without the fold tab a header row folds it.
 local function fillBody(whole)
     local s = parts.bodyStack
@@ -1248,6 +1269,7 @@ local function fillBody(whole)
         else
             spellBody(s, shown)
         end
+        reportLink(s)
     end
     s:End()
     return s.height or 0

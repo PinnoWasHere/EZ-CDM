@@ -13,7 +13,7 @@ local _, ns = ...
 -- Fields are a piece's spell options, with its group's options under fields.chain
 -- and its own look keys under fields.look.
 
-local Bridge, Effects = ns.Bridge, ns.Effects
+local Bridge, Effects, Conditions = ns.Bridge, ns.Effects, ns.Conditions
 
 local Grammar = {}
 ns.Grammar = Grammar
@@ -72,6 +72,7 @@ end
 --                  one per piece (Effects)
 --   style          a glow line: its own style (line.style) is EZ-CDM's, by moment
 --                  (ezStyles, Effects)
+--   cond           an EZ-CDM condition's line (Conditions.Register, InstallCondition)
 local MAP = {
     always = { show = { all = SHOW_RULES, value = "show" } },
     ready = showRule("onReady"),
@@ -130,8 +131,8 @@ Grammar.FIELDS = {
 }
 -- Every look key the grammar writes (fields.look), through Data.SetLook.
 Grammar.LOOK_FIELDS = { "low", "lowAt", "lowColor" }
--- The fields EZ-CDM keeps itself (Effects.SplitFallOff, Effects.SplitStyles),
--- never Daylight UI's.
+-- The fields EZ-CDM keeps itself (Effects.SplitFallOff, Effects.SplitStyles,
+-- Conditions.Split), never Daylight UI's. Each condition's fields join as it installs.
 Grammar.EZ_FIELDS = { "ezLead", "ezSound", "ezStyles" }
 -- The fall-off lead's choices, in seconds.
 Grammar.LEADS = { 2, 3, 4, 5, 8, 10 }
@@ -465,7 +466,9 @@ function Grammar.Fits(kind, moment, action)
     if not entry then return false end
     if kind == nil then return true end
     local told = kind.tracked
-    if moment == "always" or moment == "ready" or moment == "unusable" or moment == "short"
+    if entry.cond then
+        return Conditions.Fits(entry.cond, action, kind)
+    elseif moment == "always" or moment == "ready" or moment == "unusable" or moment == "short"
         or moment == "usable" then
         return kind.cooldown
     elseif moment == "cooldown" then
@@ -532,6 +535,153 @@ function Grammar.Words(kind)
         if #actions > 0 then out[#out + 1] = { moment = m, actions = actions } end
     end
     return out
+end
+
+-- ---------------------------------------------------------------------
+-- Recipes: ready-made lines a click adds to a spell (docs/specs/recipes.md)
+-- ---------------------------------------------------------------------
+
+-- Each recipe is lines with no value, or group words. A glow takes the accent, a
+-- sound RECIPE_SOUND, a fall-off line RECIPE_LEAD seconds.
+Grammar.RECIPES = {
+    { key = "readyAlert", lines = { { moment = "ready", action = "glow" }, { moment = "ready", action = "sound" } } },
+    { key = "outOfWay", lines = { { moment = "cooldown", action = "hide" } } },
+    { key = "dimCooling", lines = { { moment = "cooldown", action = "fade" } } },
+    { key = "almostThere", lines = { { moment = "almost", action = "numbers" } } },
+    { key = "nowUsable", lines = { { moment = "usable", action = "glow" } } },
+    { key = "procPop", lines = { { moment = "up", action = "glow" } } },
+    { key = "missingReminder", lines = { { moment = "missing", action = "glow" } } },
+    { key = "refreshWarning", lines = { { moment = "recast", action = "glow" }, { moment = "recast", action = "sound" } } },
+    { key = "endedPing", lines = { { moment = "ends", action = "sound" } } },
+    { key = "fightOnly", group = { combat = true } },
+}
+Grammar.RECIPE_SOUND = "Proc"
+Grammar.RECIPE_LEAD = 5
+
+local function recipeOf(key)
+    for _, r in ipairs(Grammar.RECIPES) do
+        if r.key == key then return r end
+    end
+end
+
+-- The sound named RECIPE_SOUND in Daylight UI's list, else its first sound.
+local function recipeSound()
+    local values, order = Bridge.SoundChoices()
+    if type(values) ~= "table" then return nil end
+    local first
+    for _, k in ipairs(type(order) == "table" and order or {}) do
+        if k ~= "none" and not tostring(k):find("^head:") then
+            if values[k] == Grammar.RECIPE_SOUND then return k end
+            first = first or k
+        end
+    end
+    return first
+end
+
+-- A recipe's lines with their values, or nil for no such recipe.
+function Grammar.RecipeLines(key)
+    local r = recipeOf(key)
+    if not r then return nil end
+    local out = {}
+    for i, l in ipairs(r.lines or {}) do
+        local line = { moment = l.moment, action = l.action }
+        if l.action == "sound" then line.value = recipeSound() end
+        if MAP[l.moment][l.action].lead then line.at = Grammar.RECIPE_LEAD end
+        out[i] = line
+    end
+    return out
+end
+
+-- The recipes that fit a piece, in Grammar.RECIPES order: every line fits. Group
+-- words fit any piece.
+function Grammar.Recipes(kind)
+    local out = {}
+    for _, r in ipairs(Grammar.RECIPES) do
+        local fits = true
+        for _, l in ipairs(r.lines or {}) do
+            fits = fits and Grammar.Fits(kind, l.moment, l.action)
+        end
+        if fits then out[#out + 1] = r.key end
+    end
+    return out
+end
+
+-- ---------------------------------------------------------------------
+-- EZ-CDM's conditions (Conditions.lua)
+-- ---------------------------------------------------------------------
+
+-- Whether a condition's moment and action are taken already.
+function Grammar.ConditionClash(c)
+    for a in pairs(c.actions) do
+        if MAP[c.moment] and MAP[c.moment][a] then return true end
+    end
+    return false
+end
+
+-- A condition's lines: its moment (a new one joins the end), each action as a
+-- field of EZ-CDM's own, and its recipes after the one each names.
+function Grammar.InstallCondition(c)
+    if not indexOf(Grammar.MOMENTS, c.moment) then Grammar.MOMENTS[#Grammar.MOMENTS + 1] = c.moment end
+    MAP[c.moment] = MAP[c.moment] or {}
+    local actions = {}
+    for a in pairs(c.actions) do actions[#actions + 1] = a end
+    table.sort(actions)
+    for _, a in ipairs(actions) do
+        local field = Conditions.Field(c.key, a)
+        MAP[c.moment][a] = { field = field, value = true, cond = c.key }
+        if not indexOf(Grammar.ACTIONS, a) then Grammar.ACTIONS[#Grammar.ACTIONS + 1] = a end
+        if not indexOf(Grammar.EZ_FIELDS, field) then Grammar.EZ_FIELDS[#Grammar.EZ_FIELDS + 1] = field end
+    end
+    for _, r in ipairs(c.recipes or {}) do
+        if not recipeOf(r.key) and c.actions[r.action] then
+            local at = #Grammar.RECIPES + 1
+            for i, old in ipairs(Grammar.RECIPES) do
+                if old.key == r.after then at = i + 1 end
+                if old.key == "fightOnly" and at > i then at = i end
+            end
+            table.insert(Grammar.RECIPES, at, { key = r.key, lines = { { moment = c.moment, action = r.action } } })
+        end
+    end
+end
+
+for _, c in ipairs(Conditions.List()) do Grammar.InstallCondition(c) end
+
+-- What a line sets, so two lines that set the same thing are one family: Buff
+-- missing's show and hide share a slot, the show rules a field.
+local function family(line)
+    local e = MAP[line.moment] and MAP[line.moment][line.action]
+    if not e then return nil end
+    return line.moment .. ":" .. tostring(e.slot or e.field or e.paint or e.look or "all")
+end
+
+-- Adds recipe key's lines to rules. A finished line of the same moment and family is
+-- replaced in place, never doubled; every fall-off line takes the recipe's lead,
+-- which is one per piece. Returns rules.
+function Grammar.ApplyRecipe(rules, key)
+    if type(rules.lines) ~= "table" then rules.lines = {} end
+    if type(rules.group) ~= "table" then rules.group = {} end
+    if type(rules.forms) ~= "table" then rules.forms = {} end
+    local r = recipeOf(key)
+    if not r then return rules end
+    local lead
+    for _, line in ipairs(Grammar.RecipeLines(key)) do
+        local fam, at = family(line), nil
+        for i, old in ipairs(rules.lines) do
+            if old.moment ~= nil and old.action ~= nil and family(old) == fam then
+                at = i
+                break
+            end
+        end
+        if at then rules.lines[at] = line else rules.lines[#rules.lines + 1] = line end
+        lead = lead or line.at
+    end
+    if lead then
+        for _, l in ipairs(rules.lines) do
+            if l.moment == "recast" then l.at = lead end
+        end
+    end
+    for word, v in pairs(r.group or {}) do rules.group[word] = v end
+    return rules
 end
 
 -- ---------------------------------------------------------------------
@@ -852,7 +1002,7 @@ Grammar.WORDING = {
     noComma = { always = true },
     actions = {
         show = "show it", fade = "make it see-through", hide = "hide it", glow = "glow",
-        gray = "turn it gray", color = "keep its color", sound = "play a sound",
+        gray = "turn it gray", blue = "tint it blue", color = "keep its color", sound = "play a sound",
         nosweep = "hide the sweep", nogcd = "hide the global cooldown sweep", tint = "color the sweep",
         flash = "flash it", numbers = "color the numbers",
     },
@@ -881,7 +1031,14 @@ Grammar.WORDING = {
         moment = "Choose a moment:", action = "Choose what happens:", color = "Choose a color:",
         sound = "Choose a sound:", fade = "Choose how much shows:", group = "Choose for the whole group:",
         form = "Choose a form:", shows = "Choose what it shows:", style = "Choose a glow style:",
-        seconds = "Choose how many seconds:",
+        seconds = "Choose how many seconds:", recipe = "Choose a recipe:",
+    },
+    -- Each recipe's name on its chip (Grammar.RECIPES).
+    recipes = {
+        readyAlert = "Ready alert", outOfWay = "Out of the way", dimCooling = "Dim while cooling",
+        canCast = "Can't cast", manaCheck = "Mana check", almostThere = "Almost there", nowUsable = "Now usable", procPop = "Proc pop",
+        missingReminder = "Missing reminder", refreshWarning = "Refresh warning", endedPing = "Ended ping",
+        fightOnly = "Fight only",
     },
     -- The glow style of the spell's glows with none of their own (%s is the style's
     -- name, the card's label).
@@ -933,6 +1090,12 @@ Grammar.WORDING = {
     addLine = "+ add a line",
     addGroup = "+ a rule for its whole group",
     addForm = "+ hide it in a form …",
+    addRecipe = "+ a recipe",
+    -- The drawer's last link: Daylight UI's copy box holding a bug report.
+    copyReport = "Copy report",
+    copyReportTitle = "EZ-CDM report",
+    copyReportHint = "Ctrl+C to copy, then paste it into a GitHub issue or the DaylightUI Discord. "
+        .. "It holds your layout and EZ-CDM's settings, no names.",
     -- The start block beside the editor's tray.
     start = {
         blank = "EZ-Start Blank", load = "EZ-Load Layout",
