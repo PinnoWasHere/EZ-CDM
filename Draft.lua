@@ -290,10 +290,10 @@ local function planFor(key, rules, g)
     local shared = grouped and sharedNote(key, g)
     if shared then note("shared", shared) end
 
-    -- Track: the What it shows pick, in the piece's own words (CdmCard.lua:341-376).
+    -- Track: the What it shows pick, in the piece's own words (CdmCard.lua:350-385).
     -- Daylight UI's setters take no "unset", so a pick stays until another replaces it.
     -- Without one, "missing show" keeps the piece on Buff only, as the card writes it
-    -- (CdmCard.lua:326-329).
+    -- (CdmCard.lua:335-338).
     if fields.track ~= nil then
         local t = fields.track
         if live.track ~= t then

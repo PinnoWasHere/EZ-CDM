@@ -23,12 +23,12 @@ EZCDM_Grammar = Grammar
 
 Grammar.MOMENTS = { "always", "ready", "cooldown", "almost", "unusable", "short", "usable", "up", "ends", "missing", "recast" }
 Grammar.ACTIONS = { "show", "fade", "hide", "glow", "gray", "color", "sound", "nosweep", "nogcd", "tint", "flash", "numbers" }
--- What it shows, in the card's order (CdmCard.lua:621-627). Daylight UI's own piece
--- saves "aura" for "buff" (CdmCard.lua:341-351).
+-- What it shows, in the card's order (CdmCard.lua:630-636). Daylight UI's own piece
+-- saves "aura" for "buff" (CdmCard.lua:350-360).
 Grammar.SHOWS = { "both", "cooldown", "buff" }
 -- Group words in their canonical order: true turns one on, and where takes
 -- "instance" or "world". false and "any" are Daylight UI's defaults. keep is the
--- group's Slide over turned off (chain collapse = false, CdmCard.lua:709-710).
+-- group's Slide over turned off (chain collapse = false, CdmCard.lua:718-719).
 Grammar.GROUP = { "combat", "target", "group", "mounted", "where", "keep" }
 Grammar.WHERE = { "instance", "world" }
 -- Each group word's chain field, where it isn't the word itself, and the chain
@@ -58,7 +58,7 @@ local function showRule(field)
     }
 end
 
--- moment -> action -> what it sets. Card rows: CdmCard.lua:628-700.
+-- moment -> action -> what it sets. Card rows: CdmCard.lua:637-709.
 --   field, value   one spell option
 --   alpha          the line's value is the fade amount (cdAlpha)
 --   color          the line's value is the glow color (nil = the accent)
@@ -66,7 +66,7 @@ end
 --   paint          the line's value is that color field, alpha kept (nil = the accent)
 --   look           a look key set true (fields.look); lookColor takes the line's value,
 --                  at the line's seconds (line.at)
---   slot           lines sharing a slot set one choice (CdmCard.lua:313-333, Buff missing)
+--   slot           lines sharing a slot set one choice (CdmCard.lua:322-342, Buff missing)
 --   all            "always show": every show rule
 --   lead           the line's seconds (line.at) are EZ-CDM's fall-off lead (ezLead),
 --                  one per piece (Effects)
@@ -88,8 +88,8 @@ local MAP = {
         hide = { field = "hideActive", value = true },
         glow = { field = "upGlow", value = true, color = "upGlowColor", style = true },
         sound = { field = "buffSound", sound = true },
-        -- The sweep while the buff is up: off (Look tab, CdmCard.lua:505-506), or its
-        -- color (Highlight color, CdmCard.lua:686-688).
+        -- The sweep while the buff is up: off (Look tab, CdmCard.lua:514-515), or its
+        -- color (Highlight color, CdmCard.lua:695-697).
         nosweep = { field = "noDurationSwipe", value = true },
         tint = { paint = "activeColor" },
     },
@@ -98,7 +98,7 @@ local MAP = {
         show = { field = "missing", value = true, slot = "buffDown" },
         hide = { field = "hideMissing", value = true, slot = "buffDown" },
         glow = { field = "missingGlow", value = true, color = "missingGlowColor", style = true },
-        -- The empty bar pulses (CdmCard.lua:698-700). It needs "show it" here too.
+        -- The empty bar pulses (CdmCard.lua:707-709). It needs "show it" here too.
         flash = { field = "inactiveFlash", value = true },
     },
     -- The glow is Daylight UI's; the lead and the sound are EZ-CDM's (Effects).
@@ -113,10 +113,10 @@ MAP.ready.sound = { field = "readySound", sound = true }
 -- cooldown alone.
 MAP.cooldown.gray = { field = "desat", value = "grey" }
 MAP.cooldown.color = { field = "desat", value = "color" }
--- The cooldown's sweep: off, or off only for the global cooldown (CdmCard.lua:497-501).
+-- The cooldown's sweep: off, or off only for the global cooldown (CdmCard.lua:506-510).
 MAP.cooldown.nosweep = { field = "noSwipe", value = true }
 MAP.cooldown.nogcd = { field = "noGcd", value = true }
--- The numbers' color for the cooldown's last seconds (CdmCard.lua:513-520).
+-- The numbers' color for the cooldown's last seconds (CdmCard.lua:522-529).
 MAP.almost = { numbers = { look = "low", lookColor = "lowColor", at = "lowAt" } }
 Grammar.MAP = MAP
 
@@ -290,7 +290,7 @@ end
 -- Whether a piece's recast moment can ever fire: the clock starts only on a cast of
 -- one of its own ids (CdmAuras.lua:1194-1211), so a piece whose every id is passive
 -- or not the player's never gets one. A weapon enchant has no spell at all.
--- Daylight UI's card offers the row on any spell (CdmCard.lua:413-415).
+-- Daylight UI's card offers the row on any spell (CdmCard.lua:422-424).
 local function castable(key)
     if Bridge.SpellOf(key) == nil then return false end
     local ids = Bridge.SpellIDs(key)
@@ -339,18 +339,18 @@ end
 
 -- Describes a piece through Daylight UI's own answers. piece is its saved table or a
 -- draft one (the layout's own when nil). Mirrors the card's predicates:
---   isIcon / isBar   CdmCard.lua:227-228
---   isBuff           CdmCard.lua:236
---   isCooldown       CdmCard.lua:258-264
---   hasBuff          CdmCard.lua:266-269
---   buffOnly         CdmCard.lua:272
---   tellsState       CdmCard.lua:288-290
---   showsBuff        CdmCard.lua:407-410
---   cast             CdmCard.lua:413-415, less a spell never cast (castable)
---   trackRow         What it shows: "game" (gameSpell, CdmCard.lua:253-256) or "own"
+--   isIcon / isBar   CdmCard.lua:236-237
+--   isBuff           CdmCard.lua:245
+--   isCooldown       CdmCard.lua:267-273
+--   hasBuff          CdmCard.lua:275-278
+--   buffOnly         CdmCard.lua:281
+--   tellsState       CdmCard.lua:297-299
+--   showsBuff        CdmCard.lua:416-419
+--   cast             CdmCard.lua:422-424, less a spell never cast (castable)
+--   trackRow         What it shows: "game" (gameSpell, CdmCard.lua:262-265) or "own"
 --                    (canTrack, :337-340); nil for a totem, which has rows of its own
---   highlight        the buff's sweep is on (activeGlow, CdmCard.lua:686)
---   missingShown     Buff missing is set to Show (the Flash row, CdmCard.lua:698)
+--   highlight        the buff's sweep is on (activeGlow, CdmCard.lua:695)
+--   missingShown     Buff missing is set to Show (the Flash row, CdmCard.lua:707)
 --   ezGlow           EZ-CDM draws its up glow inside the client's button (Effects),
 --                    which needs no told state
 --   proc             your own proc that EZ-CDM draws (ezGlow): put up by a talent
@@ -367,13 +367,13 @@ end
 --                    Shadowform); nil when any id is timed or unknown
 --   buffEvents       Daylight UI's buff moments time its fall-off: one came for it,
 --                    or its state reads up or down (Effects.Covered)
--- Form rows show for cooldowns of a class with forms (CdmCard.lua:806).
+-- Form rows show for cooldowns of a class with forms (CdmCard.lua:815).
 -- Totems take no case of their own. Bridge.Shows (CdmOwn.Track) says "totem" for a
 -- totem with no buff and "both" for a Shaman element piece (CdmOwn.lua:108-130), and
 -- the card reads that same answer. test_grammar checks Words against the card's rows.
 -- shows, when given, is a What it shows pick not saved yet: the piece reads as the
 -- card would after that pick, Buff missing cleared for any pick but "buff"
--- (CdmCard.lua:369-374).
+-- (CdmCard.lua:378-383).
 function Grammar.Kind(key, piece, shows)
     local layout = Bridge.Layout()
     local pieces = type(layout) == "table" and type(layout.pieces) == "table" and layout.pieces or {}
@@ -429,7 +429,7 @@ function Grammar.Kind(key, piece, shows)
         buffEvents = Effects.Covered(key),
     }
     -- A proc is your own: a buff with a spell (a weapon enchant has none, so the card
-    -- hides its recast row, CdmCard.lua:411-415) that no other class puts on you. The
+    -- hides its recast row, CdmCard.lua:420-424) that no other class puts on you. The
     -- aura links decide where they name a spell you know; elsewhere, any buff you
     -- never cast.
     -- A debuff on the target is never your proc, whichever rule would say so.
@@ -439,7 +439,7 @@ function Grammar.Kind(key, piece, shows)
         if own == nil then own = not kind.cast end
         kind.proc = own == true
     end
-    -- What the card's What it shows reads now (CdmCard.lua:358-365), in the grammar's words.
+    -- What the card's What it shows reads now (CdmCard.lua:367-374), in the grammar's words.
     if trackRow then
         kind.showing = (now == "both" or now == "cooldown" or now == "buff") and now
             or (aura and "buff" or "cooldown")
@@ -472,19 +472,19 @@ function Grammar.Fits(kind, moment, action)
         or moment == "usable" then
         return kind.cooldown
     elseif moment == "cooldown" then
-        -- Gray out and the sweep are icon rows (CdmCard.lua:497-501, 648).
+        -- Gray out and the sweep are icon rows (CdmCard.lua:506-510, 657).
         if action == "gray" or action == "color" or action == "nosweep" or action == "nogcd" then
             return kind.cooldown and kind.shape == "icon"
         end
         return kind.cooldown
     elseif moment == "almost" then
-        -- The card offers this on any icon with numbers (CdmCard.lua:513-515), but it
+        -- The card offers this on any icon with numbers (CdmCard.lua:522-524), but it
         -- only colors a spell cooldown's numbers (Cooldowns.lua:336-350), so a buff
         -- alone doesn't take it.
         return kind.cooldown and kind.shape == "icon" and kind.numbers
     elseif moment == "up" then
         if action == "show" or action == "hide" then return kind.buff and told end
-        -- The sweep rows need no told state (CdmCard.lua:505, 683-688).
+        -- The sweep rows need no told state (CdmCard.lua:514, 692-697).
         if action == "nosweep" then return kind.shape == "icon" and kind.buff end
         if action == "tint" then return kind.shape == "icon" and kind.buff and kind.highlight end
         if action == "glow" then return kind.showsBuff and (told or kind.ezGlow == true) end
@@ -495,10 +495,10 @@ function Grammar.Fits(kind, moment, action)
         return kind.showsBuff and told
     elseif moment == "missing" then
         -- The card shows this glow on a Buff only piece once something shows while the
-        -- buff is down (CdmCard.lua:276-285, 693). A missing glow keeps the icon itself,
+        -- buff is down (CdmCard.lua:285-294, 702). A missing glow keeps the icon itself,
         -- so it's offered there too; Hide (Buff missing) makes it a "hidden" problem.
         if action == "glow" then return kind.buff and told end
-        -- Flash is a bar row, once Buff missing shows (CdmCard.lua:698-700).
+        -- Flash is a bar row, once Buff missing shows (CdmCard.lua:707-709).
         if action == "flash" then return kind.shape == "bar" and kind.buffOnly and kind.missingShown end
         return kind.buffOnly
     elseif moment == "recast" then
@@ -511,7 +511,7 @@ function Grammar.Fits(kind, moment, action)
 end
 
 -- Whole-spell words, each a sentence of its own: shows is What it shows, style the
--- glow style (CdmCard.lua:490-495), which every piece takes.
+-- glow style (CdmCard.lua:499-504), which every piece takes.
 Grammar.EXTRAS = { "shows", "style" }
 
 -- The whole-spell words that fit a piece, in Grammar.EXTRAS order.
@@ -690,7 +690,7 @@ end
 
 -- Hide (Buff up) and Hide (Buff missing) show nothing then, so these glows never
 -- light (CdmEffects.lua:491-500). With no sweep while the buff is up, its color has
--- nothing to color, and the card hides that row (CdmCard.lua:686-688).
+-- nothing to color, and the card hides that row (CdmCard.lua:695-697).
 local HIDDEN_BY = {
     { glow = "upGlow", hide = "hideActive" },
     { glow = "missingGlow", hide = "hideMissing" },
@@ -739,11 +739,11 @@ end
 --   "value"   a bad color, sound, fade amount or group value
 --   "twice"   an earlier line set the same thing; the later line wins
 --   "hidden"  a glow that a hide line keeps from showing
---   "needs"   "flash it" with no "show it" while it's not active (CdmCard.lua:698)
+--   "needs"   "flash it" with no "show it" while it's not active (CdmCard.lua:707)
 -- A bad glow style is { style = key, code = "value" }.
 -- flags:
 --   keepBuffOnly   "missing show" needs the piece kept Buff only: the card sets track
---                  to buff (or aura for Daylight UI's own piece) with it (CdmCard.lua:326-329)
+--                  to buff (or aura for Daylight UI's own piece) with it (CdmCard.lua:335-338)
 function Grammar.Compile(rules, kind)
     rules = type(rules) == "table" and rules or {}
     local fields, problems, flags = {}, {}, {}
@@ -963,7 +963,7 @@ function Grammar.Decompile(fields, kind)
         end
     end
     -- A saved What it shows pick, in the grammar's words. A totem's track is its own
-    -- rows' (CdmCard.lua:379-389), so it makes no word.
+    -- rows' (CdmCard.lua:388-398), so it makes no word.
     local shows = fields.track == "aura" and "buff" or fields.track
     if not indexOf(Grammar.SHOWS, shows) or (kind and not kind.trackRow) then shows = nil end
     local style = fields.glowStyle

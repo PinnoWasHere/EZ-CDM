@@ -121,7 +121,7 @@ local function validSpell(spec, v, B)
     return false
 end
 
-T.test("grammar: every field and value it can write is valid on Daylight UI 2.2.5", function()
+T.test("grammar: every field and value it can write is valid on Daylight UI 2.2.6", function()
     local _, ns, G, AB = world()
     local B = ns.Bridge
     local spell, bad = AB.CdmData.SPELL_FIELDS, {}
@@ -272,7 +272,7 @@ T.test("grammar compile: each sentence gives the expected fields", function()
         T.eq(codes(problems), "", what .. ": no problems")
         T.deq(fields, withChain(c[2]), what)
     end
-    -- Flash needs "show it" with it, as the card does (CdmCard.lua:698).
+    -- Flash needs "show it" with it, as the card does (CdmCard.lua:707).
     local fields, problems = G.Compile({ lines = { L("missing", "show"), L("missing", "flash") } })
     T.eq(codes(problems), "")
     T.deq(fields, withChain({ missing = true, inactiveFlash = true }), "missing flash")
@@ -464,7 +464,7 @@ T.test("grammar kind: an icon cooldown takes the cooldown words, gray included",
     T.falsy(kind.custom, "the game's piece")
     T.falsy(kind.showsBuff, "its buff isn't shown")
     T.deq(kind.forms, { "Battle", "Defensive", "Berserker" }, "the warrior's stances")
-    -- Buff up's Visibility and the missing glow still apply (CdmCard.lua:669, 693).
+    -- Buff up's Visibility and the missing glow still apply (CdmCard.lua:678, 702).
     T.eq(wordsOf(G, kind), COOLDOWN_WORDS .. " up(show,hide,nosweep,tint) missing(glow)")
     T.eq(ns.Bridge.Tracked(k.icon) ~= false, kind.tracked)
     noErrors()
@@ -493,7 +493,7 @@ T.test("grammar kind: a tracked buff takes the buff words and no cooldown words"
     local kind = G.Kind(k.buff)
     T.eq(ns.Bridge.Tracked(k.buff), true, "the game's item tells its state")
     T.truthy(kind.buffOnly, "Battle Shout shows only its buff")
-    T.isnil(kind.forms, "form rows are for cooldowns (CdmCard.lua:806)")
+    T.isnil(kind.forms, "form rows are for cooldowns (CdmCard.lua:815)")
     T.eq(wordsOf(G, kind), "up(show,hide,glow,sound,nosweep,tint) ends(sound) missing(show,hide,glow) recast(glow,sound)")
     local f, p = G.Compile({ lines = { L("ready", "glow"), L("missing", "glow") }, forms = { "Battle" } }, kind)
     T.eq(codes(p), "line 1: kind, form Battle: kind")
@@ -506,13 +506,13 @@ T.test("grammar kind: an untracked buff has no up, ends or missing glow words", 
     local kind = G.Kind(k.buff)
     T.eq(ns.Bridge.Tracked(k.buff), false, "nothing can tell its state")
     T.falsy(kind.tracked)
-    -- The card keeps Buff missing's Visibility (CdmCard.lua:690) and Glow to recast,
-    -- which runs on your own cast's clock (CdmCard.lua:675). An aura icon holder
+    -- The card keeps Buff missing's Visibility (CdmCard.lua:699) and Glow to recast,
+    -- which runs on your own cast's clock (CdmCard.lua:684). An aura icon holder
     -- draws it, so EZ-CDM's up glow needs no told state (Effects).
     T.eq(ns.Bridge.DrawnBy(k.buff), "aura icon")
     T.truthy(kind.ezGlow, "EZ-CDM draws its up glow")
     T.eq(wordsOf(G, kind), "up(glow,nosweep,tint) missing(show,hide) recast(glow,sound)",
-        "the sweep rows need no told state (CdmCard.lua:505, 683-688)")
+        "the sweep rows need no told state (CdmCard.lua:514, 692-697)")
     local f, p = G.Compile({ lines = { L("up", "glow"), L("ends", "sound", SOUND), L("recast", "glow") } }, kind)
     T.eq(codes(p), "line 2: kind")
     T.deq(f, withChain({ upGlow = true, clipGlow = true }))
@@ -536,7 +536,7 @@ T.test("grammar kind: a weapon enchant has no recast", function()
     local _, _, G, _, k = pieceWorld()
     local kind = G.Kind(k.weapon)
     T.truthy(kind.custom)
-    T.falsy(kind.cast, "no spell to time a recast by (CdmCard.lua:413-415)")
+    T.falsy(kind.cast, "no spell to time a recast by (CdmCard.lua:422-424)")
     T.eq(wordsOf(G, kind), "up(show,hide,glow,sound,nosweep,tint) ends(sound) missing(show,hide,glow)")
     local _, p = G.Compile({ lines = { L("recast", "glow") } }, kind)
     T.eq(codes(p), "line 1: kind")
@@ -734,7 +734,7 @@ T.test("grammar buff extras: the sweep while active, its color, and flash on a b
     T.deq(f, withChain({ activeColor = { 1, 0, 0, 0.5 } }), "color the sweep, alpha kept")
     T.truthy(G.IsDefault(L("up", "tint"), kind), "the accent sweep is Daylight UI's own")
     f, p = G.Compile({ lines = { L("up", "nosweep"), L("up", "tint", COLOR) } }, kind)
-    T.eq(codes(p), "line 2: hidden", "no sweep leaves nothing to color (CdmCard.lua:686-688)")
+    T.eq(codes(p), "line 2: hidden", "no sweep leaves nothing to color (CdmCard.lua:695-697)")
     T.deq(f, withChain({ noDurationSwipe = true }))
     f, p = G.Compile({ lines = { L("up", "tint", { 1, 0, 0, 2 }) } }, kind)
     T.eq(codes(p), "line 1: value", "an alpha past 1")
@@ -984,8 +984,8 @@ local CARD_OTHER = {
 local LEFT = {
     -- Behavior
     activeGlow = "Highlight off: \"hide the sweep\" (noDurationSwipe) covers it, Daylight UI's own buff holders too (CdmEffects.lua:17-19, 863)",
-    totemTrack = "a totem's What it shows has its own values (Totem, Cooldown; CdmCard.lua:379-382)",
-    buffTotemTrack = "a totem's What it shows reads Totem and buff (CdmCard.lua:386-396)",
+    totemTrack = "a totem's What it shows has its own values (Totem, Cooldown; CdmCard.lua:388-391)",
+    buffTotemTrack = "a totem's What it shows reads Totem and buff (CdmCard.lua:395-405)",
     -- Look: size, the reverse sweep, text, bars and their animation
     size = "size", ["chain.size"] = "size", width = "size", height = "size",
     ["chain.width"] = "size", ["chain.height"] = "size",
@@ -1008,7 +1008,7 @@ local LEFT = {
     ["chain.spacing"] = "spacing", ["chain.grow"] = "grow side",
     back = "position: Daylight UI's editor moves pieces", forward = "position: Daylight UI's editor moves pieces",
     alignAcross = "position", alignDown = "position", gap = "spacing", unhook = "position",
-    ["chain.tether"] = "position: Attach to, the frame a group follows (CdmCard.lua:474)",
+    ["chain.tether"] = "position: Attach to, the frame a group follows (CdmCard.lua:483)",
 }
 -- Custom gradient rows are numbered (barStops.count, barStops.c1...): bar colors.
 local LEFT_PATTERNS = { "^barStops%.", "^chain%.barStops%." }
@@ -1055,27 +1055,27 @@ local function cardRows(AB, id, left)
 end
 
 -- The one deliberate departure. The card shows Buff missing's Glow on a Buff only
--- piece only once something shows while the buff is down (CdmCard.lua:276-285,
+-- piece only once something shows while the buff is down (CdmCard.lua:285-294,
 -- 693), as after "missing show". The grammar offers it at once, since a missing
 -- glow keeps the icon itself (Data.PieceBlock). So it counts as offered when the
 -- card shows it with the piece saved as Buff missing: Show.
-local DEPARTURE = "missing glow (CdmCard.lua:276-285, 693)"
+local DEPARTURE = "missing glow (CdmCard.lua:285-294, 702)"
 -- The second departure. The card offers Glow to recast on any spell (CdmCard.lua:
 -- 413-415), but its clock starts only on a cast of one of the piece's own ids
 -- (CdmAuras.lua:1194-1211). The grammar leaves it out where every id is passive or
 -- not the player's (Grammar.Casts), as on Improved Stormstrike.
-local RECAST = "recast glow on a spell you never cast (CdmCard.lua:413-415)"
+local RECAST = "recast glow on a spell you never cast (CdmCard.lua:422-424)"
 -- The third departure. The card offers Color when almost ready on any icon with
--- numbers (CdmCard.lua:513-515), but it only colors a spell cooldown's numbers
+-- numbers (CdmCard.lua:522-524), but it only colors a spell cooldown's numbers
 -- (Cooldowns.lua:336-350), so the grammar offers it on cooldowns only.
-local LOW = "almost-ready color on a buff alone (CdmCard.lua:513-515)"
+local LOW = "almost-ready color on a buff alone (CdmCard.lua:522-524)"
 -- The fourth departure. The card hides Glow (Buff up) on a buff nothing can tell
--- about (CdmCard.lua:285-290). EZ-CDM draws that glow inside the client's aura
+-- about (CdmCard.lua:294-299). EZ-CDM draws that glow inside the client's aura
 -- button for a piece an aura icon holder draws (Effects.lua), which needs no state.
 local EZGLOW = "up glow EZ-CDM draws in the client's button (Effects.lua)"
 -- The fifth departure. The card offers Glow to recast on any spell, but an aura the
 -- client's tables call untimed (AuraLinks.untimed: Ghost Wolf) never falls off.
-local UNTIMED = "recast glow on an aura that never falls off (CdmCard.lua:413-415)"
+local UNTIMED = "recast glow on an aura that never falls off (CdmCard.lua:422-424)"
 local function exceptions(G, AB, id, on)
     local out = {}
     -- EZ-CDM's conditions (Conditions.lua) have no card row: every one that fits.
@@ -1540,7 +1540,7 @@ T.test("grammar vs card: an enchanted weapon learns a length and still offers no
     local ok, err = pcall(function()
         local k2 = G.Kind(k.weapon)
         T.truthy(k2.ezGlow)
-        T.falsy(k2.proc, "no spell, no proc (CdmCard.lua:411-415)")
+        T.falsy(k2.proc, "no spell, no proc (CdmCard.lua:420-424)")
     end)
     ns.Effects.Drawn = drawn
     assert(ok, err)
@@ -1856,7 +1856,7 @@ end)
 T.test("grammar recipes: shown only where every line fits the piece", function()
     local _, ns, G, _, k = pieceWorld()
     T.eq(recipeKeys(G, G.Kind(k.icon)), "readyAlert outOfWay dimCooling canCast manaCheck almostThere nowUsable missingReminder fightOnly",
-        "icon cooldown: its missing glow is the card's (CdmCard.lua:693)")
+        "icon cooldown: its missing glow is the card's (CdmCard.lua:702)")
     T.eq(recipeKeys(G, G.Kind(k.bar)), "readyAlert outOfWay dimCooling nowUsable missingReminder fightOnly",
         "a bar: no numbers, no washes")
     withSpellAnswers({}, { [SHOUT] = true }, function()

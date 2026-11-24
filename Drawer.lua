@@ -949,7 +949,7 @@ end
 
 -- What it shows, for a piece the card's What it shows row takes: one sentence,
 -- always there, as the card's row is. A pick drops the lines that no longer fit,
--- as the card clears Buff missing (CdmCard.lua:369-374).
+-- as the card clears Buff missing (CdmCard.lua:378-383).
 local function showsLine(s, kind, rules)
     if not kind.trackRow then return end
     local now = rules.shows or kind.showing

@@ -158,11 +158,11 @@ local ALWAYS_ROWS = { "onReady", "onCd", "onUnusable", "onShort" }
 
 -- The departures test_grammar names.
 SW.DEPARTURES = {
-    missing = "missing glow (CdmCard.lua:276-285, 693)",
-    recast = "recast glow on a spell you never cast (CdmCard.lua:413-415)",
-    untimed = "recast glow on an aura that never falls off (CdmCard.lua:413-415)",
+    missing = "missing glow (CdmCard.lua:285-294, 702)",
+    recast = "recast glow on a spell you never cast (CdmCard.lua:422-424)",
+    untimed = "recast glow on an aura that never falls off (CdmCard.lua:422-424)",
     untimedEnds = "wears-off sound on an aura that is only on or off",
-    low = "almost-ready color on a buff alone (CdmCard.lua:513-515)",
+    low = "almost-ready color on a buff alone (CdmCard.lua:522-524)",
     ezGlow = "up glow EZ-CDM draws in the client's button (Effects.lua)",
 }
 

@@ -316,13 +316,13 @@ function Bridge.SpellIDs(key) return call("ActionBars.CdmAuras.SpellIDs", key) e
 -- (CdmCustom.IsGroup). The player never casts it, so it is no proc of theirs.
 function Bridge.IsGroup(key) return call("ActionBars.CdmCustom.IsGroup", key) == true end
 -- Whether a piece's spell is a totem. A totem picks what it shows from its own rows,
--- not the card's What it shows (CdmCard.lua:242-256).
+-- not the card's What it shows (CdmCard.lua:251-265).
 function Bridge.IsTotem(key)
     local sid = Bridge.SpellOf(key)
     return sid ~= nil and call("ActionBars.CdmCustom.Totem", sid) ~= nil
 end
 
--- A look key's value for a placed piece as the card reads it (CdmCard.lua:219-225):
+-- A look key's value for a placed piece as the card reads it (CdmCard.lua:228-234):
 -- its own, its group's, else Daylight UI's fallback.
 function Bridge.PieceLook(key, field)
     local set = Bridge.Layout()
@@ -338,7 +338,7 @@ end
 function Bridge.LookDefault(field) return call("ActionBars.CdmCard.Fallback", field) end
 
 -- The glow styles the card's Style row offers, { { key, label } }, in its order:
--- Ring, Daylight UI's default, then API.GlowStyles()'s (CdmCard.lua:490-495).
+-- Ring, Daylight UI's default, then API.GlowStyles()'s (CdmCard.lua:499-504).
 function Bridge.GlowStyles()
     local rows = Bridge.Resolve("ActionBars.CdmCard.ROWS")
     for _, row in ipairs(type(rows) == "table" and type(rows.look) == "table" and rows.look or {}) do
@@ -412,7 +412,7 @@ function Bridge.SetSpellValue(g, key, field, value)
 end
 
 -- One look key of a piece, its own (CdmData.LOOK_FIELDS), as the card's Look tab
--- writes it (CdmCard.lua:157-160). Daylight UI keeps even a value equal to its
+-- writes it (CdmCard.lua:166-169). Daylight UI keeps even a value equal to its
 -- fallback, so a key goes back by writing Bridge.LookDefault.
 function Bridge.SetLook(g, key, field, value)
     local set, why = savedSet(g)
@@ -428,7 +428,7 @@ function Bridge.SetTrack(g, key, track)
 end
 
 -- One group option (CdmData.CHAIN_FIELDS), set from any piece in the group onto the
--- group, as Daylight UI's Group tab does (CdmCard.lua:165-175).
+-- group, as Daylight UI's Group tab does (CdmCard.lua:174-184).
 function Bridge.SetChainValue(g, key, field, value)
     local set, why = savedSet(g)
     if not set then return false, why end
@@ -505,7 +505,7 @@ function Bridge.SpellTexture(key) return call("ActionBars.CdmEditor.SpellTexture
 -- The game's color picker as Daylight UI opens it, starting at { r, g, b }.
 -- onChange({ r, g, b }) runs on each pick (once on release for a drag), and with
 -- the start color on Cancel. alpha adds the opacity bar, and colors come as
--- { r, g, b, a }, as the card's colors with alpha (CdmCard.lua:688).
+-- { r, g, b, a }, as the card's colors with alpha (CdmCard.lua:697).
 function Bridge.PickColor(start, onChange, alpha)
     return call("DaylightUI.Widgets.OpenColorPicker", start, onChange, alpha == true)
 end
