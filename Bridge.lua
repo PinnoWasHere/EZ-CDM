@@ -104,6 +104,7 @@ Bridge.NEEDS = {
     "ActionBars.CdmAuras.Clip",
     "ActionBars.CdmEffects.ClipGlows",
     "DaylightUI.Sound.Alert",
+    "DaylightUI.Sound.AlertSample",
     "ActionBars.CdmAuras.Told",
     -- Effects: a glow style per moment (me.Wrap)
     "ActionBars.CdmEffects.GlowStyle",
@@ -133,6 +134,13 @@ Bridge.OPTIONAL = {
     "InfoPanel.Panel.SLIDE",
     "InfoPanel.Panel.XP_BORDER",
     "DaylightUI.Profiles.ShowText",
+    -- The first-run tour on Daylight UI's own tour engine (Tour.lua). Without it,
+    -- no tour.
+    "DaylightUI.Tour.Run",
+    "DaylightUI.Tour.Running",
+    "DaylightUI.Tour.Stop",
+    "DaylightUI.Tour.Pop",
+    "ActionBars.CdmEditor.PreviewOf",
 }
 
 -- The table a root name stands for, or nil.
@@ -748,7 +756,27 @@ function Bridge.WrapClock(name, fn) return wrapListed(Bridge.CLOCK_WRAPS, name, 
 
 -- Plays a sound key from Daylight UI's list (Bridge.SoundChoices), as its own
 -- piece sounds do (CdmEffects.lua:727-734).
-function Bridge.PlayAlert(key) return call("DaylightUI.Sound.Alert", key) end
+-- Plays nothing while the player has EZ-CDM's sounds off (Settings "sounds").
+function Bridge.PlayAlert(key)
+    if not Bridge.SoundsOn() then return end
+    return call("DaylightUI.Sound.Alert", key)
+end
+
+-- Whether EZ-CDM's sounds are on (Settings.lua; on before it loads).
+function Bridge.SoundsOn()
+    local S = ns.Settings
+    return not (S and S.Get("sounds") == false)
+end
+
+-- Previews a sound key as Daylight UI's own list does (Sound.AlertSample): the newest
+-- request plays and cuts off the one before. None, or sounds off, plays nothing.
+function Bridge.PreviewAlert(key)
+    if key == nil or key == "none" or not Bridge.SoundsOn() then return end
+    if type(Bridge.Resolve("DaylightUI.Sound.AlertSample")) == "function" then
+        return call("DaylightUI.Sound.AlertSample", key)
+    end
+    return Bridge.PlayAlert(key)
+end
 
 -- ---------------------------------------------------------------------
 -- A glow style per moment (CdmEffects)
@@ -856,6 +884,29 @@ function Bridge.WashAlpha() return Bridge.Resolve("ActionBars.Skin.FLASH_ALPHA")
 
 -- Asks Daylight UI for a pass on the next frame (CdmRows.Refresh, coalesced).
 function Bridge.Refresh() return call("ActionBars.CdmRows.Refresh") end
+
+-- ---------------------------------------------------------------------
+-- The tour engine (Tour.lua), the one Daylight UI's /cdm layout tour runs on
+-- ---------------------------------------------------------------------
+
+-- Whether this Daylight UI has its tour engine.
+function Bridge.CanTour()
+    for _, name in ipairs({ "Run", "Running", "Stop", "Pop" }) do
+        if type(Bridge.Resolve("DaylightUI.Tour." .. name)) ~= "function" then return false end
+    end
+    return true
+end
+-- Runs a list of stops on Daylight UI's tour card (Tour.Run). False when it can't
+-- start now: another tour runs, a fight, or no engine.
+function Bridge.RunTour(list, opts) return call("DaylightUI.Tour.Run", list, opts) == true end
+-- Whether a tour runs: the one under key, or any when key is nil.
+function Bridge.TourRunning(key) return call("DaylightUI.Tour.Running", key) == true end
+-- Ends the running tour at once, as a fight does. Not a skip.
+function Bridge.StopTour() return call("DaylightUI.Tour.Stop") end
+-- text in the tour's accent, as its cards name a button or a command.
+function Bridge.TourPop(text) return call("DaylightUI.Tour.Pop", text) or text end
+-- A placed piece's frame in the editor, or nil.
+function Bridge.PiecePreview(key) return call("ActionBars.CdmEditor.PreviewOf", key) end
 
 local API = _G.DaylightUI and _G.DaylightUI.API
 if type(API) == "table" and type(API.On) == "function" then

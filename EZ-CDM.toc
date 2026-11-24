@@ -22,3 +22,5 @@ Draft.lua
 Start.lua
 Drawer.lua
 Report.lua
+Tour.lua
+Settings.lua

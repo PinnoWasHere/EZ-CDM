@@ -1404,6 +1404,44 @@ T.test("drawer polish: plain words are one run per line, so a gap is one space",
     noErrors()
 end)
 
+T.test("drawer sound strip: a chip click previews the sound and still picks it", function()
+    local DUI, _, Drawer, _, k, _, Ed = editorWorld()
+    Ed.Select(k.clap)
+    wordOf(Drawer, 1, "action"):Click()
+    pick(Drawer, "sound")
+    local played = {}
+    local keep = DUI.Sound.Alert
+    DUI.Sound.Alert = function(key) played[#played + 1] = key; return keep(key) end
+    wordOf(Drawer, 1, "sound"):Click()
+    local kinds, keys = {}, strip(Drawer).keys
+    for _, key in ipairs(keys) do
+        local kind = tostring(key):match("^(%a+):") or key
+        if not kinds[kind] then kinds[kind] = key end
+    end
+    T.truthy(kinds.kit or kinds.file, "the list holds kit or file sounds")
+    T.truthy(kinds.dui, "the list holds Daylight UI's own files")
+    for _, kind in ipairs({ "kit", "file", "dui", "lsm" }) do
+        local key = kinds[kind]
+        if key then
+            played = {}
+            if not Drawer.Slot() then wordOf(Drawer, 1, "sound"):Click() end
+            pick(Drawer, key)
+            stub.RunTimers()
+            T.deq(played, { key }, kind .. " chip plays its own key once")
+            T.eq(pieceOf(k.clap).readySound, key, kind .. " chip still picks")
+        end
+    end
+    -- None plays nothing but still picks.
+    played = {}
+    if not Drawer.Slot() then wordOf(Drawer, 1, "sound"):Click() end
+    pick(Drawer, "none")
+    stub.RunTimers()
+    T.deq(played, {}, "None is silent")
+    T.truthy(pieceOf(k.clap).readySound == nil or pieceOf(k.clap).readySound == "none", "None still picks")
+    DUI.Sound.Alert = keep
+    noErrors()
+end)
+
 T.test("drawer polish: the chip strip wraps inside the drawer's width", function()
     local DUI, _, Drawer, _, k, _, Ed = editorWorld()
     Ed.Select(k.clap)

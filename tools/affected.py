@@ -27,15 +27,17 @@ SWEEP = ["test_sweep_a", "test_sweep_b", "test_sweep_c", "test_sweep_d"]
 # A shipped file's own tests and the tests of the files built on it. Drawer reads
 # Draft; Draft reads Grammar and Effects; all of them read Bridge. Grammar reads the
 # aura links and Effects. Start reads Grammar's words, and shares the editor's hooks
-# with Drawer. Effects' tests write through Draft.
+# with Drawer. Tour lights Start's and Drawer's parts. Effects' tests write
+# through Draft.
 BUILT_ON = {
-    "Bridge.lua": ["test_bridge", "test_grammar", "test_draft", "test_start", "test_drawer", "test_effects"] + SWEEP,
-    "Grammar.lua": ["test_grammar", "test_draft", "test_start", "test_drawer", "test_effects"] + SWEEP,
+    "Bridge.lua": ["test_bridge", "test_grammar", "test_draft", "test_start", "test_drawer", "test_effects", "test_tour"] + SWEEP,
+    "Grammar.lua": ["test_grammar", "test_draft", "test_start", "test_drawer", "test_effects", "test_tour"] + SWEEP,
     "AuraLinks.lua": ["test_grammar", "test_draft", "test_drawer", "test_effects"] + SWEEP,
     "Effects.lua": ["test_effects", "test_grammar", "test_draft", "test_drawer"] + SWEEP,
     "Draft.lua": ["test_draft", "test_drawer", "test_effects"] + SWEEP,
-    "Start.lua": ["test_start", "test_drawer"],
-    "Drawer.lua": ["test_drawer", "test_start"],
+    "Start.lua": ["test_start", "test_drawer", "test_tour"],
+    "Drawer.lua": ["test_drawer", "test_start", "test_tour"],
+    "Tour.lua": ["test_tour"],
 }
 # The harness itself: the load test proves it still loads Daylight UI and EZ-CDM.
 HARNESS = {"tests/ez_harness.lua", "tests/run.lua", "tests/pin.lua"}

@@ -643,7 +643,11 @@ local function fillStrip()
         local pieces = {}
         for _, k in ipairs(slot.keys) do
             pieces[#pieces + 1] = { kind = "chip", text = slot.values[k] or tostring(k), key = k,
-                on = slot.current ~= nil and k == slot.current, onClick = function() drop(k) end }
+                on = slot.current ~= nil and k == slot.current,
+                onClick = function()
+                    if slot and slot.kind == "sound" then Bridge.PreviewAlert(k) end
+                    drop(k)
+                end }
         end
         if #pieces > 0 then words(s, pieces).choices = true end
     else

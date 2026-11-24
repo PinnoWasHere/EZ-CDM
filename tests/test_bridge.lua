@@ -820,7 +820,11 @@ end)
 
 T.test("bridge: without the info panel, FoldTab is nil and EZ-CDM stays on", function()
     local _, _, B = world()
-    T.eq(#B.MissingOptional(), #B.OPTIONAL - 1, "every info panel entry is missing; the copy box is in the core")
+    local panel = 0
+    for _, path in ipairs(B.OPTIONAL) do
+        if path:find("^InfoPanel%.") then panel = panel + 1 end
+    end
+    T.eq(#B.MissingOptional(), panel, "every info panel entry is missing; the rest is in the core and the editor")
     T.truthy(B.CanShowText())
     T.isnil(B.FoldTab())
     T.truthy(B.Ready(), "on")
