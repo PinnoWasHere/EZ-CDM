@@ -837,7 +837,7 @@ local function fillStrip()
         if #pieces > 0 then words(s, pieces).choices = true end
         -- Parts the line can't take with what it holds, and why.
         for _, r in ipairs(slot.refused or {}) do
-            words(s, { { text = WORDING.neverPart:format(Grammar.ClauseWords(r.cond), r.why), size = "small",
+            words(s, { { text = WORDING.neverPart:format(r.words or Grammar.ClauseWords(r.cond), r.why), size = "small",
                 color = "LABEL" } }).never = r.cond
         end
     else
@@ -854,9 +854,9 @@ end
 -- ---------------------------------------------------------------------
 
 -- Each moment's phrase, the same on its chip and in the sentence.
-local function momentNames()
+local function momentNames(kind)
     local out = {}
-    for m in pairs(WORDING.moments) do out[m] = (Grammar.MomentWords(m)) end
+    for m in pairs(WORDING.moments) do out[m] = (Grammar.MomentWords(m, nil, kind)) end
     return out
 end
 
@@ -877,9 +877,9 @@ local function wordsFor(kind)
 end
 
 -- A clause's or a moment's name on a chip ("my target is below N% health").
-local function clauseNames()
+local function clauseNames(kind)
     local out = {}
-    for _, c in ipairs(ns.Conditions.List()) do out[c.key] = Grammar.ClauseWords(c.key) end
+    for _, c in ipairs(ns.Conditions.List()) do out[c.key] = Grammar.ClauseWords(c.key, nil, kind) end
     out[Drawer.DROP] = WORDING.dropClause
     return out
 end
@@ -901,7 +901,10 @@ local function clauseChoices(kind, line, j)
     end
     local refused = {}
     for _, r in ipairs(Grammar.ClauseRefusals(kind, probe, view)) do
-        if not later[r.cond] then refused[#refused + 1] = r end
+        if not later[r.cond] then
+            r.words = Grammar.ClauseWords(r.cond, nil, kind)
+            refused[#refused + 1] = r
+        end
     end
     return keys, ns.Conditions.AnyAdvanced() and Grammar.TakesClauses(probe), refused
 end
@@ -1060,10 +1063,10 @@ local function sentence(s, kind, rules, i, line)
     local C = ns.Conditions
     -- The moment's condition takes its number before an action is picked.
     local mk = ck or Grammar.MomentCondition(line.moment)
-    local phrase, joint = Grammar.MomentWords(line.moment, mk and C.Get(mk).param and Grammar.NUMBER_MARK)
+    local phrase, joint = Grammar.MomentWords(line.moment, mk and C.Get(mk).param and Grammar.NUMBER_MARK, kind)
     local pieces = {}
     local momentDef = {
-        kind = "moment", keys = moments, values = momentNames(), current = line.moment, more = hasMore,
+        kind = "moment", keys = moments, values = momentNames(kind), current = line.moment, more = hasMore,
         onPick = function(m)
             edit(function(r)
                 -- The action stays while it fits the new moment; a blank stays blank.
@@ -1085,7 +1088,7 @@ local function sentence(s, kind, rules, i, line)
     for j, cl in ipairs(clauses) do
         local keys, moreWords, refused = clauseChoices(kind, line, j)
         keys[#keys + 1] = Drawer.DROP
-        local def = { kind = "clause", keys = keys, values = clauseNames(), current = cl.cond, more = moreWords,
+        local def = { kind = "clause", keys = keys, values = clauseNames(kind), current = cl.cond, more = moreWords,
             refused = refused,
             onPick = function(k)
                 edit(function(r)
@@ -1096,7 +1099,7 @@ local function sentence(s, kind, rules, i, line)
         local w = c and c.param and numberWord(id .. "cn" .. j, cl.cond, cl.n,
             function(r, x) r.lines[i].clauses[j].n = x end, off)
         pieces[#pieces + 1] = { text = " " .. WORDING.andWord .. " " }
-        for _, p in ipairs(withNumber(Grammar.ClauseWords(cl.cond, c and Grammar.NUMBER_MARK), w, function(text)
+        for _, p in ipairs(withNumber(Grammar.ClauseWords(cl.cond, c and Grammar.NUMBER_MARK, kind), w, function(text)
             return word(text, id .. "clause" .. j, def, true, off)
         end)) do pieces[#pieces + 1] = p end
     end
@@ -1104,7 +1107,7 @@ local function sentence(s, kind, rules, i, line)
         local keys, moreWords, refused = clauseChoices(kind, line, #clauses + 1)
         if #keys > 0 or moreWords or #refused > 0 then
             pieces[#pieces + 1] = { text = " ", aside = true }
-            local chip = word(WORDING.addClause, id .. "and", { kind = "and", keys = keys, values = clauseNames(),
+            local chip = word(WORDING.addClause, id .. "and", { kind = "and", keys = keys, values = clauseNames(kind),
                 more = moreWords, refused = refused,
                 onPick = function(k) edit(function(r) setClause(r.lines[i], #clauses + 1, k) end) end },
                 false)
@@ -1277,7 +1280,7 @@ local function showsLine(s, kind, rules)
     if not kind.trackRow then return end
     local now = rules.shows or kind.showing
     local values = {}
-    for _, k in ipairs(Grammar.SHOWS) do values[k] = upper(WORDING.shows[k]) end
+    for _, k in ipairs(Grammar.SHOWS) do values[k] = upper(Grammar.ShowsPhrase(k, kind)) end
     local b = words(s, {
         word(values[now] or tostring(now), "shows", { kind = "shows", keys = Grammar.SHOWS, values = values,
             current = now, onPick = function(v)
@@ -1532,9 +1535,18 @@ local function spellBody(s, key)
     local kind = Grammar.Kind(key)
     local rules, first, last = current()
     showsLine(s, kind, rules)
-    local fallOffNoted, buttonNoted = false, false
+    local fallOffNoted, buttonNoted, grayNoted = false, false, false
+    local gray = Grammar.GrayNote(kind, rules.lines)
     for i, line in ipairs(rules.lines) do
         sentence(s, kind, rules, i, line)
+        -- Daylight UI's own gray under the first can't cast gray line, and its fix.
+        if gray and not grayNoted and line.action == "gray" and Grammar.LineCondition(line) == "cantCast" then
+            grayNoted = true
+            words(s, { { text = gray.text, size = "small", color = "LABEL" }, { text = " ", size = "small" },
+                { kind = "add", text = Grammar.FixText("color", kind), onClick = function()
+                    edit(function(r) r.lines[#r.lines + 1] = { moment = "cooldown", action = "color" } end)
+                end } }).gray = i
+        end
         -- A line its piece can't show, why, and the fixes. A spell button's note shows once.
         local hidden = Grammar.HiddenNote(kind, line)
         if hidden and not (hidden.code == "button" and buttonNoted) then
@@ -1543,11 +1555,11 @@ local function spellBody(s, key)
             for _, fix in ipairs(hidden.fixes) do
                 bits[#bits + 1] = { text = " ", size = "small" }
                 if fix == "shows" then
-                    bits[#bits + 1] = { kind = "add", text = WORDING.fixShows, onClick = function()
+                    bits[#bits + 1] = { kind = "add", text = Grammar.FixText(fix, kind), onClick = function()
                         edit(function(r) r.shows = "cooldown" end)
                     end }
                 else
-                    bits[#bits + 1] = { kind = "add", text = WORDING.fixClause, onClick = function()
+                    bits[#bits + 1] = { kind = "add", text = Grammar.FixText(fix, kind), onClick = function()
                         edit(function(r)
                             local l = r.lines[i]
                             l.clauses = l.clauses or {}

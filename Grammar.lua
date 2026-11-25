@@ -343,6 +343,37 @@ local function untimed(key)
     return true
 end
 
+-- The client's letters for a spell id (AuraLinks.spells), or nil for an id it
+-- doesn't list.
+local function letters(id)
+    local t = type(ns.AuraLinks) == "table" and ns.AuraLinks.spells
+    local v = type(t) == "table" and t[id]
+    return type(v) == "string" and v or nil
+end
+
+-- Whether a piece's spell has a real cooldown by the client's tables: false for one
+-- with none (Lesser Healing Wave), nil when the tables don't list its spell.
+local function realCooldown(key)
+    local v = letters(Bridge.SpellOf(key))
+    if v == nil then return nil end
+    return v:find("c", 1, true) ~= nil
+end
+
+-- The aura a piece shows by the client's tables, "debuff" or "buff": a debuff when
+-- its spell or any id it holds puts one on an enemy, else a buff when one puts one
+-- up. nil when the tables name no aura.
+local function auraOf(key)
+    local ids, held = { Bridge.SpellOf(key) }, Bridge.SpellIDs(key)
+    for id in pairs(type(held) == "table" and held or {}) do ids[#ids + 1] = id end
+    local buff
+    for _, id in ipairs(ids) do
+        local v = letters(id) or ""
+        if v:find("d", 1, true) then return "debuff" end
+        if v:find("b", 1, true) then buff = true end
+    end
+    return buff and "buff" or nil
+end
+
 -- Describes a piece through Daylight UI's own answers. piece is its saved table or a
 -- draft one (the layout's own when nil). Mirrors the card's predicates:
 --   isIcon / isBar   CdmCard.lua:236-237
@@ -376,6 +407,12 @@ end
 --   button           a spell with no cooldown and no buff (Bridge.SpellButton): no
 --                    cooldown or buff words, only the castable ones and EZ-CDM's
 --   buttonHidden     a spell button Daylight UI shows as a buff, so never on show
+--   noCooldown       the client's tables give its spell no real cooldown
+--                    (AuraLinks.spells), and it is no totem (whose time Daylight UI
+--                    shows as one): no almost or cooling down words but the sweep's
+--   aura             "debuff" or "buff", the aura its words name: the client's
+--                    tables, else a harmful spell's debuff, else a buff
+--   desat            Daylight UI's Gray out (its desat key)
 -- Form rows show for cooldowns of a class with forms (CdmCard.lua:817).
 -- Totems take no case of their own. Bridge.Shows (CdmOwn.Track) says "totem" for a
 -- totem with no buff and "both" for a Shaman element piece (CdmOwn.lua:108-130), and
@@ -442,7 +479,10 @@ function Grammar.Kind(key, piece, shows)
         groupBuff = Bridge.IsGroup(key),
         untimed = untimed(key),
         buffEvents = Effects.Covered(key),
+        noCooldown = realCooldown(key) == false and not Bridge.IsTotem(key) or nil,
+        desat = Bridge.Option(piece, "desat"),
     }
+    kind.aura = auraOf(key) or (kind.harmful == true and "debuff") or "buff"
     -- A proc is your own: a buff with a spell (a weapon enchant has none, so the card
     -- hides its recast row, CdmCard.lua:420-424) that no other class puts on you. The
     -- aura links decide where they name a spell you know; elsewhere, any buff you
@@ -481,6 +521,12 @@ function Grammar.Fits(kind, moment, action)
     if not entry then return false end
     if kind == nil then return true end
     local told = kind.tracked
+    -- A spell with no real cooldown only runs the global cooldown: its sweep is all
+    -- the cooling down it has, and it is never almost ready.
+    if kind.noCooldown and (moment == "almost"
+        or (moment == "cooldown" and action ~= "nosweep" and action ~= "nogcd")) then
+        return false
+    end
     if entry.cond then
         return Conditions.Fits(entry.cond, action, kind)
     elseif moment == "always" or moment == "unusable" or moment == "short" or moment == "usable" then
@@ -631,7 +677,7 @@ end
 function Grammar.ClauseRefusals(kind, line, opts)
     local out = {}
     for _, p in ipairs(nextParts(kind, line, opts)) do
-        if p.clash then out[#out + 1] = { cond = p.cond, why = Grammar.NeverWords(p.clash, p.cond) } end
+        if p.clash then out[#out + 1] = { cond = p.cond, why = Grammar.NeverWords(p.clash, p.cond, kind) } end
     end
     return out
 end
@@ -663,7 +709,28 @@ function Grammar.HiddenNote(kind, line)
     local fixes = {}
     if kind.trackRow then fixes[#fixes + 1] = "shows" end
     if Conditions.Get("noBuff") and Conditions.FitsKind("noBuff", kind) then fixes[#fixes + 1] = "clause" end
-    return { code = "buff", text = W.hiddenByBuff, fixes = fixes }
+    return { code = "buff", text = Grammar.ForKind(W.hiddenByBuff, kind), fixes = fixes }
+end
+
+-- A note on a piece whose gray line stacks on Daylight UI's own gray: { code, text,
+-- fixes }, or nil. Gray out at Default is the game's gray while the spell cools down,
+-- and on a debuff it stays on through the debuff's time (the game clears it only for
+-- an aura on you). Gray grays it on any cooldown. A "keep its color" line ends it.
+-- Only for a can't cast gray, which is also true while the spell cools down.
+function Grammar.GrayNote(kind, lines)
+    if type(kind) ~= "table" or not kind.cooldown or kind.noCooldown or kind.shape ~= "icon" then return nil end
+    if kind.desat ~= "game" and kind.desat ~= "grey" then return nil end
+    local gray
+    for _, line in ipairs(type(lines) == "table" and lines or {}) do
+        if type(line) == "table" then
+            if line.moment == "cooldown" and line.action == "color" then return nil end
+            if line.action == "gray" and Grammar.LineCondition(line) == "cantCast" then gray = true end
+        end
+    end
+    if not gray then return nil end
+    local debuff = kind.desat == "game" and kind.shows == "both" and kind.aura == "debuff"
+    local W = Grammar.WORDING
+    return { code = "gray", text = debuff and W.grayDebuff or W.grayStacks, fixes = { "color" } }
 end
 
 -- ---------------------------------------------------------------------
@@ -1194,6 +1261,8 @@ end
 --   form      hiding in a form; %s is the form's name
 --   shows     each What it shows pick, a sentence of its own
 Grammar.WORDING = {
+    -- A moment's words for a spell with no real cooldown (kind.noCooldown).
+    momentsPlain = { cooldown = "While the global cooldown runs" },
     moments = {
         always = "Always",
         ready = "When it's ready",
@@ -1215,6 +1284,8 @@ Grammar.WORDING = {
         flash = "flash it", numbers = "color the numbers",
     },
     shows = { both = "show its buff and its cooldown", cooldown = "show its cooldown", buff = "show its buff" },
+    -- The same picks for a spell with no real cooldown (kind.noCooldown).
+    showsPlain = { both = "show it, and its buff while it's up", cooldown = "show it", buff = "show its buff" },
     group = {
         combat = { on = "only show it in combat", off = "in or out of combat" },
         target = { on = "only when I have a target", off = "with or without a target" },
@@ -1236,11 +1307,19 @@ Grammar.WORDING = {
     neverBoth = "can't both be true: %s",
     neverPart = "Not \"%s\": %s.",
     layerClash = "can't both be true: one is about its cooldown, the other about its buff",
+    layerClashPlain = "can't both be true: one is about the spell, the other about its buff",
     -- Under a line its piece can't show (Grammar.HiddenNote), and the one-click fixes.
     hiddenByBuff = "Hidden while its buff shows.",
     hiddenButton = "Hidden: Daylight shows this spell only while a buff is up, and it has none.",
     fixShows = "Show its cooldown",
+    fixShowsPlain = "Show it",
     fixClause = "Add \"and its buff isn't active\"",
+    -- Under a gray line while Daylight UI's own Gray out grays the icon as it cools
+    -- down (Default or Gray), and its fix: a "keep its color" line.
+    -- grayDebuff: the game's own gray stays on through a debuff's time.
+    grayStacks = "Daylight grays it too while it cools down, so the two grays stack.",
+    grayDebuff = "Daylight grays it too while it cools down, even while its debuff shows, so the grays stack.",
+    fixColor = "Keep its color while it cools down",
     andWord = "and",
     -- The "and …" blank, a clause's strip chip that takes it out, and the strip's
     -- chip for advanced words (Settings "more").
@@ -1422,29 +1501,53 @@ local function fill(phrase, n)
     return (phrase:gsub(Grammar.NUMBER_MARK, n ~= nil and tostring(n) or "N"))
 end
 
+-- A phrase in a piece's own words: "buff" reads "debuff" on a piece whose aura is a
+-- debuff on an enemy (kind.aura). kind nil keeps the phrase.
+local function forKind(phrase, kind)
+    if type(kind) == "table" and kind.aura == "debuff" then
+        return (phrase:gsub("%f[%a]buff%f[%A]", "debuff"))
+    end
+    return phrase
+end
+Grammar.ForKind = forKind
+
 -- A moment's phrase and what joins it to the action (", " or " "). A moment not
 -- picked yet reads as its blank. n is a typed number, "N" on a chip when nil.
-function Grammar.MomentWords(moment, n)
+function Grammar.MomentWords(moment, n, kind)
     if moment == nil then return WORDING.chooseMoment, ", " end
-    local phrase = WORDING.moments[moment]
+    local plain = type(kind) == "table" and kind.noCooldown and WORDING.momentsPlain[moment]
+    local phrase = plain or WORDING.moments[moment]
     if not phrase then return tostring(moment), " " end
-    return fill(phrase, n), WORDING.noComma[moment] and " " or ", "
+    return forKind(fill(phrase, n), kind), WORDING.noComma[moment] and " " or ", "
 end
 
 -- A condition's clause phrase ("my target is a boss"), n as in MomentWords.
-function Grammar.ClauseWords(key, n)
+function Grammar.ClauseWords(key, n, kind)
     local phrase = WORDING.clauses[key]
     if not phrase then return tostring(key) end
-    return fill(phrase, n)
+    return forKind(fill(phrase, n), kind)
 end
 
 -- Why conditions a and b can never both be true, as words: their own reason, or
 -- the layer clash; nil when they can.
-function Grammar.NeverWords(a, b)
+function Grammar.NeverWords(a, b, kind)
     if not Conditions.Excludes(a, b) then return nil end
     local why = (WORDING.never[a] or {})[b] or (WORDING.never[b] or {})[a]
-    if not why then return WORDING.layerClash end
+    if not why then
+        local plain = type(kind) == "table" and kind.noCooldown
+        return forKind(plain and WORDING.layerClashPlain or WORDING.layerClash, kind)
+    end
     return WORDING.neverBoth:format(fill(why))
+end
+
+-- A one-click fix's words (Grammar.HiddenNote, Grammar.GrayNote) for a piece.
+function Grammar.FixText(fix, kind)
+    if fix == "shows" then
+        return type(kind) == "table" and kind.noCooldown and WORDING.fixShowsPlain or WORDING.fixShows
+    end
+    if fix == "clause" then return forKind(WORDING.fixClause, kind) end
+    if fix == "color" then return WORDING.fixColor end
+    return tostring(fix)
 end
 
 -- A group word's words: on (true, or a "where" value) or off.
@@ -1468,9 +1571,15 @@ function Grammar.StyleWords(label)
     return w:sub(1, 1):upper() .. w:sub(2) .. "."
 end
 
+-- What it shows as a phrase for a piece: cooldown words only where it has one.
+function Grammar.ShowsPhrase(shows, kind)
+    local t = type(kind) == "table" and kind.noCooldown and WORDING.showsPlain or WORDING.shows
+    return forKind(t[shows] or tostring(shows), kind)
+end
+
 -- What it shows as a sentence: "Show its buff."
-function Grammar.ShowsWords(shows)
-    local w = WORDING.shows[shows] or tostring(shows)
+function Grammar.ShowsWords(shows, kind)
+    local w = Grammar.ShowsPhrase(shows, kind)
     return w:sub(1, 1):upper() .. w:sub(2) .. "."
 end
 
@@ -1517,16 +1626,16 @@ end
 -- The fall-off lead as words: "(5 seconds before)".
 function Grammar.LeadWords(n) return WORDING.lead:format(Grammar.Seconds(n)) end
 
--- The line as one sentence, in US English.
-function Grammar.Describe(line)
+-- The line as one sentence, in US English, in a piece's own words when kind is given.
+function Grammar.Describe(line, kind)
     if type(line) ~= "table" then return "" end
     local ck = Grammar.LineCondition(line)
-    local phrase, joint = Grammar.MomentWords(line.moment, ck and Conditions.NumberOf(ck, line.n))
+    local phrase, joint = Grammar.MomentWords(line.moment, ck and Conditions.NumberOf(ck, line.n), kind)
     local entry = MAP[line.moment] and MAP[line.moment][line.action]
     if entry and entry.lead and line.at ~= nil then phrase = phrase .. " " .. Grammar.LeadWords(line.at) end
     for _, cl in ipairs(ck and type(line.clauses) == "table" and line.clauses or {}) do
         local key = type(cl) == "table" and cl.cond
-        phrase = phrase .. " " .. WORDING.andWord .. " " .. Grammar.ClauseWords(key, Conditions.NumberOf(key, cl.n))
+        phrase = phrase .. " " .. WORDING.andWord .. " " .. Grammar.ClauseWords(key, Conditions.NumberOf(key, cl.n), kind)
     end
     return phrase:sub(1, 1):upper() .. phrase:sub(2) .. joint .. actionWords(line) .. "."
 end

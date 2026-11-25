@@ -164,6 +164,7 @@ SW.DEPARTURES = {
     untimedEnds = "wears-off sound on an aura that is only on or off",
     low = "almost-ready color on a buff alone (CdmCard.lua:522-524)",
     ezGlow = "up glow EZ-CDM draws in the client's button (Effects.lua)",
+    noCooldown = "cooling down and almost-ready rows on a spell with no real cooldown (AuraLinks.spells)",
 }
 
 local function cardRows(G, AB, id)
@@ -219,6 +220,12 @@ local function exceptions(G, AB, id, on, kind)
     if on.buffEndSound and kind.untimed then
         on.buffEndSound = nil
         out[#out + 1] = SW.DEPARTURES.untimedEnds
+    end
+    -- A spell with no real cooldown keeps the sweep rows and "always" only.
+    if kind.noCooldown and (on.onCd or on.desat or on.low) then
+        on.onCdAlways = on.onCd
+        on.onCd, on.desat, on.low, on.lowAt, on.lowColor = nil, nil, nil, nil, nil
+        out[#out + 1] = SW.DEPARTURES.noCooldown
     end
     if on.low and not kind.cooldown then
         on.low, on.lowAt, on.lowColor = nil, nil, nil
@@ -278,7 +285,7 @@ function SW.CardAndGrammar(G, AB, id)
         end
     end
     local all = true
-    for _, key in ipairs(ALWAYS_ROWS) do all = all and on[key] == true end
+    for _, key in ipairs(ALWAYS_ROWS) do all = all and (on[key] == true or (key == "onCd" and on.onCdAlways)) end
     if all then offered.always = { show = true } end
     local card = {}
     for _, m in ipairs(G.MOMENTS) do

@@ -1,4 +1,4 @@
--- Made by tools/make_aura_links.py, client build 1.60.1.71037. Don't edit by hand.
+-- Made by tools/make_aura_links.py, client build 1.60.1.71091. Don't edit by hand.
 -- The sweep's spellbook stand-ins for every spell in tests/cooldown_sets.lua or
 -- EZ-CDM/AuraLinks.lua: passive is SpellMisc's passive flag; book is true when
 -- SkillLineAbility lists it, a spell a player can have rather than a proc's aura;

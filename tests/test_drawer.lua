@@ -1077,7 +1077,8 @@ T.test("drawer shows: What it shows reads the card's pick, and a pick writes it 
     unspy()
     T.eq(table.concat(log, ","), "track", "only the pick")
     T.eq(cardReads(AB, "track"), "both", "Daylight UI's card reads it back")
-    T.eq(select(2, showsWord(Drawer)).said, "Show its buff and its cooldown.")
+    -- Thunder Clap's aura is a debuff on its targets (AuraLinks.spells).
+    T.eq(select(2, showsWord(Drawer)).said, "Show its debuff and its cooldown.")
     -- Buff only drops the lines a buff doesn't take, as the card clears them.
     pick(Drawer, "buff")
     T.eq(pieceOf(k.clap).track, "buff")

@@ -290,7 +290,9 @@ T.test("fix 2: the clause strip leaves out a part that can't hold with the line,
     local refused = {}
     for _, r in ipairs(G.ClauseRefusals(kind, line("unusable", "gray"), { drawer = true })) do refused[r.cond] = r.why end
     T.eq(refused.noMana, "can't both be true: not usable never counts power")
-    T.eq(refused.upish, G.WORDING.layerClash, "a buff-icon part too")
+    -- Thunder Clap's aura is a debuff on its targets (AuraLinks.spells).
+    T.eq(refused.upish, G.ForKind(G.WORDING.layerClash, kind), "a buff-icon part too")
+    T.truthy(refused.upish:find("its debuff", 1, true), refused.upish)
     local _, problems = G.Compile({ lines = { line("unusable", "gray", { clauses = { { cond = "noMana" } } }) } }, kind)
     T.eq(codes(problems), "1:never", "a typed or saved pair is refused too")
     write(ns, AB, key, { line("unusable", "gray") })
@@ -537,7 +539,7 @@ T.test("fix 6: the drawer notes a cooldown line hidden by the buff, with two one
     T.eq(kind.shows, "both")
     local note = G.HiddenNote(kind, line("blocked", "gray"))
     T.eq(note.code, "buff")
-    T.eq(note.text, G.WORDING.hiddenByBuff)
+    T.eq(note.text, "Hidden while its debuff shows.", "Thunder Clap's aura is a debuff")
     T.isnil(G.HiddenNote(kind, line("blocked", "gray", { clauses = { { cond = "noBuff" } } })),
         "with 'and its buff isn't active' it says nothing")
     T.isnil(G.HiddenNote(kind, line("boss", "gray")), "an any-icon line says nothing")

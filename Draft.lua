@@ -180,15 +180,15 @@ local PROBLEM_WORDS = {
 local BLOCKING = { blank = true, pair = true, kind = true, value = true, needs = true, order = true, secret = true,
                    never = true }
 
-local function problemWords(name, rules, p)
+local function problemWords(name, rules, p, kind)
     local what
     if p.line then
         local line = rules.lines and rules.lines[p.line]
-        what = type(line) == "table" and string.format("\"%s\"", Grammar.Describe(line)) or ("line " .. p.line)
+        what = type(line) == "table" and string.format("\"%s\"", Grammar.Describe(line, kind)) or ("line " .. p.line)
     elseif p.group then
         what = string.format("the group word \"%s\"", tostring(p.group))
     elseif p.shows then
-        what = string.format("\"%s\"", Grammar.ShowsWords(p.shows))
+        what = string.format("\"%s\"", Grammar.ShowsWords(p.shows, kind))
     elseif p.style then
         what = string.format("\"%s\"", Grammar.StyleWords(tostring(p.style)))
     else
@@ -249,7 +249,7 @@ local function planFor(key, rules, g)
     local kind = Grammar.Kind(key, nil, rules.shows)
     local fields, problems, flags = Grammar.Compile(rules, kind)
     for _, p in ipairs(problems) do
-        note(p.code, problemWords(name, rules, p), BLOCKING[p.code])
+        note(p.code, problemWords(name, rules, p, kind), BLOCKING[p.code])
     end
 
     -- "Glow while active" on a piece an aura icon holder draws is EZ-CDM's own, and
