@@ -55,7 +55,7 @@ Drawer.REFUSED = {
 
 -- API.md's text sizes in px, for a line's height before the client measures one.
 local SIZE_PX = { small = 12, body = 13, head = 15 }
--- Stack:Text's line spacing (Parts.lua:345).
+-- Stack:Text's line spacing (Parts.lua:423).
 local SPACING = 3
 
 local d            -- the drawer, built on the editor's first open

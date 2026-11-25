@@ -39,6 +39,25 @@ local copies = setmetatable({}, { __mode = "k" })
 
 local function secret(v) return type(issecretvalue) == "function" and issecretvalue(v) end
 
+local function dropMask(c, i)
+    c.tex:RemoveMaskTexture(c.masks[i])
+    c.shade:RemoveMaskTexture(c.masks[i])
+    if c.light then c.light:RemoveMaskTexture(c.masks[i]) end
+    c.masks[i] = nil
+end
+
+-- A plain copy's light laid as the copy is: same place, picture and crop.
+local function layLight(c)
+    local l = c.light
+    if not l then return end
+    l:ClearAllPoints()
+    l:SetAllPoints(c.over)
+    local file = c.tex:GetTexture()
+    if file ~= nil and not secret(file) then l:SetTexture(file) end
+    local coords = { c.tex:GetTexCoord() }
+    if #coords > 0 and not secret(coords[1]) then l:SetTexCoord(unpack(coords)) end
+end
+
 -- One mask of ours per mask on the icon: its file, laid where the icon's is.
 local function copyMasks(c, icon)
     local n = type(icon.GetNumMaskTextures) == "function" and icon:GetNumMaskTextures() or 0
@@ -51,19 +70,17 @@ local function copyMasks(c, icon)
             c.masks[i] = mine
             c.tex:AddMaskTexture(mine)
             c.shade:AddMaskTexture(mine)
+            if c.light then c.light:AddMaskTexture(mine) end
         end
         local file = m and m:GetTexture()
         if file ~= nil and not secret(file) then
             mine:SetTexture(file, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
         end
+        mine.over = m or icon
         mine:ClearAllPoints()
-        mine:SetAllPoints(m or icon)
+        mine:SetAllPoints(mine.over)
     end
-    for i = #c.masks, n + 1, -1 do
-        c.tex:RemoveMaskTexture(c.masks[i])
-        c.shade:RemoveMaskTexture(c.masks[i])
-        c.masks[i] = nil
-    end
+    for i = #c.masks, n + 1, -1 do dropMask(c, i) end
 end
 
 -- A plain copy on a piece no item draws (an aura icon holder's piece, where the
@@ -79,12 +96,9 @@ local function standIn(c, frame)
     Bridge.CropIcon(c.tex)
     c.tex:SetVertexColor(1, 1, 1, 1)
     c.tex:SetDesaturated(false)
-    for i = #c.masks, 1, -1 do
-        c.tex:RemoveMaskTexture(c.masks[i])
-        c.shade:RemoveMaskTexture(c.masks[i])
-        c.masks[i] = nil
-    end
+    for i = #c.masks, 1, -1 do dropMask(c, i) end
     c.over = c.frame
+    layLight(c)
     return true
 end
 
@@ -113,6 +127,7 @@ local function follow(c)
     if r ~= nil and not secret(r) then c.tex:SetVertexColor(r, g, b, a) end
     c.tex:SetDesaturated(not c.plain)
     copyMasks(c, icon)
+    layLight(c)
     return true
 end
 
@@ -128,8 +143,8 @@ swaps:SetScript("OnEvent", function()
     end)
 end)
 
--- plain: a copy in the icon's own color with no shade (Looks.lua's pop, shake and
--- swap), else the gray.
+-- plain: a copy in the icon's own color with no shade, and its light for a pop
+-- (Looks.lua's pop, shake and swap), else the gray.
 local function copyFor(target, id, key, plain)
     local set = copies[target]
     if not set then
@@ -144,14 +159,20 @@ local function copyFor(target, id, key, plain)
         local tex = f:CreateTexture(nil, "ARTWORK")
         local shade = f:CreateTexture(nil, "ARTWORK", nil, 3)
         shade:SetAllPoints(tex)
+        local light
         if plain then
             shade:Hide()
+            -- The lit copy Daylight UI's ready ping flashes over an icon (Ping.Setup):
+            -- the icon's own picture added on top, at the top of the overlay.
+            light = f:CreateTexture(nil, "OVERLAY", nil, 7)
+            light:SetBlendMode("ADD")
+            light:Hide()
         else
             local file, alpha = Bridge.IconShade()
             if file then shade:SetTexture(file) end
             shade:SetVertexColor(0, 0, 0, alpha or 0)
         end
-        c = { frame = f, tex = tex, shade = shade, masks = {}, plain = plain and true or nil }
+        c = { frame = f, tex = tex, shade = shade, light = light, masks = {}, plain = plain and true or nil }
         set[id] = c
         if not listening then
             listening = true
@@ -211,7 +232,8 @@ local function clear(holder)
 end
 
 -- A copy of a piece's icon on target, in the icon's own color, laid on the icon as
--- it is now, at alpha 0 for the caller to show. file shows another icon in its place
+-- it is now, at alpha 0 for the caller to show. Its light is the same picture in
+-- ADD, hidden, for Looks' pop to flash. Each mask remembers what it lies on (over). file shows another icon in its place
 -- (nil: the icon's own). nil when the piece has no icon.
 function Overlay.IconCopy(target, id, key, file)
     local c = copyFor(target, id, key, true)

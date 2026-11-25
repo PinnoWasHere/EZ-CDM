@@ -134,6 +134,8 @@ Bridge.NEEDS = {
     "DaylightUI.Motion.On",
     "DaylightUI.Motion.Flash",
     "DaylightUI.Motion.Bump",
+    "ActionBars.Ping.SCALE",
+    "ActionBars.Ping.FLASH_ALPHA",
     "DaylightUI.Motion.Tween",
     "ActionBars.CdmEffects.Flash",
     "DaylightUI.Widgets.GLOW_LAP",
@@ -999,6 +1001,11 @@ function Bridge.Flash(tex, dur) return call("DaylightUI.Motion.Flash", tex, dur)
 
 -- Daylight UI's nudge: a region scaled from `from` back to 1 (Motion.Bump).
 function Bridge.Bump(region, from, dur) return call("DaylightUI.Motion.Bump", region, from, dur) end
+
+-- Daylight UI's ready ping (Ping.Light): the scale an icon pops from, and its lit
+-- copy's starting brightness.
+function Bridge.PingScale() return Bridge.Resolve("ActionBars.Ping.SCALE") end
+function Bridge.PingFlashAlpha() return Bridge.Resolve("ActionBars.Ping.FLASH_ALPHA") end
 
 -- Daylight UI's shared number tween (Motion.Tween): step(v) from `from` to `to`.
 function Bridge.Tween(key, from, to, dur, step, done)

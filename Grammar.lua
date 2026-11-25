@@ -970,7 +970,8 @@ end
 -- one-click repairs: "shows" (What it shows: its cooldown), "clause" (and its buff
 -- isn't active).
 --   button   a spell button Daylight UI shows only while a buff is up
---   buff     a cooldown line on a piece that shows its buff in its place
+--   buff     a cooldown line on a piece that shows its buff in its place, unless
+--            its look decorates the whole piece (Conditions.AnyFace)
 function Grammar.HiddenNote(kind, line)
     local W = Grammar.WORDING
     if type(kind) ~= "table" or type(line) ~= "table" then return nil end
@@ -980,6 +981,8 @@ function Grammar.HiddenNote(kind, line)
     local ck = Grammar.LineCondition(line)
     if not ck or kind.shows ~= "both" then return nil end
     if Conditions.LineLayer(ck, { clauses = line.clauses }) ~= "cooldown" then return nil end
+    -- A look on the whole piece shows on its buff's face too.
+    if Conditions.AnyFace(ck, line.action) then return nil end
     for _, cl in ipairs(type(line.clauses) == "table" and line.clauses or {}) do
         if type(cl) == "table" and cl.cond == "noBuff" then return nil end
     end

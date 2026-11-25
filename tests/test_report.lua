@@ -99,7 +99,7 @@ T.test("report: a Mage's report holds the class, layout, spells and EZ-CDM's rul
     T.eq(t.class, "MAGE")
     T.eq(t.v, 1)
     T.eq(t.ez, "0.3.0", "EZ-CDM's version from its .toc")
-    T.deq(t.api, { 1, 15 })
+    T.deq(t.api, { 1, 16 })
     T.deq(t.game, { "1.60.1", "71037", 16001 })
     T.eq(t.spec, 1)
     T.eq(t.set, 1)

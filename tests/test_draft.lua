@@ -175,7 +175,7 @@ end)
 
 T.test("draft write: a glow color back to the accent writes nil on Daylight UI 2.2.6 (API 1.15)", function()
     local DUI, _, Draft, _, k = layoutWorld()
-    T.eq(DUI.API.minor, 15, "the pinned Daylight UI is API 1.15")
+    T.eq(DUI.API.minor, 16, "the pinned Daylight UI is API 1.16")
     local ok, report = Draft.Write(k.clap, { lines = { L("ready", "glow"), L("cooldown", "fade") }, style = "comet" })
     T.eq(ok, true)
     T.eq(landed(report), "clear:readyGlowColor")

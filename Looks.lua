@@ -8,9 +8,12 @@ local _, ns = ...
 -- motion off in Daylight UI keeps them away, as it keeps its own:
 --   flash    the wash texture (Skin.FLASH_ALPHA, the auto attack wash) in the line's
 --            color, played by Motion.Flash
---   pop      a copy of the icon nudged by Motion.Bump at its own measures
---   shake    the same copy moved side to side on Motion.Tween, as Talents.Shake moves
---            a talent tile (Book/Talents.lua:412): SHAKE_PX, SHAKE_SWINGS, SLOW
+--   pop      Daylight UI's ready ping (Ping.Light) on a copy of the icon: the copy
+--            and its light bumped from Ping.SCALE over NORMAL, the light flashed
+--            from Ping.FLASH_ALPHA over SLOW
+--   shake    the same copy, masks and all, moved side to side on Motion.Tween, as
+--            Talents.Shake moves a talent tile (Book/Talents.lua:412): SHAKE_PX,
+--            SHAKE_SWINGS, SLOW
 --   sparkle  API.GlowAround's twinkle for one lap (Widgets.GLOW_LAP)
 --   screen   Daylight UI's vignette art (portrait-vignette.png, as InstallerScreen.lua
 --            lays it) over the whole screen in the color, in with API.Fade FAST, out SLOW
@@ -25,6 +28,10 @@ local _, ns = ...
 --   text     the line's words in API.Text "small", in the accent (the look sheet's
 --            "Count, badge, tag" row)
 --   swap     a copy of the icon showing the picked icon in its place
+--
+-- Pulse, border, halo and text sit on the piece's holder, which lies over whichever
+-- face the piece shows, so they show on its buff's face too (anyFace). Swap lies on
+-- the cooldown icon, under the buff's button, so it waits for the cooldown face.
 --
 -- A color look's value is its color (nil = the accent). No look runs an OnUpdate of
 -- its own: Motion's shared tween driver, the glow's and the pulse's are Daylight UI's.
@@ -129,11 +136,23 @@ local function copyFor(target, name, opts, dur)
     return c
 end
 
+-- Ping.Light bumps the icon and its lit copy, then flashes the light. The copy
+-- stands in for the icon, which EZ-CDM never moves; it goes once it is back at
+-- rest over the icon, and the light fades on.
 local function pop(target, on, opts)
     if not on or not Bridge.MotionOn() then return end
-    local c = copyFor(target, "pop", opts, speed("FAST"))
-    if not c then return end
-    Bridge.Bump(c.frame)
+    local c = copyFor(target, "pop", opts, speed("SLOW"))
+    if not (c and c.light) then return end
+    local gen = c.gen
+    c.tex:SetAlpha(1)
+    C_Timer.After(speed("NORMAL") or 0, function()
+        if c.gen == gen then c.tex:SetAlpha(0) end
+    end)
+    local scale = Bridge.PingScale()
+    c.light:SetVertexColor(1, 1, 1, Bridge.PingFlashAlpha() or 0)
+    Bridge.Bump(c.tex, scale, speed("NORMAL"))
+    Bridge.Bump(c.light, scale, speed("NORMAL"))
+    Bridge.Flash(c.light, speed("SLOW"))
     note(opts.key, "pop", c.frame)
 end
 
@@ -143,11 +162,16 @@ local function shake(target, on, opts)
     if not c then return end
     -- What the copy lies over: the icon, or its own frame where it stands in.
     local icon = c.over or c.frame
-    local tex = c.tex
+    -- The copy's masks move with it, so the whole tile sways rather than its picture
+    -- sliding inside a crop that stays put.
+    local function lay(r, over, dx)
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", over, "TOPLEFT", dx, 0)
+        r:SetPoint("BOTTOMRIGHT", over, "BOTTOMRIGHT", dx, 0)
+    end
     local function at(dx)
-        tex:ClearAllPoints()
-        tex:SetPoint("TOPLEFT", icon, "TOPLEFT", dx, 0)
-        tex:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", dx, 0)
+        lay(c.tex, icon, dx)
+        for _, m in ipairs(c.masks) do lay(m, m.over, dx) end
     end
     c.shakeKey = c.shakeKey or {}
     Bridge.Tween(c.shakeKey, 0, 1, speed("SLOW"), function(p)
@@ -326,7 +350,10 @@ Looks.LIST = {
     { action = "pop", effect = { key = "pop", edge = true, fits = icons, draw = pop,
         clear = function(target)
             local c = Overlay.CopyOn(target, "pop")
-            if c then c.frame:SetAlpha(0) end
+            if c then
+                c.frame:SetAlpha(0)
+                if c.light then c.light:Hide() end
+            end
         end } },
     { action = "shake", effect = { key = "shake", edge = true, fits = icons, draw = shake,
         clear = function(target)
@@ -343,14 +370,14 @@ Looks.LIST = {
         end } },
     { action = "screen", effect = { key = "screen", edge = true, value = "color", fits = any, draw = screen,
         clear = function() end } },
-    { action = "pulse", effect = { key = "pulse", client = true, value = "color", fits = icons, draw = pulse,
+    { action = "pulse", effect = { key = "pulse", client = true, anyFace = true, value = "color", fits = icons, draw = pulse,
         clear = clearFrame("pulse", function(f) if f.wash then Bridge.Pulse(f, f.wash, false) end end),
         shown = shownFrame("pulse") } },
-    { action = "border", effect = { key = "border", client = true, value = "color", fits = any, draw = border,
+    { action = "border", effect = { key = "border", client = true, anyFace = true, value = "color", fits = any, draw = border,
         clear = clearFrame("border"), shown = shownFrame("border") } },
-    { action = "halo", effect = { key = "halo", client = true, value = "color", fits = icons, draw = halo,
+    { action = "halo", effect = { key = "halo", client = true, anyFace = true, value = "color", fits = icons, draw = halo,
         clear = clearFrame("halo"), shown = shownFrame("halo") } },
-    { action = "text", effect = { key = "text", client = true, value = "text", fits = any, draw = text,
+    { action = "text", effect = { key = "text", client = true, anyFace = true, value = "text", fits = any, draw = text,
         clear = clearFrame("text"), shown = shownFrame("text") } },
     { action = "swap", effect = { key = "swap", client = true, value = "icon", fits = icons, draw = swap,
         clear = function(target)

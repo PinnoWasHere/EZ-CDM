@@ -241,30 +241,62 @@ T.test("looks once: motion off in Daylight UI keeps every one-shot look away", f
     noErrors()
 end)
 
-T.test("looks pop: a copy of the icon in its own color, nudged by Motion.Bump, then gone", function()
-    local DUI, ns, _, key = world({ L("unusable", "pop") })
+T.test("looks pop: Daylight UI's ready ping on a copy of the icon, at the ping's own scale and times", function()
+    local DUI, ns, AB, key = world({ L("unusable", "pop") })
+    local M = DUI.Motion
+    local bumps, flashes = {}, {}
+    local keepBump, keepFlash = M.Bump, M.Flash
+    M.Bump = function(region, from, dur) bumps[#bumps + 1] = { region = region, from = from, dur = dur }; return keepBump(region, from, dur) end
+    M.Flash = function(tex, dur) flashes[#flashes + 1] = { tex = tex, dur = dur }; return keepFlash(tex, dur) end
     block()
-    local f = ns.Looks.Fired(key, "pop")
-    T.truthy(f, "fired")
+    M.Bump, M.Flash = keepBump, keepFlash
+    T.truthy(ns.Looks.Fired(key, "pop"), "fired")
     local c = ns.Overlay.CopyOn(holderOf(DUI, ns, key), "pop")
     T.truthy(c, "a copy on the holder")
     T.eq(c.tex:IsDesaturated(), false, "in color, unlike the gray")
     T.falsy(c.shade:IsShown(), "no shade")
-    T.truthy(c.frame.__duiBump, "Motion.Bump played it")
+    -- Ping.Light (DaylightUI_ActionBars/Ping.lua:156): the icon and its lit copy
+    -- bumped from Ping.SCALE over NORMAL, the light flashed over SLOW.
+    T.eq(#bumps, 2, "two bumps, as the ping's")
+    T.eq(bumps[1].region, c.tex, "the copy, standing in for the icon")
+    T.eq(bumps[2].region, c.light, "its light")
+    for _, b in ipairs(bumps) do
+        T.eq(b.from, AB.Ping.SCALE, "from the ping's scale")
+        T.eq(b.dur, M.NORMAL, "over NORMAL")
+    end
+    T.eq(#flashes, 1)
+    T.eq(flashes[1].tex, c.light, "the light flashes")
+    T.eq(flashes[1].dur, M.SLOW, "over SLOW")
+    T.eq(c.light:GetBlendMode(), "ADD", "the icon's own picture added on top, as Ping.Setup's")
+    T.eq(select(4, c.light:GetVertexColor()), AB.Ping.FLASH_ALPHA, "at the ping's brightness")
+    T.eq(c.light:GetTexture(), c.tex:GetTexture(), "the same picture")
     stub.RunTimers()
-    T.eq(c.frame:GetAlpha(), 0, "gone after the nudge")
+    T.eq(c.frame:GetAlpha(), 0, "gone after the flash")
     noErrors()
 end)
 
-T.test("looks shake: the copy sways on Motion.Tween and comes back to rest", function()
+T.test("looks shake: the copy and its crop sway together on Motion.Tween and come back to rest", function()
     local DUI, ns, _, key = world({ L("unusable", "shake") })
+    -- A shaped icon: the copy takes the icon's mask.
+    local icon = ns.Bridge.PieceIcon(ns.Conditions.FrameOf(key))
+    local mask = icon:GetParent():CreateMaskTexture()
+    mask:SetAllPoints(icon)
+    icon:AddMaskTexture(mask)
     block()
     T.truthy(ns.Looks.Fired(key, "shake"), "fired")
     local c = ns.Overlay.CopyOn(holderOf(DUI, ns, key), "shake")
     T.truthy(c, "a copy on the holder")
-    finishTweens(DUI)
+    T.eq(#c.masks, 1, "the icon's mask copied")
+    stub.RunOnUpdate(DUI.Motion.Driver(), 0.05)
     local _, _, _, x = c.tex:GetPoint(1)
+    local _, _, _, mx = c.masks[1]:GetPoint(1)
+    T.truthy(x ~= 0, "mid-sway")
+    T.eq(mx, x, "the crop moves with the picture")
+    finishTweens(DUI)
+    _, _, _, x = c.tex:GetPoint(1)
+    _, _, _, mx = c.masks[1]:GetPoint(1)
     T.eq(x, 0, "at rest where the icon is")
+    T.eq(mx, 0, "its crop too")
     noErrors()
 end)
 

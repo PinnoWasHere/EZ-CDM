@@ -52,6 +52,9 @@ local addonName, ns = ...
 --   stack      each line has a slot of its own instead of one priority winner
 --   value      optional: what a line's value holds for it, "color" ({ r, g, b }),
 --              "text" (a few plain words) or "icon" (a file id or name)
+--   anyFace    decorates the whole piece on its holder, so on a piece that shows its
+--              buff and its cooldown in turn it shows on either face. Without it a line
+--              about one icon draws only while that icon shows
 --
 -- A look (Conditions.RegisterLook) is an action every condition's lines may end in,
 -- drawn by one effect: "flash it", "pop it" (Looks.lua). Each registered condition
@@ -259,6 +262,15 @@ function Conditions.ClientSafe(key, action)
     local act = c and c.actions[action]
     local e = act and effects[act.effect]
     return e ~= nil and e.client == true
+end
+
+-- Whether an action's effect decorates the whole piece, so its lines show on either
+-- face of a piece that shows its buff and its cooldown in turn.
+function Conditions.AnyFace(key, action)
+    local c = byKey[key]
+    local act = c and c.actions[action]
+    local e = act and effects[act.effect]
+    return e ~= nil and e.anyFace == true
 end
 
 -- Whether a condition's action is a gray: the wash's desaturated copy (Overlay.lua).
@@ -559,9 +571,10 @@ end
 local function idParts(id) return id:match("^(.-):(.*)$") end
 
 -- Whether the icon a line is about shows on a piece now. A piece that shows its
--- buff and its cooldown shows the buff while it is up, else the cooldown.
-local function layerShows(k, layer)
-    if layer == "any" or not both[k] then return true end
+-- buff and its cooldown shows the buff while it is up, else the cooldown. An
+-- anyFace effect shows on either.
+local function layerShows(k, layer, e)
+    if layer == "any" or not both[k] or (e and e.anyFace) then return true end
     local up = Bridge.BuffState(k)
     if layer == "cooldown" then return up ~= true end
     return up == true
@@ -607,7 +620,7 @@ local function refresh(k)
             local act = c.actions[a]
             local e = effects[act.effect]
             local _, plain, client = partsOf(ck, spec)
-            local lit = holder ~= nil and plain ~= nil and layerShows(k, Conditions.LineLayer(ck, spec))
+            local lit = holder ~= nil and plain ~= nil and layerShows(k, Conditions.LineLayer(ck, spec), e)
             for _, p in ipairs(lit and plain or {}) do
                 if readOf(p.c, k, numberOf(p)) ~= true then
                     lit = false
@@ -948,9 +961,9 @@ end
 -- gray, layered }. lit: the driver lights it. shown: the piece's frame and what the effect
 -- drew are on show. alpha: what the effect drew, Conditions.SECRET while the client
 -- keeps it. covered: the icon its condition is about doesn't show now
--- (Conditions.LineLayer). gray: what a gray line's copy shows, out of a fight
--- (Overlay's check: copy, same, game). layered: a client line's effect hangs under
--- the layer its condition drives.
+-- (Conditions.LineLayer), and its look shows on that icon only (not anyFace). gray:
+-- what a gray line's copy shows, out of a fight (Overlay's check: copy, same, game).
+-- layered: a client line's effect hangs under the layer its condition drives.
 function Conditions.Visible(key, id)
     local k = tostring(key)
     local out = { lit = false, shown = false, alpha = 0, covered = false }
@@ -958,14 +971,14 @@ function Conditions.Visible(key, id)
     local rule = rules[k]
     local a = select(2, idParts(id))
     local spec = rule and rule[ck] and rule[ck][a]
-    if spec ~= nil then out.covered = not layerShows(k, Conditions.LineLayer(ck, spec)) end
+    local c = byKey[ck]
+    local act = c and c.actions[a]
+    local e = act and effects[act.effect]
+    if spec ~= nil then out.covered = not layerShows(k, Conditions.LineLayer(ck, spec), e) end
     for slot, v in pairs(litNow[k] or {}) do
         if v == id then out.lit = true; out.slot = slot end
     end
     local frame = frameOf[k]
-    local c = byKey[ck]
-    local act = c and c.actions[a]
-    local e = act and effects[act.effect]
     local holder = frame and API.Attach(frame)
     local target = holder and layers[holder] and layers[holder][id]
     if holder and e and e.check and not InCombatLockdown() then

@@ -49,6 +49,7 @@ local SAMPLES = {
     ["open-chat"] = 'ChatFrame_OpenChat("/w ")',
     ["confirm-delete-item"] = "C_Item.ConfirmDeleteItem()",
     ["static-popup"] = 'StaticPopupDialogs["EZCDM_X"] = {}',
+    ["special-frames"] = 'tinsert(UISpecialFrames, "EZCDMDrawer")',
     ["mouseisover"] = "if MouseIsOver(f) then",
     ["events-list-remove"] = "tremove(ActionBarButtonEventsFrame.frames, i)",
     ["aura-update-secret"] = "if info.isFullUpdate then",
