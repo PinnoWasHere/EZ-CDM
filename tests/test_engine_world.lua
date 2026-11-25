@@ -74,3 +74,30 @@ T.test("engine world: the repro trace prints each part, the client one as sample
     T.truthy(found, "the rules print the and-part with its number")
     noErrors()
 end)
+
+T.test("engine world: a client glow drops out when the health answer goes the other way", function()
+    local w, key = build()
+    local C = w.ns.Conditions
+    assert(C.Register({ key = "lowGlow", moment = "lowGlow", layer = "any", excludes = {}, secrecy = "client",
+        actions = { glow = { effect = "glow" } }, fits = function() return true end, ticker = true,
+        param = { min = 1, max = 99, default = 20 },
+        drive = function(_, layer) layer:SetAlpha(UnitHealthPercent("target", true, nil)) end,
+        events = { game = { { "UNIT_HEALTH", "target" } } },
+        words = { moment = "When my target is below #% health", clause = "my target is below #% health" } }))
+    T.truthy(w.ns.Draft.Write(key, { lines = { { moment = "lowGlow", action = "glow" } } }))
+    w.Pass()
+    w.Unit("target", { pct = 1 })
+    local v = C.Visible(key, "lowGlow:glow")
+    T.truthy(v.lit and v.shown and v.layered, "lit, shown and under the driven layer")
+    local layer = C.Layer(key, "lowGlow:glow")
+    T.eq(stub.Plain(layer.__alpha), 1)
+    -- Health goes above the threshold: the curve answers 0 and the glow's layer fades out.
+    w.Unit("target", { pct = 0 })
+    v = C.Visible(key, "lowGlow:glow")
+    T.truthy(v.lit, "the line stays lit; the layer's alpha does the hiding")
+    T.eq(stub.Plain(layer.__alpha), 0, "the layer's alpha is 0, so the glow under it is hidden")
+    T.truthy(v.layered, "the glow hangs under the layer")
+    w.Unit("target", { pct = 1 })
+    T.eq(stub.Plain(layer.__alpha), 1, "and back on")
+    noErrors()
+end)

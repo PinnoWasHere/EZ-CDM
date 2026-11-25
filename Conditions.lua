@@ -844,11 +844,12 @@ function Conditions.Lines(key)
 end
 
 -- Whether a line's effect can be seen on a piece now: { lit, shown, alpha, covered,
--- gray }. lit: the driver lights it. shown: the piece's frame and what the effect
+-- gray, layered }. lit: the driver lights it. shown: the piece's frame and what the effect
 -- drew are on show. alpha: what the effect drew, Conditions.SECRET while the client
 -- keeps it. covered: the icon its condition is about doesn't show now
 -- (Conditions.LineLayer). gray: what a gray line's copy shows, out of a fight
--- (Overlay's check: copy, same, game).
+-- (Overlay's check: copy, same, game). layered: a client line's effect hangs under
+-- the layer its condition drives.
 function Conditions.Visible(key, id)
     local k = tostring(key)
     local out = { lit = false, shown = false, alpha = 0, covered = false }
@@ -885,6 +886,12 @@ function Conditions.Visible(key, id)
     if issecretvalue(alpha) then alpha = Conditions.SECRET end
     out.shown = drawn:IsVisible() == true
     out.alpha = alpha
+    if target then
+        -- What a client part drives is the layer, so the effect must hang under it.
+        local f = drawn
+        while f and f ~= target do f = f:GetParent() end
+        out.layered = f == target
+    end
     return out
 end
 
