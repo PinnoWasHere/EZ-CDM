@@ -128,7 +128,7 @@ Bridge.NEEDS = {
     "ActionBars.Cooldowns.IconOf",
     "ActionBars.Skin.SHADE_FILE",
     "ActionBars.Skin.SHADE",
-    -- Conditions: my totem stands (which totem a slot holds, from your own casts)
+    -- Conditions: my totem is up (which totem a slot holds, from your own casts)
     "ActionBars.CdmCustom.TotemUp",
 }
 

@@ -274,6 +274,9 @@ local CASES = {
     { L("ends", "glow"), { missingGlow = true } },
     { L("ends", "glow", COLOR), { missingGlow = true, missingGlowColor = COLOR } },
     { { moment = "chargesLeft", action = "glow", n = 2 }, { ["ez:chargesLeft:glow"] = { n = 2 } } },
+    -- "While my totem is up" takes totemUp's glow and sound (Grammar.MERGED); no kind takes every pair.
+    { L("cooldown", "glow"), { ["ez:totemUp:glow"] = true } },
+    { L("cooldown", "sound", SOUND), { ["ez:totemUp:sound"] = { value = SOUND } } },
     { { moment = "chargesLeft", action = "sound", value = SOUND }, { ["ez:chargesLeft:sound"] = { value = SOUND } } },
 }
 
@@ -327,7 +330,7 @@ end)
 T.test("grammar compile: refused pairs come back as problems, not fields", function()
     local _, _, G = world()
     local refused = {
-        L("ready", "gray"), L("ready", "color"), L("cooldown", "glow"), L("cooldown", "sound"),
+        L("ready", "gray"), L("ready", "color"),
         L("usable", "hide"), L("usable", "show"), L("up", "fade"), L("ends", "show"), L("ends", "fade"),
         L("missing", "sound"), L("missing", "fade"), L("recast", "hide"), L("recast", "fade"),
         L("always", "hide"), L("always", "glow"), L("someday", "show"), L("ready", "dance"),
@@ -458,11 +461,17 @@ end)
 local BATCH_MOMENT = {}
 for _, k in ipairs(BATCH_A) do BATCH_MOMENT[k] = true end
 
--- Words(kind) as text, batch A's left out: "ready(show,fade) up(glow)".
+-- Words(kind) as text, batch A's left out, with the batch A lines a merged moment
+-- shows (Grammar.MERGED): "ready(show,fade) up(glow)".
 local function wordsOf(G, kind)
     local out = {}
     for _, e in ipairs(G.Words(kind)) do
-        if not BATCH_MOMENT[e.moment] then out[#out + 1] = e.moment .. "(" .. table.concat(e.actions, ",") .. ")" end
+        local acts = {}
+        for _, a in ipairs(e.actions) do
+            local entry = G.MAP[e.moment][a]
+            if not (entry.merge and BATCH_MOMENT[entry.alias.moment]) then acts[#acts + 1] = a end
+        end
+        if not BATCH_MOMENT[e.moment] then out[#out + 1] = e.moment .. "(" .. table.concat(acts, ",") .. ")" end
     end
     return table.concat(out, " ")
 end

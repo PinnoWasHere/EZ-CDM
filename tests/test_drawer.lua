@@ -572,9 +572,10 @@ T.test("drawer wording: every moment chip is the same phrase the sentence shows"
     T.truthy(#keys > 1, "the moments that fit")
     for _, m in ipairs(keys) do
         if m == Drawer.MORE then break end
-        T.eq(stub.Text(strip(Drawer).chip[m].text), (G.MomentWords(m)), m .. "'s chip is its phrase")
+        local kind = G.Kind(k.clap)
+        T.eq(stub.Text(strip(Drawer).chip[m].text), (G.MomentWords(m, nil, kind)), m .. "'s chip is its phrase")
         pick(Drawer, m)
-        T.eq(stub.Text(wordOf(Drawer, 3, "moment").text), (G.MomentWords(m)), m .. ": the sentence shows the same")
+        T.eq(stub.Text(wordOf(Drawer, 3, "moment").text), (G.MomentWords(m, nil, kind)), m .. ": the sentence shows the same")
     end
     -- Always takes no comma: "Always show it."
     pick(Drawer, "always")

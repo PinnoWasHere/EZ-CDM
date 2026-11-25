@@ -404,6 +404,7 @@ end
 
 -- The spell fields a line sets.
 local function fieldsOf(line)
+    line = Grammar.Canonical(line)
     local e = Grammar.MAP[line.moment] and Grammar.MAP[line.moment][line.action]
     if not e then return {} end
     if e.all then return e.all end

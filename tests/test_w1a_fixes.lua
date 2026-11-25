@@ -159,7 +159,8 @@ T.test("w1a fixes: Searing Totem offers no target words, no only-on-GCD, and tot
     local m = moments(w, key)
     for _, t in ipairs(TARGET_WORDS) do T.isnil(m[t], "no " .. t .. ": a totem is cast at no unit") end
     T.isnil(m.onlyGcd, "no real cooldown, so the global cooldown is all it ever has")
-    T.truthy(m.totemUp, "While my totem stands stays")
+    T.isnil(m.totemUp, "its glow and sound read under While my totem is up (Grammar.MERGED)")
+    T.truthy(G.Fits(kind, "cooldown", "glow"), "the merged moment takes the glow")
     T.eq((G.MomentWords("cooldown", nil, kind)), "While my totem is up", "Daylight UI times the totem as its cooldown")
     T.eq((G.MomentWords("ready", nil, kind)), "When my totem is down")
     T.eq((G.MomentWords("almost", nil, kind)), "When my totem is almost gone")

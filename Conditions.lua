@@ -1006,7 +1006,8 @@ Conditions.Register({
 Conditions.Register({
     key = "noMana", moment = "short",
     actions = { blue = { effect = "wash", opts = { id = "blue", color = "mana" } }, glow = GLOW },
-    fits = castable,
+    -- A spell that costs nothing (kind.cost, SpellPower) is never short.
+    fits = function(kind) return castable(kind) and kind.cost ~= false end,
     read = function(k)
         local _, noPower = Bridge.UsableState(k)
         return noPower
@@ -1295,7 +1296,8 @@ for _, class in ipairs(formClasses) do
     end
 end
 
--- This spell's totem stands (Bridge.TotemUp).
+-- This spell's totem stands (Bridge.TotemUp). On a totem showing its own time its
+-- lines read under Daylight UI's "While my totem is up" (Grammar.MERGED).
 Conditions.Register({
     key = "totemUp", moment = "totemUp", actions = glowOnly(),
     fits = function(kind) return kind.totem == true end,
@@ -1304,7 +1306,7 @@ Conditions.Register({
     events = { game = { "PLAYER_TOTEM_UPDATE", { "UNIT_SPELLCAST_SUCCEEDED", "player" } },
                daylight = { "changed", "ready", "started" } },
     secrecy = "plain", layer = "any", excludes = {},
-    words = { moment = "While my totem stands", clause = "my totem stands" },
+    words = { moment = "While my totem is up", clause = "my totem is up" },
 })
 
 -- Each weapon slot's enchant list, or nil when the client refuses the read. The

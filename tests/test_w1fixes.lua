@@ -289,7 +289,8 @@ T.test("fix 2: the clause strip leaves out a part that can't hold with the line,
     T.falsy((" " .. keys .. " "):find(" noMana "), "not offered: " .. keys)
     local refused = {}
     for _, r in ipairs(G.ClauseRefusals(kind, line("unusable", "gray"), { drawer = true })) do refused[r.cond] = r.why end
-    T.eq(refused.noMana, "can't both be true: not usable never counts power")
+    -- Thunder Clap costs rage (SpellPower row: AuraLinks.costs), whatever the player's bar.
+    T.eq(refused.noMana, "can't both be true: not usable never counts rage")
     -- Thunder Clap's aura is a debuff on its targets (AuraLinks.spells).
     T.eq(refused.upish, G.ForKind(G.WORDING.layerClash, kind), "a buff-icon part too")
     T.truthy(refused.upish:find("its debuff", 1, true), refused.upish)

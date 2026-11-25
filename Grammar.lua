@@ -128,7 +128,24 @@ MAP.cooldown.nosweep = { field = "noSwipe", value = true }
 MAP.cooldown.nogcd = { field = "noGcd", value = true }
 -- The numbers' color for the cooldown's last seconds (CdmCard.lua:522-529).
 MAP.almost = { numbers = { look = "low", lookColor = "lowColor", at = "lowAt" } }
+-- On a totem showing its own time (kind.totemTime), Daylight UI's cooling down is the
+-- totem standing, the state EZ-CDM's totemUp reads. One moment, "While my totem is up",
+-- takes both: Daylight UI's rows above, and totemUp's glow and sound, each still
+-- written to totemUp's own field. merge names the kind flag that joins them.
+MAP.cooldown.glow = { alias = { moment = "totemUp", action = "glow" }, merge = "totemTime" }
+MAP.cooldown.sound = { alias = { moment = "totemUp", action = "sound" }, merge = "totemTime" }
 Grammar.MAP = MAP
+
+-- A moment whose lines another moment shows on some pieces: its moment there, and
+-- the kind flag that says so.
+Grammar.MERGED = { totemUp = { into = "cooldown", flag = "totemTime" } }
+
+-- The moment a piece shows moment's lines under, where it merges into another, else nil.
+function Grammar.MergedInto(kind, moment)
+    local m = Grammar.MERGED[moment]
+    if m and type(kind) == "table" and kind[m.flag] == true then return m.into end
+    return nil
+end
 
 -- Every spell field the grammar writes, so a caller can clear the ones a draft drops.
 Grammar.FIELDS = {
@@ -370,6 +387,39 @@ local function lettered(key, ch)
     return v ~= nil and v:find(ch, 1, true) ~= nil or nil
 end
 
+-- What a piece's casts cost by the client's SpellPower rows (AuraLinks.costs), over its
+-- spell and every id it holds, since a totem piece's spell may be its buff (Windfury
+-- Totem 200485 holds the casts 8512, 10613, 10614 beside the buff 10612): true and the
+-- powers as words ("rage", "energy or rage"); false when the tables list every id and
+-- none costs (Charge); nil when they don't list one. Combo points are named only alone:
+-- beside energy or rage the cast's own power is what runs short.
+local function costOf(key)
+    local sid = Bridge.SpellOf(key)
+    if letters(sid) == nil then return nil, nil end
+    local ids, held = { sid }, Bridge.SpellIDs(key)
+    for id in pairs(type(held) == "table" and held or {}) do
+        if id ~= sid then ids[#ids + 1] = id end
+    end
+    table.sort(ids)
+    local t = type(ns.AuraLinks) == "table" and type(ns.AuraLinks.costs) == "table" and ns.AuraLinks.costs or {}
+    local list, seen, listed = {}, {}, true
+    for _, id in ipairs(ids) do
+        if letters(id) == nil then listed = false end
+        for _, w in ipairs(type(t[id]) == "table" and t[id] or {}) do
+            if not seen[w] then seen[w] = true; list[#list + 1] = w end
+        end
+    end
+    if #list == 0 then
+        if listed then return false, nil end
+        return nil, nil
+    end
+    local words = {}
+    for _, w in ipairs(list) do
+        if w ~= "combo points" or #list == 1 then words[#words + 1] = w end
+    end
+    return true, table.concat(words, " or ")
+end
+
 -- The enchant ids a piece's weapon buff cast puts on a weapon, any rank's, as a set
 -- (AuraLinks.imbues), or nil for a piece that casts none.
 function Grammar.Imbues(key)
@@ -518,6 +568,11 @@ end
 --   totemTime        a totem showing its own time, which Daylight UI times as its
 --                    cooldown (CdmEffects Fx.OnCooldown): its cooldown words are the
 --                    totem's
+--   cost             its spell costs power to cast (AuraLinks.costs, SpellPower): true
+--                    or false, nil when the tables don't list it. No short words on a
+--                    free spell
+--   power            the powers its cast costs, as words ("rage"); nil names the
+--                    player's own (Grammar.PowerName)
 --   charges          the most charges its aura comes with (AuraLinks.charges)
 --   chargesSeen      the game never keeps those auras secret, so their count reads
 --                    in a fight (C_Secrets.GetSpellAuraSecrecy NeverSecret)
@@ -616,6 +671,7 @@ function Grammar.Kind(key, piece, shows)
     local unlisted = letters(Bridge.SpellOf(key)) == nil
     if not noAura then kind.aura = auraWord or (unlisted and kind.harmful == true and "debuff") or "buff" end
     kind.charges, kind.chargesSeen = chargesOf(key)
+    kind.cost, kind.power = costOf(key)
     -- A proc is your own: a buff with a spell (a weapon enchant has none, so the card
     -- hides its recast row, CdmCard.lua:420-424) that no other class puts on you. The
     -- aura links decide where they name a spell you know; elsewhere, any buff you
@@ -668,6 +724,11 @@ function Grammar.Fits(kind, moment, action) return fits(kind, moment, action) en
 fits = function(kind, moment, action)
     local entry = MAP[moment] and MAP[moment][action]
     if not entry then return false end
+    if entry.alias and entry.merge then
+        -- A merged moment's line fits where the piece merges and the line it writes fits.
+        if kind == nil then return true end
+        return kind[entry.merge] == true and fits(kind, entry.alias.moment, entry.alias.action)
+    end
     if entry.alias then
         -- The piece has the moment (its own row, the wears-off sound) and the line the
         -- alias writes.
@@ -687,7 +748,10 @@ fits = function(kind, moment, action)
     end
     if entry.cond then
         return Conditions.Fits(entry.cond, action, kind)
-    elseif moment == "always" or moment == "unusable" or moment == "short" or moment == "usable" then
+    elseif moment == "short" then
+        -- Short of power never happens to a spell that costs none.
+        return (kind.cooldown or kind.button == true) and kind.cost ~= false
+    elseif moment == "always" or moment == "unusable" or moment == "usable" then
         return kind.cooldown or kind.button == true
     elseif moment == "ready" then
         return kind.cooldown
@@ -778,8 +842,9 @@ function Grammar.Words(kind, opts)
     local out = {}
     for _, m in ipairs(Grammar.MOMENTS) do
         local actions = {}
-        for _, a in ipairs(Grammar.ACTIONS) do
+        for _, a in ipairs(Grammar.MergedInto(kind, m) and {} or Grammar.ACTIONS) do
             local e = MAP[m] and MAP[m][a]
+            if e and e.alias and e.merge then e = MAP[e.alias.moment][e.alias.action] end
             local c = e and e.cond and Conditions.Get(e.cond)
             if Grammar.Fits(kind, m, a) and (not c or offered(c, opts)) then actions[#actions + 1] = a end
         end
@@ -791,6 +856,7 @@ end
 -- The EZ-CDM condition a line starts with, or nil.
 function Grammar.LineCondition(line)
     local e = type(line) == "table" and MAP[line.moment] and MAP[line.moment][line.action]
+    if e and e.alias and e.merge then e = MAP[e.alias.moment][e.alias.action] end
     return e and e.cond or nil
 end
 
@@ -1037,6 +1103,7 @@ for _, c in ipairs(Conditions.List()) do Grammar.InstallCondition(c) end
 -- What a line sets, so two lines that set the same thing are one family: Buff
 -- missing's show and hide share a slot, the show rules a field.
 local function family(line)
+    line = Grammar.Canonical(line)
     local e = MAP[line.moment] and MAP[line.moment][line.action]
     if not e then return nil end
     return line.moment .. ":" .. tostring(e.slot or e.field or e.paint or e.look or "all")
@@ -1334,7 +1401,9 @@ end
 
 -- fields -> rules, problems. Lines come in canonical order (Grammar.MOMENTS, then
 -- Grammar.ACTIONS); values equal to Daylight UI's defaults make no line. problems
--- name the lines that don't fit kind, kept so a save never drops them unseen.
+-- name the lines that don't fit kind, kept so a save never drops them unseen. A
+-- merged moment's fields (Grammar.MERGED) read as lines of the moment kind shows
+-- them under, so a rule saved as "While my totem stands" reads "While my totem is up".
 function Grammar.Decompile(fields, kind)
     fields = type(fields) == "table" and fields or {}
     local lines, problems = {}, {}
@@ -1342,6 +1411,11 @@ function Grammar.Decompile(fields, kind)
     for _, m in ipairs(Grammar.MOMENTS) do
         for _, a in ipairs(Grammar.ACTIONS) do
             local entry = MAP[m][a]
+            if entry and entry.alias and entry.merge then
+                entry = kind and kind[entry.merge] == true and MAP[entry.alias.moment][entry.alias.action] or nil
+            elseif Grammar.MergedInto(kind, m) then
+                entry = nil
+            end
             if entry and not entry.all then
                 local v = entry.field and fields[entry.field]
                 local line
@@ -1675,10 +1749,13 @@ end
 -- The number a typed-number word shows: n, else "N" where it is a chip's name.
 Grammar.NUMBER_MARK = "#"
 
--- A phrase with its power name (%s) and number (#) put in. A "%" after the number
--- stays as it is.
-local function fill(phrase, n)
-    if phrase:find("%s", 1, true) then phrase = phrase:gsub("%%s", (Grammar.PowerName():gsub("%%", "%%%%"))) end
+-- A phrase with its power name (%s) and number (#) put in: the powers a piece's spell
+-- costs (kind.power), else the player's own. A "%" after the number stays as it is.
+local function fill(phrase, n, kind)
+    if phrase:find("%s", 1, true) then
+        local power = type(kind) == "table" and kind.power or Grammar.PowerName()
+        phrase = phrase:gsub("%%s", (power:gsub("%%", "%%%%")))
+    end
     return (phrase:gsub(Grammar.NUMBER_MARK, n ~= nil and tostring(n) or "N"))
 end
 
@@ -1700,7 +1777,7 @@ function Grammar.MomentWords(moment, n, kind)
     local totem = type(kind) == "table" and kind.totemTime and WORDING.momentsTotem[moment]
     local phrase = totem or plain or WORDING.moments[moment]
     if not phrase then return tostring(moment), " " end
-    return forKind(fill(phrase, n), kind), WORDING.noComma[moment] and " " or ", "
+    return forKind(fill(phrase, n, kind), kind), WORDING.noComma[moment] and " " or ", "
 end
 
 -- An action's word at a moment: "glow", or "glow until it's back" when a buff wears off.
@@ -1720,7 +1797,7 @@ end
 function Grammar.ClauseWords(key, n, kind)
     local phrase = WORDING.clauses[key]
     if not phrase then return tostring(key) end
-    return forKind(fill(phrase, n), kind)
+    return forKind(fill(phrase, n, kind), kind)
 end
 
 -- Why conditions a and b can never both be true, as words: their own reason, or
@@ -1732,7 +1809,7 @@ function Grammar.NeverWords(a, b, kind)
         local plain = type(kind) == "table" and kind.noCooldown
         return forKind(plain and WORDING.layerClashPlain or WORDING.layerClash, kind)
     end
-    return WORDING.neverBoth:format(fill(why))
+    return WORDING.neverBoth:format(fill(why, nil, kind))
 end
 
 -- A one-click fix's words (Grammar.HiddenNote) for a piece.

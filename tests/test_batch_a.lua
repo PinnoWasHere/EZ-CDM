@@ -102,7 +102,7 @@ T.test("batch A: the words read as sentences", function()
     local G = w.ns.Grammar
     T.eq(G.MomentWords("outOfRange"), "When my target is out of range")
     T.eq(G.MomentWords("formBattle"), "When I'm in Battle Stance")
-    T.eq(G.ClauseWords("totemUp"), "my totem stands")
+    T.eq(G.ClauseWords("totemUp"), "my totem is up")
     T.eq(G.Describe({ moment = "targetCasting", action = "glow", clauses = { { cond = "targetEnemy" } } }),
         "When my target is casting and my target is an enemy, glow.")
     T.eq(G.NeverWords("inCombat", "noCombat"), "can't both be true: I'm in combat or out of it")

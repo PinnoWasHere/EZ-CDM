@@ -168,6 +168,7 @@ SW.DEPARTURES = {
     noAura = "buff rows and What it shows on a spell the client's tables give no aura (AuraLinks.spells)",
     endsGlow = "glow when it wears off, written as the card's missing glow (Grammar.Canonical)",
     button = "castable rows on a spell button Daylight UI shows as a buff (the hidden note's fix shows it)",
+    noCost = "short-of-power rows on a spell whose casts cost nothing (AuraLinks.costs, SpellPower)",
 }
 local BUFF_ROWS = { "buffUp", "upGlow", "buffSound", "activeColor", "noDurationSwipe", "clipGlow", "clipGlowColor",
                     "buffEndSound", "buffDown", "missingGlow", "inactiveFlash", "upGlowColor", "missingGlowColor" }
@@ -199,16 +200,25 @@ end
 
 local function exceptions(G, AB, id, on, kind)
     local out = {}
-    -- EZ-CDM's conditions (Conditions.lua) have no card row: every one that fits.
+    -- EZ-CDM's conditions (Conditions.lua) have no card row: every one that fits, under
+    -- the moment the piece shows it in (Grammar.MERGED: totemUp's under "While my totem
+    -- is up").
     on.ezConditions = {}
     for _, m in ipairs(G.MOMENTS) do
         for _, a in ipairs(G.ACTIONS) do
             local e = G.MAP[m] and G.MAP[m][a]
             if e and e.cond and G.Fits(kind, m, a) then
-                on.ezConditions[m] = on.ezConditions[m] or {}
-                table.insert(on.ezConditions[m], a)
+                local shown = G.MergedInto(kind, m) or m
+                on.ezConditions[shown] = on.ezConditions[shown] or {}
+                table.insert(on.ezConditions[shown], a)
             end
         end
+    end
+    -- A spell whose casts cost nothing is never short of power; "always show" still
+    -- sets the row.
+    if on.onShort and kind.cost == false then
+        on.onShortAlways, on.onShort = true, nil
+        out[#out + 1] = SW.DEPARTURES.noCost
     end
     if not on.upGlow and kind.ezGlow and not kind.tracked then
         on.upGlow = true
@@ -313,7 +323,9 @@ function SW.CardAndGrammar(G, AB, id)
         end
     end
     local all = true
-    for _, key in ipairs(ALWAYS_ROWS) do all = all and (on[key] == true or (key == "onCd" and on.onCdAlways)) end
+    for _, key in ipairs(ALWAYS_ROWS) do
+        all = all and (on[key] == true or (key == "onCd" and on.onCdAlways) or (key == "onShort" and on.onShortAlways))
+    end
     if all then offered.always = { show = true } end
     local card = {}
     for _, m in ipairs(G.MOMENTS) do
@@ -494,8 +506,10 @@ end
 local function expected(G, kind, rules)
     local out = {}
     for _, l in ipairs(rules.lines) do
-        -- An alias reads back as the line it writes (Grammar.Canonical).
-        if not G.IsDefault(l, kind) then out[#out + 1] = G.Canonical(l) end
+        -- An alias reads back as the line it writes (Grammar.Canonical); a merged
+        -- moment's line (Grammar.MERGED) reads back as itself.
+        local e = G.MAP[l.moment] and G.MAP[l.moment][l.action]
+        if not G.IsDefault(l, kind) then out[#out + 1] = e and e.merge and l or G.Canonical(l) end
     end
     return out
 end
