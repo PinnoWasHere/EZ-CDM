@@ -219,12 +219,12 @@ T.test("engine grammar: the drawer's words hide combat-dead and advanced conditi
     T.falsy(more.calm, "still no out-of-combat one")
     T.truthy(plainView.boss and plainView.low and plainView.ready, "the rest stay")
     local function keys(l, opts) return table.concat(G.Clauses(kind, l, opts), " ") end
-    T.eq(keys(line("boss", "gray"), { drawer = true }), "cantCast notUsable noMana noBuff hasTarget targetEnemy targetBoss onlyGcd formBattle formDefensive formBerserker near low", "the others, in registry order")
-    T.eq(keys(line("boss", "gray"), { drawer = true, more = true }), "cantCast notUsable noMana noBuff hasTarget targetEnemy targetBoss onlyGcd formBattle formDefensive formBerserker inCombat noCombat inGroup inInstance near low soon")
+    T.eq(keys(line("boss", "gray"), { drawer = true }), "cantCast notUsable noMana noBuff onlyGcd formBattle formDefensive formBerserker near low", "the others, in registry order")
+    T.eq(keys(line("boss", "gray"), { drawer = true, more = true }), "cantCast notUsable noMana noBuff onlyGcd formBattle formDefensive formBerserker inCombat noCombat inGroup inInstance near low soon")
     T.eq(keys(line("boss", "gray", { clauses = { { cond = "low" } } }), { drawer = true }), "", "nothing after a client part")
     T.eq(keys(line("low", "gray"), { drawer = true }), "", "nor after a client moment")
     T.eq(keys(line("boss", "sound", { value = "none" }), { drawer = true }),
-        "cantCast notUsable noMana noBuff hasTarget targetEnemy targetBoss onlyGcd formBattle formDefensive formBerserker near",
+        "cantCast notUsable noMana noBuff onlyGcd formBattle formDefensive formBerserker near",
         "a sound line takes plain parts only")
     T.eq(keys(line("ready", "glow"), { drawer = true }), "", "Daylight UI's moments take none")
     noErrors()
@@ -465,7 +465,7 @@ T.test("engine drawer: the and … chip adds a clause; a clause word changes or 
     T.truthy(add, "an and … chip on the line")
     T.eq(add.piece.kind, "chip", "a blank, Daylight UI's chip")
     add:Click()
-    T.eq(table.concat(strip(Drawer).keys, " "), "cantCast notUsable noMana noBuff hasTarget targetEnemy targetBoss onlyGcd formBattle formDefensive formBerserker near low " .. Drawer.MORE,
+    T.eq(table.concat(strip(Drawer).keys, " "), "cantCast notUsable noMana noBuff onlyGcd formBattle formDefensive formBerserker near low " .. Drawer.MORE,
         "the parts the line can take, and more… for the advanced one")
     strip(Drawer).chip.near:Click()
     T.deq(ns.Conditions.Rule(key), { boss = { gray = { clauses = { { cond = "near" } } } } }, "written at once")

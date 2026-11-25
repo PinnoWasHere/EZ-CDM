@@ -950,6 +950,17 @@ end
 -- A piece the castable words read: a cooldown, or a spell button (Grammar.Kind).
 local function castable(kind) return kind.cooldown == true or kind.button == true end
 
+-- Whether a piece's "cooling down" is only its totem standing: a totem showing its own
+-- time (Daylight UI's Fx.OnCooldown), whose spell the client's tables give no real
+-- cooldown (Searing Totem).
+local function standsForCooldown(k)
+    local key = tonumber(k) or k
+    if not Bridge.IsTotem(key) or Bridge.Shows(key) ~= "totem" then return false end
+    local spells = type(ns.AuraLinks) == "table" and ns.AuraLinks.spells or {}
+    local v = spells[Bridge.SpellOf(key)]
+    return type(v) == "string" and not v:find("c", 1, true)
+end
+
 local WASH_GRAY = { effect = "wash", opts = { id = "gray", look = "desat" } }
 local GLOW = { effect = "glow" }
 
@@ -960,6 +971,9 @@ Conditions.Register({
     fits = castable,
     read = function(k)
         local usable, _, onCooldown = Bridge.UsableState(k)
+        -- A totem showing its time reads as cooling down while it stands, but one with
+        -- no real cooldown drops again at once.
+        if onCooldown == true and standsForCooldown(k) then onCooldown = false end
         if usable == false or onCooldown == true then return true end
         if usable == nil or onCooldown == nil then return nil end
         return false
@@ -1041,6 +1055,8 @@ local function spellOf(k) return Bridge.SpellOf(pieceKey(k)) end
 local function grayOrGlow() return { gray = WASH_GRAY, glow = GLOW } end
 local function glowOnly() return { glow = GLOW } end
 local function anyPiece() return true end
+-- A spell cast at a unit you pick (the client's letter "t"): the target words fit it.
+local function atTarget(kind) return kind.targeted == true end
 
 -- Whether you have a target: true or false, nil when the game won't say.
 local function targetNow()
@@ -1060,7 +1076,7 @@ local function ofTarget(ask)
 end
 
 Conditions.Register({
-    key = "hasTarget", moment = "hasTarget", actions = glowOnly(), fits = anyPiece,
+    key = "hasTarget", moment = "hasTarget", actions = glowOnly(), fits = atTarget,
     read = targetNow,
     detail = function() return { target = logged(UnitExists("target")) } end,
     events = { game = { "PLAYER_TARGET_CHANGED" } }, secrecy = "plain", layer = "any", excludes = {},
@@ -1068,7 +1084,7 @@ Conditions.Register({
 })
 
 Conditions.Register({
-    key = "targetEnemy", moment = "targetEnemy", actions = glowOnly(), fits = anyPiece,
+    key = "targetEnemy", moment = "targetEnemy", actions = glowOnly(), fits = atTarget,
     read = function()
         return ofTarget(function()
             local v = UnitCanAttack("player", "target")
@@ -1086,7 +1102,7 @@ Conditions.Register({
 
 -- A boss as Daylight UI's nameplates tell one: a world boss, or the game's boss mob.
 Conditions.Register({
-    key = "targetBoss", moment = "targetBoss", actions = glowOnly(), fits = anyPiece,
+    key = "targetBoss", moment = "targetBoss", actions = glowOnly(), fits = atTarget,
     read = function()
         return ofTarget(function()
             local class = UnitClassification("target")
@@ -1116,8 +1132,11 @@ Conditions.Register({
     read = function(k)
         local sid = spellOf(k)
         if type(sid) ~= "number" then return nil end
-        local v = ofTarget(function() return C_Spell.IsSpellInRange(sid, "target") end)
-        if v == nil then return nil end
+        -- No target is no range to be out of.
+        local t = targetNow()
+        if t ~= true then return t end
+        local v = C_Spell.IsSpellInRange(sid, "target")
+        if v == nil or secret(v) then return nil end
         return v == false
     end,
     detail = function(k)
@@ -1183,7 +1202,8 @@ local function cooldownOf(k)
 end
 Conditions.Register({
     key = "onlyGcd", moment = "onlyGcd", actions = grayOrGlow(),
-    fits = function(kind) return kind.gcd == true and castable(kind) end,
+    -- With no real cooldown the global one is all it ever has: "cooling down" says it.
+    fits = function(kind) return kind.gcd == true and kind.realCooldown == true and castable(kind) end,
     read = function(k)
         local _, info = cooldownOf(k)
         if not info or secret(info.isOnGCD) then return nil end
@@ -1337,6 +1357,47 @@ Conditions.Register({
     events = { game = { "WEAPON_ENCHANT_CHANGED", "PLAYER_EQUIPMENT_CHANGED", { "UNIT_INVENTORY_CHANGED", "player" } } },
     secrecy = "plain", layer = "any", excludes = {},
     words = { moment = "When my weapon buff is missing", clause = "my weapon buff is missing" },
+})
+
+-- The charges left on a piece's aura, which the client counts as its applications:
+-- the first of its charged auras on you (Grammar.ChargedAuras), its count, or nil
+-- when the game won't say.
+local function chargesNow(k)
+    local G = ns.Grammar
+    for _, id in ipairs(G and G.ChargedAuras(pieceKey(k)) or {}) do
+        local a = C_UnitAuras.GetUnitAuraBySpellID("player", id)
+        if secretTable(a) then return nil, id end
+        if type(a) == "table" then
+            if secret(a.applications) then return nil, id end
+            return a.applications, id
+        end
+    end
+    return 0
+end
+
+-- Its aura is up with n charges or fewer left (Lightning Shield's 3, used up by hits).
+-- Offered only where the game never keeps the aura secret (kind.chargesSeen), so the
+-- count reads in a fight: for any other aura the count is out of reach there.
+Conditions.Register({
+    key = "chargesLeft", moment = "chargesLeft", actions = glowOnly(),
+    param = { min = 1, max = 30, default = 1 },
+    fits = function(kind) return kind.charges ~= nil and kind.chargesSeen == true and kind.buff == true end,
+    read = function(k, n)
+        local left = chargesNow(k)
+        if left == nil then return nil end
+        return left > 0 and left <= (n or 1)
+    end,
+    detail = function(k)
+        local left, id = chargesNow(k)
+        local secrecy = id and C_Secrets.GetSpellAuraSecrecy(id)
+        return { aura = id, charges = left == nil and Conditions.SECRET or left, secrecy = logged(secrecy) }
+    end,
+    events = { game = { { "UNIT_AURA", "player" } }, daylight = { "buffUp", "buffDown", "changed" } },
+    -- It reads the aura up itself, so it is true only while the buff shows. Layer "buff"
+    -- would also ask Daylight UI's buff state, which can't tell on an aura-and-cooldown
+    -- holder (Lightning Shield).
+    secrecy = "plain", layer = "any", excludes = {},
+    words = { moment = "When its charges are down to #", clause = "its charges are down to #" },
 })
 
 -- What you're doing and where, per spell, as Daylight UI's group rules read them

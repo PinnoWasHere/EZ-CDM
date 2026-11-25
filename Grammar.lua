@@ -113,6 +113,10 @@ local MAP = {
 }
 -- EZ-CDM's own moment; its lines come with its condition (InstallCondition).
 MAP.blocked = {}
+-- A glow needs a span, and the one that starts when a buff wears off is Daylight UI's
+-- glow while it's not active (missingGlow). The pick writes that line
+-- (Grammar.Canonical).
+MAP.ends.glow = { alias = { moment = "missing", action = "glow" } }
 MAP.ready.glow = { field = "readyGlow", value = true, color = "readyGlowColor", style = true }
 MAP.ready.sound = { field = "readySound", sound = true }
 -- desat tracks cooldown state only (CdmEffects.lua:1133-1142), so gray goes with
@@ -386,19 +390,83 @@ local function ranged(key)
     return plain(S.SpellHasRange(sid)) == true or nil
 end
 
+-- Every id a piece answers to: its spell, the ids it holds, and the auras the client's
+-- links say they put up under other ids (Arcane Concentration -> Clearcasting).
+local function auraIds(key)
+    local ids, seen = {}, {}
+    local function add(id)
+        if type(id) == "number" and not seen[id] then seen[id] = true; ids[#ids + 1] = id end
+    end
+    add(Bridge.SpellOf(key))
+    local held = Bridge.SpellIDs(key)
+    for id in pairs(type(held) == "table" and held or {}) do add(id) end
+    local by = type(ns.AuraLinks) == "table" and ns.AuraLinks.bySource or {}
+    for i = 1, #ids do
+        for _, a in ipairs(by[ids[i]] or {}) do add(a) end
+    end
+    table.sort(ids)
+    return ids
+end
+
 -- The aura a piece shows by the client's tables, "debuff" or "buff": a debuff when
 -- its spell or any id it holds puts one on an enemy, else a buff when one puts one
--- up. nil when the tables name no aura.
+-- up. Second, true when it can never show an aura, nil when the tables can't tell:
+--   the game's piece  its item shows only an aura under the row's own or linked ids
+--                     (CooldownViewerItemData.lua:327-356), so none of those putting
+--                     one up is enough (Earth Shock)
+--   Daylight UI's own its piece also learns an aura seen after a cast (CdmOwn.AuraOf),
+--                     so each id the tables list needs the letter "n": every effect is
+--                     one that puts up no aura (Lightning Bolt). A dummy effect (Last
+--                     Stand 12975, whose buff the server puts up) can't tell
+-- A totem is never "no aura": its buff is its creature's spell, which the tables don't
+-- link. Neither is a spell the tables don't list.
 local function auraOf(key)
-    local ids, held = { Bridge.SpellOf(key) }, Bridge.SpellIDs(key)
-    for id in pairs(type(held) == "table" and held or {}) do ids[#ids + 1] = id end
     local buff
-    for _, id in ipairs(ids) do
-        local v = letters(id) or ""
-        if v:find("d", 1, true) then return "debuff" end
+    local custom = Bridge.IsCustom(key)
+    local none = letters(Bridge.SpellOf(key)) ~= nil and not Bridge.IsTotem(key)
+    for _, id in ipairs(auraIds(key)) do
+        local v = letters(id)
+        if custom and v and not v:find("n", 1, true) then none = false end
+        v = v or ""
+        if v:find("d", 1, true) then return "debuff", nil end
         if v:find("b", 1, true) then buff = true end
     end
-    return buff and "buff" or nil
+    if buff then return "buff", nil end
+    return nil, none or nil
+end
+
+-- The most charges any aura of a piece comes with (AuraLinks.charges), and whether
+-- the game never keeps each of those auras secret (C_Secrets.GetSpellAuraSecrecy),
+-- so their count reads in a fight. Both nil when none has charges.
+local function chargesOf(key)
+    local t = type(ns.AuraLinks) == "table" and ns.AuraLinks.charges or {}
+    local most, ids = nil, {}
+    for _, id in ipairs(auraIds(key)) do
+        local n = t[id]
+        if n then
+            ids[#ids + 1] = id
+            if not most or n > most then most = n end
+        end
+    end
+    if not most then return nil, nil end
+    local S = type(C_Secrets) == "table" and C_Secrets or {}
+    local levels = type(Enum) == "table" and Enum.SecrecyLevel
+    local never = type(levels) == "table" and levels.NeverSecret or nil
+    if type(S.GetSpellAuraSecrecy) ~= "function" or never == nil then return most, nil end
+    for _, id in ipairs(ids) do
+        if plain(S.GetSpellAuraSecrecy(id)) ~= never then return most, nil end
+    end
+    return most, true
+end
+
+-- The ids of a piece's auras that come with charges, in id order.
+function Grammar.ChargedAuras(key)
+    local t = type(ns.AuraLinks) == "table" and ns.AuraLinks.charges or {}
+    local out = {}
+    for _, id in ipairs(auraIds(key)) do
+        if t[id] then out[#out + 1] = id end
+    end
+    return out
 end
 
 -- Describes a piece through Daylight UI's own answers. piece is its saved table or a
@@ -437,8 +505,22 @@ end
 --   noCooldown       the client's tables give its spell no real cooldown
 --                    (AuraLinks.spells), and it is no totem (whose time Daylight UI
 --                    shows as one): no almost or cooling down words but the sweep's
+--   realCooldown     the client's tables give its spell a real cooldown: true or
+--                    false, nil when they don't list it
+--   noAura           the client's tables list its spell and none of its ids puts up
+--                    an aura (Lightning Bolt): no buff or debuff words, and What it
+--                    shows offers only its cooldown
 --   aura             "debuff" or "buff", the aura its words name: the client's
---                    tables, else a harmful spell's debuff, else a buff
+--                    tables, else a harmful spell's debuff, else a buff; nil with
+--                    noAura
+--   targeted         its spell is cast at a unit you pick (AuraLinks.spells "t"),
+--                    so the target words fit it
+--   totemTime        a totem showing its own time, which Daylight UI times as its
+--                    cooldown (CdmEffects Fx.OnCooldown): its cooldown words are the
+--                    totem's
+--   charges          the most charges its aura comes with (AuraLinks.charges)
+--   chargesSeen      the game never keeps those auras secret, so their count reads
+--                    in a fight (C_Secrets.GetSpellAuraSecrecy NeverSecret)
 --   ranged           its spell checks range to a target (C_Spell.SpellHasRange)
 --   interrupt        its spell interrupts a cast (AuraLinks.spells "i")
 --   gcd              the global cooldown touches its spell (AuraLinks.spells "g")
@@ -478,8 +560,16 @@ function Grammar.Kind(key, piece, shows)
         cooldown = not aura
     end
     local hasBuff = now ~= "totem" and (now ~= nil or not cooldown)
-    -- A spell with neither a cooldown nor a buff: its castable words only.
-    local button = Bridge.SpellButton(key) == true
+    local auraWord, noAura = auraOf(key)
+    -- No aura by the client's tables: whatever Daylight UI shows, there is no buff.
+    if noAura then hasBuff = false end
+    -- A spell with neither a cooldown nor a buff: its castable words only. The client's
+    -- tables answer for a spell they list.
+    local button = Bridge.SpellButton(key, function()
+        local v = letters(Bridge.SpellOf(key))
+        if v == nil then return nil end
+        return noAura == true and not v:find("c", 1, true)
+    end) == true
     if button then cooldown, hasBuff = false, false end
     local trackRow
     if not Bridge.IsTotem(key) then
@@ -511,13 +601,21 @@ function Grammar.Kind(key, piece, shows)
         untimed = untimed(key),
         buffEvents = Effects.Covered(key),
         noCooldown = realCooldown(key) == false and not Bridge.IsTotem(key) or nil,
+        realCooldown = realCooldown(key),
+        noAura = noAura,
+        targeted = lettered(key, "t"),
+        totemTime = Bridge.IsTotem(key) and now == "totem" or nil,
         ranged = ranged(key),
         interrupt = lettered(key, "i"),
         gcd = lettered(key, "g"),
         imbue = Grammar.Imbues(key) ~= nil or nil,
         totem = Bridge.IsTotem(key) or nil,
     }
-    kind.aura = auraOf(key) or (kind.harmful == true and "debuff") or "buff"
+    -- A harmful spell's aura is a debuff only where the tables don't list the spell at
+    -- all; where they list it and can't tell, the words keep Daylight UI's "buff".
+    local unlisted = letters(Bridge.SpellOf(key)) == nil
+    if not noAura then kind.aura = auraWord or (unlisted and kind.harmful == true and "debuff") or "buff" end
+    kind.charges, kind.chargesSeen = chargesOf(key)
     -- A proc is your own: a buff with a spell (a weapon enchant has none, so the card
     -- hides its recast row, CdmCard.lua:420-424) that no other class puts on you. The
     -- aura links decide where they name a spell you know; elsewhere, any buff you
@@ -533,6 +631,9 @@ function Grammar.Kind(key, piece, shows)
     if trackRow then
         kind.showing = (now == "both" or now == "cooldown" or now == "buff") and now
             or (aura and "buff" or "cooldown")
+        -- Daylight UI waits for a buff the spell never puts up: hidden until it shows
+        -- its cooldown.
+        if noAura and kind.showing == "buff" then kind.buttonHidden = true end
     end
     local forms = cooldown and (Bridge.Forms() or {})[Bridge.MyClass() or ""]
     if forms then
@@ -550,11 +651,33 @@ function Grammar.RingOnly(kind, moment)
     return false
 end
 
+-- A line in the words that write it: an alias's (Grammar.ALIASES) the line it stands
+-- for, a copy; any other line itself.
+function Grammar.Canonical(line)
+    local entry = type(line) == "table" and MAP[line.moment] and MAP[line.moment][line.action]
+    if not (entry and entry.alias) then return line end
+    local out = {}
+    for k, v in pairs(line) do out[k] = v end
+    out.moment, out.action = entry.alias.moment, entry.alias.action
+    return out
+end
+
 -- Whether a moment and action fit a piece, as the card offers them.
-function Grammar.Fits(kind, moment, action)
+local fits
+function Grammar.Fits(kind, moment, action) return fits(kind, moment, action) end
+fits = function(kind, moment, action)
     local entry = MAP[moment] and MAP[moment][action]
     if not entry then return false end
+    if entry.alias then
+        -- The piece has the moment (its own row, the wears-off sound) and the line the
+        -- alias writes.
+        return fits(kind, moment, "sound") and fits(kind, entry.alias.moment, entry.alias.action)
+    end
     if kind == nil then return true end
+    -- No aura by the client's tables: no buff moment at all, whatever Daylight UI shows.
+    if kind.noAura and (moment == "up" or moment == "ends" or moment == "missing" or moment == "recast") then
+        return false
+    end
     local told = kind.tracked
     -- A spell with no real cooldown only runs the global cooldown: its sweep is all
     -- the cooling down it has, and it is never almost ready.
@@ -611,11 +734,30 @@ end
 -- glow style (CdmCard.lua:499-504), which every piece takes.
 Grammar.EXTRAS = { "shows", "style" }
 
+-- The What it shows picks that fit a piece, in Grammar.SHOWS order: only its cooldown
+-- for a spell the client's tables give no aura (kind.noAura).
+function Grammar.ShowsChoices(kind)
+    if type(kind) == "table" and kind.noAura then return { "cooldown" } end
+    local out = {}
+    for i, s in ipairs(Grammar.SHOWS) do out[i] = s end
+    return out
+end
+
+-- Whether a piece takes the What it shows sentence: the card's row is there, and
+-- there is a choice to make, or its pick now is one that doesn't fit.
+local function takesShows(kind)
+    if kind == nil then return true end
+    if not kind.trackRow then return false end
+    local choices = Grammar.ShowsChoices(kind)
+    return #choices > 1 or not indexOf(choices, kind.showing)
+end
+Grammar.TakesShows = takesShows
+
 -- The whole-spell words that fit a piece, in Grammar.EXTRAS order.
 function Grammar.Extras(kind)
     local out = {}
     for _, e in ipairs(Grammar.EXTRAS) do
-        if e ~= "shows" or kind == nil or kind.trackRow then out[#out + 1] = e end
+        if e ~= "shows" or takesShows(kind) then out[#out + 1] = e end
     end
     return out
 end
@@ -1050,6 +1192,9 @@ function Grammar.Compile(rules, kind)
         end
     end
     for i, line in ipairs(rules.lines or {}) do
+        if Grammar.Fits(kind, type(line) == "table" and line.moment, type(line) == "table" and line.action) then
+            line = Grammar.Canonical(line)
+        end
         local entry = type(line) == "table" and MAP[line.moment] and MAP[line.moment][line.action]
         local spec, condCode
         if entry and entry.cond then spec, condCode = condSpec(line, entry, kind) end
@@ -1138,7 +1283,7 @@ function Grammar.Compile(rules, kind)
     if shows ~= nil then
         if not indexOf(Grammar.SHOWS, shows) then
             problem({ shows = shows, code = "value" })
-        elseif kind and not kind.trackRow then
+        elseif kind and (not kind.trackRow or not indexOf(Grammar.ShowsChoices(kind), shows)) then
             problem({ shows = shows, code = "kind" })
         else
             fields.track = kind and kind.trackRow == "own" and shows == "buff" and "aura" or shows
@@ -1271,6 +1416,9 @@ function Grammar.Decompile(fields, kind)
     -- rows' (CdmCard.lua:388-398), so it makes no word.
     local shows = fields.track == "aura" and "buff" or fields.track
     if not indexOf(Grammar.SHOWS, shows) or (kind and not kind.trackRow) then shows = nil end
+    -- A pick that doesn't fit (its buff on a spell with none) reads as no pick: the
+    -- hidden note and its fix say what to do with it.
+    if shows and kind and not indexOf(Grammar.ShowsChoices(kind), shows) then shows = nil end
     local style = fields.glowStyle
     if style == spellDefault("glowStyle") then style = nil end
     return { lines = lines, group = group, forms = forms, shows = shows, style = style }, problems
@@ -1293,6 +1441,10 @@ end
 Grammar.WORDING = {
     -- A moment's words for a spell with no real cooldown (kind.noCooldown).
     momentsPlain = { cooldown = "While the global cooldown runs" },
+    -- A totem's moments while it shows its own time, which Daylight UI times as its
+    -- cooldown (kind.totemTime).
+    momentsTotem = { ready = "When my totem is down", cooldown = "While my totem is up",
+                     almost = "When my totem is almost gone" },
     moments = {
         always = "Always",
         ready = "When it's ready",
@@ -1313,9 +1465,11 @@ Grammar.WORDING = {
         nosweep = "hide the sweep", nogcd = "hide the global cooldown sweep", tint = "color the sweep",
         flash = "flash it", numbers = "color the numbers",
     },
-    shows = { both = "show its buff and its cooldown", cooldown = "show its cooldown", buff = "show its buff" },
+    -- An action's word at one moment, where it differs (an alias's, Grammar.Canonical).
+    actionsAt = { ends = { glow = "glow until it's back" } },
+    shows = { both = "show its buff, then its cooldown", cooldown = "show its cooldown", buff = "show only its buff" },
     -- The same picks for a spell with no real cooldown (kind.noCooldown).
-    showsPlain = { both = "show it, and its buff while it's up", cooldown = "show it", buff = "show its buff" },
+    showsPlain = { both = "show it, with its buff while it lasts", cooldown = "show it", buff = "show only its buff" },
     group = {
         combat = { on = "only show it in combat", off = "in or out of combat" },
         target = { on = "only when I have a target", off = "with or without a target" },
@@ -1543,9 +1697,23 @@ Grammar.ForKind = forKind
 function Grammar.MomentWords(moment, n, kind)
     if moment == nil then return WORDING.chooseMoment, ", " end
     local plain = type(kind) == "table" and kind.noCooldown and WORDING.momentsPlain[moment]
-    local phrase = plain or WORDING.moments[moment]
+    local totem = type(kind) == "table" and kind.totemTime and WORDING.momentsTotem[moment]
+    local phrase = totem or plain or WORDING.moments[moment]
     if not phrase then return tostring(moment), " " end
     return forKind(fill(phrase, n), kind), WORDING.noComma[moment] and " " or ", "
+end
+
+-- An action's word at a moment: "glow", or "glow until it's back" when a buff wears off.
+function Grammar.ActionWords(moment, action)
+    local at = WORDING.actionsAt[moment]
+    return at and at[action] or WORDING.actions[action] or tostring(action)
+end
+
+-- Every action's word at a moment, by action key.
+function Grammar.ActionNames(moment)
+    local out = {}
+    for a in pairs(WORDING.actions) do out[a] = Grammar.ActionWords(moment, a) end
+    return out
 end
 
 -- A condition's clause phrase ("my target is a boss"), n as in MomentWords.
@@ -1646,7 +1814,7 @@ local function actionWords(line)
         return out
     end
     if a == "sound" then return string.format("play \"%s\"", soundName(line.value)) end
-    return WORDING.actions[a] or tostring(a)
+    return Grammar.ActionWords(line.moment, a)
 end
 
 -- The fall-off lead as words: "(5 seconds before)".

@@ -165,7 +165,12 @@ SW.DEPARTURES = {
     low = "almost-ready color on a buff alone (CdmCard.lua:522-524)",
     ezGlow = "up glow EZ-CDM draws in the client's button (Effects.lua)",
     noCooldown = "cooling down and almost-ready rows on a spell with no real cooldown (AuraLinks.spells)",
+    noAura = "buff rows and What it shows on a spell the client's tables give no aura (AuraLinks.spells)",
+    endsGlow = "glow when it wears off, written as the card's missing glow (Grammar.Canonical)",
+    button = "castable rows on a spell button Daylight UI shows as a buff (the hidden note's fix shows it)",
 }
+local BUFF_ROWS = { "buffUp", "upGlow", "buffSound", "activeColor", "noDurationSwipe", "clipGlow", "clipGlowColor",
+                    "buffEndSound", "buffDown", "missingGlow", "inactiveFlash", "upGlowColor", "missingGlowColor" }
 
 local function cardRows(G, AB, id)
     local group = {}
@@ -230,6 +235,29 @@ local function exceptions(G, AB, id, on, kind)
     if on.low and not kind.cooldown then
         on.low, on.lowAt, on.lowColor = nil, nil, nil
         out[#out + 1] = SW.DEPARTURES.low
+    end
+    if kind.noAura then
+        local had = false
+        for _, key in ipairs(BUFF_ROWS) do
+            had = had or on[key] ~= nil
+            on[key] = nil
+        end
+        if not G.TakesShows(kind) and (on.track or on.ownTrack) then
+            on.track, on.ownTrack, had = nil, nil, true
+        end
+        -- A spell button Daylight UI shows as a buff: the card hides the castable rows
+        -- the grammar offers, with the note and its "Show it" fix.
+        if kind.button and kind.buttonHidden and not on.onUnusable then
+            on.buttonWords = { always = { "show" }, unusable = { "show", "fade", "hide" },
+                               short = { "show", "fade", "hide" }, usable = { "glow", "sound" } }
+            out[#out + 1] = SW.DEPARTURES.button
+        end
+        if had then out[#out + 1] = SW.DEPARTURES.noAura end
+        return out
+    end
+    if G.Fits(kind, "ends", "glow") then
+        on.endsGlow = { ends = { "glow" } }
+        out[#out + 1] = SW.DEPARTURES.endsGlow
     end
     if not on.buffDown or on.missingGlow then return out end
     local p = AB.CdmEditor.Set().pieces[id]
@@ -384,7 +412,7 @@ function SW.Cases(G, B, kind)
     end
     for _, e in ipairs(G.Extras(kind)) do
         if e == "shows" then
-            for _, x in ipairs(G.SHOWS) do add("shows " .. x, {}, { shows = x }) end
+            for _, x in ipairs(G.ShowsChoices(kind)) do add("shows " .. x, {}, { shows = x }) end
         elseif e == "style" and st[1] then
             add("style " .. st[1], {}, { style = st[1] })
         end
@@ -466,7 +494,8 @@ end
 local function expected(G, kind, rules)
     local out = {}
     for _, l in ipairs(rules.lines) do
-        if not G.IsDefault(l, kind) then out[#out + 1] = l end
+        -- An alias reads back as the line it writes (Grammar.Canonical).
+        if not G.IsDefault(l, kind) then out[#out + 1] = G.Canonical(l) end
     end
     return out
 end

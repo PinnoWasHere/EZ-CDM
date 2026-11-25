@@ -263,9 +263,14 @@ local function token(b, bit)
     if not t then
         if p.kind then
             t = newWidget(p.kind, b)
-            t:SetScript("OnClick", function(self)
+            t:SetScript("OnClick", function(self, button)
                 lift()
-                if self.piece and self.piece.onClick then self.piece.onClick(self) end
+                local piece = self.piece
+                if button == "RightButton" then
+                    if piece and piece.onClear then piece.onClear() end
+                    return
+                end
+                if piece and piece.onClick then piece.onClick(self) end
             end)
         else
             t = CreateFrame("Frame", nil, b)
@@ -303,6 +308,9 @@ local function words(s, pieces, opts)
         local t = token(b, bit)
         if p.kind then
             label(t, p.kind, p.text)
+            -- A chosen word that has a blank to go back to takes a right-click too.
+            if p.onClear then t:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+            else t:RegisterForClicks("LeftButtonUp") end
             if p.kind == "chip" then
                 t.SetOn(p.on == true)
             elseif p.kind == "link" then
@@ -1028,7 +1036,11 @@ local function word(text, id, def, chosen, color)
     end
     return { kind = chosen and "link" or "chip", text = text, id = id, color = color, word = def.kind,
         on = not chosen and slot ~= nil and slot.id == id,
-        onClick = function() Drawer.Choose(id, def) end }
+        onClick = function() Drawer.Choose(id, def) end,
+        onClear = chosen and def.clear and function()
+            slot = nil
+            def.clear()
+        end or nil }
 end
 
 -- The glow styles in the card's order and labels. piece puts "the spell's style"
@@ -1051,7 +1063,8 @@ local function numberWord(id, key, n, set, off)
     local C = ns.Conditions
     local now = C.NumberOf(key, n)
     return word(tostring(now), id, { kind = "number", keys = {}, values = {}, current = now,
-        range = C.Get(key).param, onPick = function(x) edit(function(r) set(r, x) end) end }, true, off)
+        range = C.Get(key).param, onPick = function(x) edit(function(r) set(r, x) end) end,
+        clear = function() edit(function(r) set(r, nil) end) end }, true, off)
 end
 
 local function sentence(s, kind, rules, i, line)
@@ -1077,7 +1090,8 @@ local function sentence(s, kind, rules, i, line)
                 if m == "recast" and l.at == nil then l.at = leadOf(r) end
                 if Grammar.RingOnly(kind, m) then l.style = nil end
             end)
-        end }
+        end,
+        clear = function() edit(function(r) retarget(r.lines[i], nil, r.lines[i].action) end) end }
     local nWord = mk and C.Get(mk).param and numberWord(id .. "n", mk, line.n,
         function(r, x) r.lines[i].n = x end, off)
     for _, p in ipairs(withNumber(phrase, nWord, function(text)
@@ -1094,7 +1108,8 @@ local function sentence(s, kind, rules, i, line)
                 edit(function(r)
                     if k == Drawer.DROP then dropClause(r.lines[i], j) else setClause(r.lines[i], j, k) end
                 end)
-            end }
+            end,
+            clear = function() edit(function(r) dropClause(r.lines[i], j) end) end }
         local c = C.Get(cl.cond)
         local w = c and c.param and numberWord(id .. "cn" .. j, cl.cond, cl.n,
             function(r, x) r.lines[i].clauses[j].n = x end, off)
@@ -1122,15 +1137,18 @@ local function sentence(s, kind, rules, i, line)
         pieces[#pieces + 1] = { text = " " .. before }
         pieces[#pieces + 1] = word(line.at and Grammar.Seconds(line.at) or WORDING.daylightTiming, id .. "lead", {
             kind = "seconds", keys = keys, values = values, current = line.at or "daylight",
-            onPick = function(n) edit(function(r) setLead(r, n ~= "daylight" and n or nil) end) end }, true, off)
+            onPick = function(n) edit(function(r) setLead(r, n ~= "daylight" and n or nil) end) end,
+            clear = line.at ~= nil and function() edit(function(r) setLead(r, nil) end) end or nil }, true, off)
         pieces[#pieces + 1] = { text = after }
     end
     pieces[#pieces + 1] = { text = joint }
-    pieces[#pieces + 1] = word(line.action and (line.action == "sound" and "play" or WORDING.actions[line.action])
+    pieces[#pieces + 1] = word(line.action and (line.action == "sound" and "play"
+        or Grammar.ActionWords(line.moment, line.action))
         or WORDING.chooseWhat, id .. "action", {
-        kind = "action", keys = line.moment and actions[line.moment] or any, values = WORDING.actions,
+        kind = "action", keys = line.moment and actions[line.moment] or any, values = Grammar.ActionNames(line.moment),
         current = line.action,
-        onPick = function(a) edit(function(r) retarget(r.lines[i], r.lines[i].moment, a) end) end },
+        onPick = function(a) edit(function(r) retarget(r.lines[i], r.lines[i].moment, a) end) end,
+        clear = function() edit(function(r) retarget(r.lines[i], r.lines[i].moment, nil) end) end },
         line.action ~= nil, off)
     if line.action == "sound" then
         local values, keys = sounds()
@@ -1149,7 +1167,8 @@ local function sentence(s, kind, rules, i, line)
             pieces[#pieces + 1] = word(line.style ~= nil and (values[line.style] or tostring(line.style))
                 or WORDING.pieceStyle, id .. "style", {
                 kind = "style", keys = keys, values = values, current = line.style or "piece",
-                onPick = function(k) edit(function(r) r.lines[i].style = k ~= "piece" and k or nil end) end },
+                onPick = function(k) edit(function(r) r.lines[i].style = k ~= "piece" and k or nil end) end,
+                clear = line.style ~= nil and function() edit(function(r) r.lines[i].style = nil end) end or nil },
                 true, off)
             if after ~= "" then pieces[#pieces + 1] = { text = after } end
         end
@@ -1168,7 +1187,9 @@ local function sentence(s, kind, rules, i, line)
                 Bridge.PickColor({ start[1], start[2], start[3], alpha and start[4] or nil }, function(c)
                     edit(function(r) r.lines[i].value = { c[1], c[2], c[3], alpha and c[4] or nil } end)
                 end, alpha)
-            end, writes = false }, true, off)
+            end, writes = false,
+            clear = line.value ~= nil and function() edit(function(r) r.lines[i].value = nil end) end or nil },
+            true, off)
     end
     if line.action == "numbers" then
         -- The numbers' color (nil = Daylight UI's own) and their seconds.
@@ -1277,12 +1298,12 @@ end
 -- always there, as the card's row is. A pick drops the lines that no longer fit,
 -- as the card clears Buff missing (CdmCard.lua:378-383).
 local function showsLine(s, kind, rules)
-    if not kind.trackRow then return end
+    if not Grammar.TakesShows(kind) then return end
     local now = rules.shows or kind.showing
     local values = {}
     for _, k in ipairs(Grammar.SHOWS) do values[k] = upper(Grammar.ShowsPhrase(k, kind)) end
     local b = words(s, {
-        word(values[now] or tostring(now), "shows", { kind = "shows", keys = Grammar.SHOWS, values = values,
+        word(values[now] or tostring(now), "shows", { kind = "shows", keys = Grammar.ShowsChoices(kind), values = values,
             current = now, onPick = function(v)
                 edit(function(r)
                     r.shows = v
@@ -1388,7 +1409,8 @@ local function groupLines(s, rules)
                         setGroup(r, k, false)
                         setGroup(r, x, true)
                     end)
-                end }, true),
+                end,
+                clear = function() edit(function(r) setGroup(r, k, false) end) end }, true),
             { text = "." },
         }, { onRemove = function() edit(function(r) setGroup(r, k, false) end) end })
         b.group = k
@@ -1419,6 +1441,13 @@ local function formLines(s, kind, rules)
                     edit(function(r)
                         for j, y in ipairs(r.forms) do
                             if y == k then r.forms[j] = x; break end
+                        end
+                    end)
+                end,
+                clear = function()
+                    edit(function(r)
+                        for j, y in ipairs(r.forms) do
+                            if y == k then table.remove(r.forms, j); break end
                         end
                     end)
                 end }, true),

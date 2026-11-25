@@ -66,6 +66,8 @@ local function emissions(G, B)
                 local why = m .. " " .. a
                 if e.look then
                     -- Look keys are checked on their own (lookEmissions).
+                elseif e.alias then
+                    -- It writes the line it stands for (Grammar.Canonical), listed there.
                 elseif e.all then
                     for _, f in ipairs(e.all) do add(f, e.value, why) end
                 elseif e.paint then
@@ -192,7 +194,9 @@ T.test("grammar: gray and color go with cooldown only, and sounds only where Day
     T.eq(G.MAP.blocked.gray.cond, "cantCast", "can't cast gray is EZ-CDM's condition")
     T.eq(G.MAP.unusable.gray.cond, "notUsable", "not usable gray too")
     T.eq(G.MAP.short.blue.cond, "noMana", "short blue too")
-    T.deq(G.MAP.ends, { sound = { field = "buffEndSound", sound = true } }, "ends only takes sound")
+    T.deq(G.MAP.ends, { sound = { field = "buffEndSound", sound = true },
+                        glow = { alias = { moment = "missing", action = "glow" } } },
+        "ends takes sound, and glow as the missing glow")
     T.eq(G.MAP.up.hide.field, "hideActive")
     T.eq(G.MAP.missing.show.field, "missing")
     T.eq(G.MAP.missing.hide.field, "hideMissing")
@@ -266,6 +270,11 @@ local CASES = {
     { L("almost", "numbers"), { look = { low = true } } },
     { L("almost", "numbers", COLOR), { look = { low = true, lowColor = COLOR } } },
     { { moment = "almost", action = "numbers", at = 5 }, { look = { low = true, lowAt = 5 } } },
+    -- A glow when it wears off is the glow while it's not active (Grammar.Canonical).
+    { L("ends", "glow"), { missingGlow = true } },
+    { L("ends", "glow", COLOR), { missingGlow = true, missingGlowColor = COLOR } },
+    { { moment = "chargesLeft", action = "glow", n = 2 }, { ["ez:chargesLeft:glow"] = { n = 2 } } },
+    { { moment = "chargesLeft", action = "sound", value = SOUND }, { ["ez:chargesLeft:sound"] = { value = SOUND } } },
 }
 
 -- Batch A's conditions (test_batch_a): each action is EZ-CDM's own field.
@@ -319,7 +328,7 @@ T.test("grammar compile: refused pairs come back as problems, not fields", funct
     local _, _, G = world()
     local refused = {
         L("ready", "gray"), L("ready", "color"), L("cooldown", "glow"), L("cooldown", "sound"),
-        L("usable", "hide"), L("usable", "show"), L("up", "fade"), L("ends", "show"), L("ends", "glow"),
+        L("usable", "hide"), L("usable", "show"), L("up", "fade"), L("ends", "show"), L("ends", "fade"),
         L("missing", "sound"), L("missing", "fade"), L("recast", "hide"), L("recast", "fade"),
         L("always", "hide"), L("always", "glow"), L("someday", "show"), L("ready", "dance"),
     }
@@ -532,7 +541,7 @@ T.test("grammar kind: a tracked buff takes the buff words and no cooldown words"
     T.eq(ns.Bridge.Tracked(k.buff), true, "the game's item tells its state")
     T.truthy(kind.buffOnly, "Battle Shout shows only its buff")
     T.isnil(kind.forms, "form rows are for cooldowns (CdmCard.lua:817)")
-    T.eq(wordsOf(G, kind), "up(show,hide,glow,sound,nosweep,tint) ends(sound) missing(show,hide,glow) recast(glow,sound)")
+    T.eq(wordsOf(G, kind), "up(show,hide,glow,sound,nosweep,tint) ends(glow,sound) missing(show,hide,glow) recast(glow,sound)")
     local f, p = G.Compile({ lines = { L("ready", "glow"), L("missing", "glow") }, forms = { "Battle" } }, kind)
     T.eq(codes(p), "line 1: kind, form Battle: kind")
     T.deq(f, withChain({ missingGlow = true }))
@@ -575,7 +584,7 @@ T.test("grammar kind: a weapon enchant has no recast", function()
     local kind = G.Kind(k.weapon)
     T.truthy(kind.custom)
     T.falsy(kind.cast, "no spell to time a recast by (CdmCard.lua:422-424)")
-    T.eq(wordsOf(G, kind), "up(show,hide,glow,sound,nosweep,tint) ends(sound) missing(show,hide,glow)")
+    T.eq(wordsOf(G, kind), "up(show,hide,glow,sound,nosweep,tint) ends(glow,sound) missing(show,hide,glow)")
     local _, p = G.Compile({ lines = { L("recast", "glow") } }, kind)
     T.eq(codes(p), "line 1: kind")
     noErrors()
@@ -624,7 +633,7 @@ T.test("grammar kind: a buff you never cast has no recast moment", function()
         local kind = G.Kind(storm)
         T.truthy(kind.showsBuff and kind.tracked, "a tracked buff")
         T.falsy(kind.cast, "never cast")
-        T.eq(wordsOf(G, kind), "up(show,hide,glow,sound,nosweep,tint) ends(sound) missing(show,hide,glow)", "no recast")
+        T.eq(wordsOf(G, kind), "up(show,hide,glow,sound,nosweep,tint) ends(glow,sound) missing(show,hide,glow)", "no recast")
         local _, p = G.Compile({ lines = { L("recast", "glow") } }, kind)
         T.eq(codes(p), "line 1: kind", "a recast glow doesn't fit")
     end)
@@ -823,8 +832,8 @@ T.test("grammar shows: What it shows in both vocabularies, as the card writes th
     T.truthy(G.Fits(after, "missing", "show"))
     T.falsy(G.Fits(after, "ready", "glow"))
     T.truthy(G.Kind(k.own, nil, "buff").buffOnly, "Daylight UI's own piece too")
-    T.eq(G.ShowsWords("both"), "Show its buff and its cooldown.")
-    T.eq(G.ShowsWords("buff"), "Show its buff.")
+    T.eq(G.ShowsWords("both"), "Show its buff, then its cooldown.")
+    T.eq(G.ShowsWords("buff"), "Show only its buff.")
     noErrors()
 end)
 
@@ -1117,6 +1126,8 @@ local EZGLOW = "up glow EZ-CDM draws in the client's button (Effects.lua)"
 -- The fifth departure. The card offers Glow to recast on any spell, but an aura the
 -- client's tables call untimed (AuraLinks.untimed: Ghost Wolf) never falls off.
 local UNTIMED = "recast glow on an aura that never falls off (CdmCard.lua:422-424)"
+-- The third departure: a glow when it wears off is the card's missing glow (Grammar.Canonical).
+local ENDS_GLOW = "glow when it wears off, written as the missing glow"
 local function exceptions(G, AB, id, on)
     local out = {}
     -- EZ-CDM's conditions (Conditions.lua) have no card row: every one that fits.
@@ -1146,6 +1157,10 @@ local function exceptions(G, AB, id, on)
     if on.low and not G.Kind(id).cooldown then
         on.low, on.lowAt, on.lowColor = nil, nil, nil
         out[#out + 1] = LOW
+    end
+    if G.Fits(G.Kind(id), "ends", "glow") then
+        on.endsGlow = { ends = { "glow" } }
+        out[#out + 1] = ENDS_GLOW
     end
     if not on.buffDown or on.missingGlow then return out end
     local p = AB.CdmEditor.Set().pieces[id]
@@ -1225,8 +1240,8 @@ T.test("grammar vs card: every step 3 kind offers exactly the card's words", fun
         local _, why = agrees(G, AB, k[name], name)
         seen[name] = table.concat(why, ", ")
     end
-    T.eq(seen.buff, LOW .. ", " .. DEPARTURE, "the departures on Buff only")
-    T.eq(seen.weapon, LOW .. ", " .. DEPARTURE, "a weapon enchant is Buff only too")
+    T.eq(seen.buff, LOW .. ", " .. ENDS_GLOW .. ", " .. DEPARTURE, "the departures on Buff only")
+    T.eq(seen.weapon, LOW .. ", " .. ENDS_GLOW .. ", " .. DEPARTURE, "a weapon enchant is Buff only too")
     T.eq(seen.icon .. seen.bar .. seen.own, "", "none elsewhere")
     noErrors()
 end)
@@ -1264,11 +1279,12 @@ T.test("grammar vs card: Improved Stormstrike drops the recast glow, the second 
     local _, _, G, AB, storm = procWorld()
     withSpellAnswers({ [STORMBUFF] = true }, {}, function()
         local _, why = agrees(G, AB, storm, "Improved Stormstrike")
-        T.eq(table.concat(why, ", "), RECAST .. ", " .. LOW .. ", " .. DEPARTURE, "the departures, named")
+        T.eq(table.concat(why, ", "), RECAST .. ", " .. LOW .. ", " .. ENDS_GLOW .. ", " .. DEPARTURE,
+            "the departures, named")
     end)
     withSpellAnswers(nil, nil, function()
         local _, why = agrees(G, AB, storm, "Improved Stormstrike, the game silent")
-        T.eq(table.concat(why, ", "), LOW .. ", " .. DEPARTURE, "no recast departure while the game won't say")
+        T.eq(table.concat(why, ", "), LOW .. ", " .. ENDS_GLOW .. ", " .. DEPARTURE, "no recast departure while the game won't say")
     end)
     noErrors()
 end)
@@ -1574,7 +1590,7 @@ T.test("grammar vs card: an enchanted weapon learns a length and still offers no
     T.falsy(kind.proc)
     T.falsy(G.Fits(kind, "recast", "glow"))
     local _, why = agrees(G, AB, k.weapon, "enchanted weapon")
-    T.eq(table.concat(why, ", "), LOW .. ", " .. DEPARTURE, "the same departures as with no enchant")
+    T.eq(table.concat(why, ", "), LOW .. ", " .. ENDS_GLOW .. ", " .. DEPARTURE, "the same departures as with no enchant")
     -- Were it drawn in the client's buttons, it still has no spell, so it is no proc.
     local drawn = ns.Effects.Drawn
     ns.Effects.Drawn = function() return true end

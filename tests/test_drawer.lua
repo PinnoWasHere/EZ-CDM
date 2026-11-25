@@ -1082,7 +1082,7 @@ T.test("drawer shows: What it shows reads the card's pick, and a pick writes it 
     T.eq(table.concat(log, ","), "track", "only the pick")
     T.eq(cardReads(AB, "track"), "both", "Daylight UI's card reads it back")
     -- Thunder Clap's aura is a debuff on its targets (AuraLinks.spells).
-    T.eq(select(2, showsWord(Drawer)).said, "Show its debuff and its cooldown.")
+    T.eq(select(2, showsWord(Drawer)).said, "Show its debuff, then its cooldown.")
     -- Buff only drops the lines a buff doesn't take, as the card clears them.
     pick(Drawer, "buff")
     T.eq(pieceOf(k.clap).track, "buff")
@@ -2198,5 +2198,35 @@ T.test("drawer strip stays: a sound chip previews and the strip stays for the ne
     T.eq(pieceOf(k.clap).readySound, second)
     T.truthy(strip(Drawer).chip[second].on and not strip(Drawer).chip[first].on)
     DUI.Sound.Alert = keep
+    noErrors()
+end)
+
+-- A right-click on a chosen word puts it back to its blank (docs/tasks/w1-batch-a-fixes.md 6).
+T.test("drawer right-click: a chosen word goes back to its blank chip; a blank stays", function()
+    local DUI, _, Drawer, _, k, _, Ed = editorWorld()
+    Ed.Select(k.clap)
+    local moment = wordOf(Drawer, 1, "moment")
+    T.truthy(moment.__clicks and table.concat(moment.__clicks, " "):find("RightButtonUp", 1, true),
+        "a chosen word takes right-clicks")
+    local clicks = 0
+    local keep = DUI.Sound.Play
+    DUI.Sound.Play = function(name, ...) if name == "click" then clicks = clicks + 1 end return keep(name, ...) end
+    moment:Click("RightButton")
+    DUI.Sound.Play = keep
+    T.eq(clicks, 1, "Daylight UI's link plays its own click")
+    T.isnil(pieceOf(k.clap).readyGlow, "the glow line no longer writes")
+    T.truthy(said(Drawer):find("choose a moment, glow", 1, true), "the moment is a blank again: " .. said(Drawer))
+    local blank
+    for i = 1, #sentences(Drawer) do
+        local w = wordOf(Drawer, i, "moment")
+        if w and w.SetOn then blank = w end
+    end
+    T.truthy(blank, "a blank chip")
+    T.falsy(blank.__clicks and table.concat(blank.__clicks, " "):find("RightButtonUp", 1, true),
+        "a blank has nothing to clear")
+    -- The action word: the line keeps its moment.
+    wordOf(Drawer, 1, "action"):Click("RightButton")
+    T.truthy(said(Drawer):find("choose what happens", 1, true), "the action is a blank again: " .. said(Drawer))
+    T.isnil(Drawer.Slot(), "a right-click opens no strip")
     noErrors()
 end)

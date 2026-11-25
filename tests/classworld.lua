@@ -340,6 +340,7 @@ W.EVENT_DRIVERS = {
     UPDATE_SHAPESHIFT_FORMS = function(w) w.Form(nil) end,
     UPDATE_STEALTH = function(w) w.Form(nil) end,
     PLAYER_TOTEM_UPDATE = function(w) w.Totem(1, nil) end,
+    UNIT_AURA = function(w) w.BuffUp(w.c.rows[1].spell, { unit = "player" }) end,
     WEAPON_ENCHANT_CHANGED = function(w) w.Enchant({}) end,
     PLAYER_EQUIPMENT_CHANGED = function(w) w.Enchant({}) end,
     UNIT_INVENTORY_CHANGED = function(w) w.Enchant({}) end,
@@ -422,7 +423,7 @@ function W.Build(class, opts)
         o = o or {}
         local r = w.Row(id)
         local unit = o.unit or ((r and r.aura and not r.selfAura) and "target" or "player")
-        CW.Aura(unit, id, { harmful = unit == "target", duration = o.duration or 12 })
+        CW.Aura(unit, id, { harmful = unit == "target", duration = o.duration or 12, applications = o.applications })
         run()
         assign(id, true)
     end

@@ -356,12 +356,17 @@ function Bridge.IsGroup(key) return call("ActionBars.CdmCustom.IsGroup", key) ==
 -- (CdmOwn.HasCooldown), and either on none of its class lists, which hold every
 -- class spell with a cooldown or a duration (an added spell's family says onYou),
 -- or one its spell data says only hits. Never an item, weapon, totem, pet or group.
-function Bridge.SpellButton(key)
+-- known(), when given, answers first for a spell it knows (the client's own tables,
+-- Grammar.Kind): true or false, nil to leave it to Daylight UI's facts.
+function Bridge.SpellButton(key, known)
     if not Bridge.IsCustom(key) or Bridge.IsTotem(key) then return false end
     local f = call("ActionBars.CdmCustom.Family", key)
     if type(f) ~= "table" or f.item or f.weapon or f.group or f.pet or f.element or f.merged then return false end
     local sid = call("ActionBars.CdmCustom.Learned", key)
-    if type(sid) ~= "number" or call("ActionBars.CdmOwn.HasCooldown", sid) then return false end
+    if type(sid) ~= "number" then return false end
+    local said = type(known) == "function" and known() or nil
+    if said ~= nil then return said end
+    if call("ActionBars.CdmOwn.HasCooldown", sid) then return false end
     local fact = call("ActionBars.CdmCustom.Fact", sid)
     if type(fact) == "table" then return fact.noaura == true and fact.on == nil end
     return f.onYou == true
