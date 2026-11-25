@@ -5,8 +5,7 @@ local W = require("classworld")
 -- Wave 1 fixes, second round (docs/tasks/w1-fixes-2.md):
 --   1 words come from the client's spell data: no cooldown words for a spell with
 --     no real cooldown, debuff words for an aura on an enemy
---   2 a can't cast gray on top of Daylight UI's own gray: the drawer says so and
---     offers "keep its color while it cools down"
+-- The second round's gray note is gone: EZ-CDM owns the gray (test_grayowned).
 
 local LHW, SHIELD, FLAME = 8004, 324, 8050
 
@@ -141,88 +140,5 @@ T.test("fix 1: the drawer shows Flame Shock's words as a debuff", function()
     local all = table.concat(said, " | ")
     T.truthy(all:find("debuff", 1, true), all)
     T.falsy(saysBuff(all), all)
-    noErrors()
-end)
-
--- ---------------------------------------------------------------------
--- 2. Daylight UI's own gray under EZ-CDM's
--- ---------------------------------------------------------------------
-
--- The game's own item draws Flame Shock. With its debuff on the target and the
--- spell cooling down, the game keeps the icon gray (CooldownViewer.lua: it clears
--- the cooldown's gray only for an aura on you), while EZ-CDM's wash stays off
--- (its line is about the cooldown icon). Once the debuff is gone the wash lights
--- on top of the same gray: the darker gray the owner saw.
-local function iconGray(key)
-    local item = CW.Item(key)
-    local on
-    CW.Run(function() on = item:GetIconTexture():IsDesaturated() end)
-    return on
-end
-
-T.test("fix 2: with its debuff up and cooling down, the gray is the game's, not EZ-CDM's", function()
-    local w, key = shaman(FLAME)
-    local ns = w.ns
-    T.truthy(ns.Draft.Write(key, { lines = { line("blocked", "gray") }, shows = "both" }))
-    w.Pass()
-    w.Usable(true, false)
-    w.EnterCombat()
-    local sp = ns.Bridge.SpellOf(key)
-    w.Cast(sp)
-    w.Cooldown(sp, 6); w.Cooldown(FLAME, 6)
-    w.BuffUp(FLAME, { unit = "target", duration = 12 })
-    T.eq(iconGray(key), true, "the game's gray while the debuff shows")
-    local v = ns.Conditions.Visible(key, "cantCast:gray")
-    T.falsy(v.lit, "EZ-CDM's wash is off")
-    T.eq(v.covered, true)
-    w.Ready(sp); w.Ready(FLAME)
-    T.eq(iconGray(key), false, "full color once the cooldown ends")
-    w.BuffDown(FLAME)
-    w.Cooldown(sp, 6); w.Cooldown(FLAME, 6)
-    T.eq(iconGray(key), true, "the game's gray")
-    T.truthy(ns.Conditions.Visible(key, "cantCast:gray").lit, "and EZ-CDM's wash on top")
-    noErrors()
-end)
-
-T.test("fix 2: the drawer notes Daylight's own gray and its fix keeps the color", function()
-    local w, key = shaman(FLAME)
-    local ns, G = w.ns, w.ns.Grammar
-    T.truthy(ns.Draft.Write(key, { lines = { line("blocked", "gray") }, shows = "both" }))
-    w.Pass()
-    local kind = G.Kind(key)
-    T.eq(kind.desat, "game")
-    local note = G.GrayNote(kind, { line("blocked", "gray") })
-    T.eq(note and note.code, "gray")
-    T.eq(note.text, G.WORDING.grayDebuff)
-    T.isnil(G.GrayNote(kind, { line("blocked", "gray"), line("cooldown", "color") }), "kept in color: no note")
-    T.isnil(G.GrayNote(kind, { line("blocked", "glow") }), "no gray line: no note")
-    T.truthy(w.AB.CdmEditor.Open())
-    stub.RunTimers()
-    w.AB.CdmEditor.Select(key)
-    stub.RunTimers()
-    local block
-    for _, b in ipairs(ns.Drawer.Parts().bodyStack.pieces) do
-        if b:IsShown() and b.gray then block = b end
-    end
-    T.truthy(block, "the note under the line")
-    local link
-    for _, t in ipairs(block.tokens or {}) do
-        if t.piece and t.piece.kind == "add" then link = t end
-    end
-    link:Click()
-    stub.RunTimers()
-    local p = w.AB.CdmData.Get(1).pieces[key]
-    T.eq(p.desat, "color", "Gray out: Stay colored")
-    -- With the debuff up and the spell cooling down, the icon now keeps its color.
-    w.Usable(true, false)
-    w.EnterCombat()
-    local sp = ns.Bridge.SpellOf(key)
-    w.Cast(sp)
-    w.Cooldown(sp, 6); w.Cooldown(FLAME, 6)
-    w.BuffUp(FLAME, { unit = "target", duration = 12 })
-    T.eq(iconGray(key), false, "no gray while the debuff shows")
-    w.BuffDown(FLAME)
-    T.truthy(ns.Conditions.Visible(key, "cantCast:gray").lit, "EZ-CDM's gray alone once it's gone")
-    T.eq(iconGray(key), false, "and no game gray under it")
     noErrors()
 end)

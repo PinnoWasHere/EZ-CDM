@@ -329,7 +329,7 @@ local function words(s, pieces, opts)
     b.line, b.group, b.form, b.note, b.notice, b.refusal, b.adds, b.fade, b.shared, b.choices, b.hint, b.default,
         b.groupHead, b.shows, b.style, b.ezGlow, b.ezReload = nil, nil, nil, nil, nil, nil, nil, nil, nil,
         nil, nil, nil, nil, nil, nil, nil, nil
-    b.ezRingOther, b.fallOff, b.copy, b.hidden, b.never = nil, nil, nil, nil, nil
+    b.ezRingOther, b.fallOff, b.copy, b.hidden, b.never, b.grayOwned = nil, nil, nil, nil, nil, nil
     b.onRemove = opts.onRemove
     b.remove:SetShown(opts.onRemove ~= nil)
     return b
@@ -1535,17 +1535,13 @@ local function spellBody(s, key)
     local kind = Grammar.Kind(key)
     local rules, first, last = current()
     showsLine(s, kind, rules)
-    local fallOffNoted, buttonNoted, grayNoted = false, false, false
-    local gray = Grammar.GrayNote(kind, rules.lines)
+    local fallOffNoted, buttonNoted = false, false
     for i, line in ipairs(rules.lines) do
         sentence(s, kind, rules, i, line)
-        -- Daylight UI's own gray under the first can't cast gray line, and its fix.
-        if gray and not grayNoted and line.action == "gray" and Grammar.LineCondition(line) == "cantCast" then
-            grayNoted = true
-            words(s, { { text = gray.text, size = "small", color = "LABEL" }, { text = " ", size = "small" },
-                { kind = "add", text = Grammar.FixText("color", kind), onClick = function()
-                    edit(function(r) r.lines[#r.lines + 1] = { moment = "cooldown", action = "color" } end)
-                end } }).gray = i
+        -- Daylight UI's own Gray out line while EZ-CDM owns the gray (Gray.lua).
+        local owned = Grammar.GrayOwnedNote(line, rules.lines)
+        if owned then
+            words(s, { { text = owned, size = "small", color = "LABEL" } }).grayOwned = i
         end
         -- A line its piece can't show, why, and the fixes. A spell button's note shows once.
         local hidden = Grammar.HiddenNote(kind, line)

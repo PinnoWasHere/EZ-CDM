@@ -2,10 +2,11 @@ local stub = require("stub")   -- T (test helpers) is a global set by tests/run.
 local CW = require("cdmworld")
 
 -- EZ-CDM/Conditions.lua and Overlay.lua: the condition registry's castable washes,
--- "When it's not usable, turn it gray" (notUsable) and "When I don't have enough
--- rage, tint it blue" (noMana), drawn by the wash effect on Daylight UI's API.Attach
--- holder of a piece, driven by Daylight UI's plain state (API.CooldownState usable,
--- noPower). A warrior's Thunder Clap, drawn by the game's own cooldown icon.
+-- "When it's not usable, turn it gray" (notUsable, a desaturated copy of the icon)
+-- and "When I don't have enough rage, tint it blue" (noMana), drawn by the wash
+-- effect on Daylight UI's API.Attach holder of a piece, driven by Daylight UI's
+-- plain state (API.CooldownState usable, noPower). A warrior's Thunder Clap, drawn
+-- by the game's own cooldown icon.
 
 local SHOUT, REND, CLAP = 6673, 772, 6343
 local ESSENTIAL = 0
@@ -57,10 +58,16 @@ local function world(lines)
     return DUI, ns, AB, key
 end
 
--- The wash's alpha now, or 0 when it has none.
+-- The wash's alpha now, or 0 when it has none. The gray is the copy's frame.
 local function alphaOf(ns, key, which)
-    local w = ns.Overlay.Washes(key)
-    local t = w and w[which]
+    local t
+    if which == "gray" then
+        local c = ns.Overlay.Copy(key, "gray")
+        t = c and c.frame
+    else
+        local w = ns.Overlay.Washes(key)
+        t = w and w[which]
+    end
     if not t or not t:IsShown() then return 0 end
     return t:GetAlpha()
 end
@@ -84,25 +91,35 @@ T.test("conditions: the .toc loads the registry, then its effects, before Gramma
     T.truthy(at["Overlay.lua"] < at["Grammar.lua"] and at["Grammar.lua"] < at["Draft.lua"], "before Grammar and Draft")
 end)
 
-T.test("overlay gray: not usable washes the icon gray, castable again takes it off", function()
+T.test("overlay gray: not usable grays the icon, castable again takes it off", function()
     local DUI, ns, _, key = world({ L("unusable", "gray") })
     T.isnil(lit(ns, key), "castable: no wash")
     usable(false, false)
     gameSaysUsable()
-    T.eq(lit(ns, key), "unusable", "not usable: the gray wash")
-    local alpha = ns.Bridge.WashAlpha()
-    T.eq(alpha, 0.45, "Daylight UI's wash strength (Skin.FLASH_ALPHA)")
-    T.near(alphaOf(ns, key, "gray"), alpha, 1e-6, "at the wash strength")
+    T.eq(lit(ns, key), "unusable", "not usable: the gray")
+    T.eq(alphaOf(ns, key, "gray"), 1, "the copy at full strength")
     T.eq(alphaOf(ns, key, "blue"), 0, "no blue")
-    local gray = ns.Overlay.Washes(key).gray
-    T.rgb(gray.__color, DUI.API.Colors().OFF, "Daylight UI's OFF")
+    local gray = ns.Overlay.Copy(key, "gray")
+    T.eq(gray.tex:IsDesaturated(), true, "a desaturated copy of the icon")
+    T.isnil(ns.Overlay.Washes(key), "no tint")
     local frame = ns.Conditions.FrameOf(key)
     T.truthy(frame, "the piece's frame, from Daylight UI's frame events")
-    T.eq(gray:GetParent(), DUI.API.Attach(frame), "drawn on the piece's API.Attach holder")
+    T.eq(gray.frame:GetParent(), DUI.API.Attach(frame), "drawn on the piece's API.Attach holder")
     usable(true, false)
     gameSaysUsable()
     T.isnil(lit(ns, key), "castable again")
-    T.eq(alphaOf(ns, key, "gray"), 0, "faded out")
+    T.eq(alphaOf(ns, key, "gray"), 0, "gone")
+    noErrors()
+end)
+
+T.test("overlay blue: the tint sits at Daylight UI's wash strength", function()
+    local DUI, ns, _, key = world({ L("short", "blue") })
+    usable(false, true)
+    gameSaysUsable()
+    local alpha = ns.Bridge.WashAlpha()
+    T.eq(alpha, 0.45, "Daylight UI's wash strength (Skin.FLASH_ALPHA)")
+    T.near(alphaOf(ns, key, "blue"), alpha, 1e-6, "at the wash strength")
+    T.eq(ns.Overlay.Washes(key).blue:GetParent(), DUI.API.Attach(ns.Conditions.FrameOf(key)))
     noErrors()
 end)
 
@@ -202,11 +219,14 @@ T.test("conditions rule: lives in EZCDMDB by profile and piece, never in Dayligh
     T.isnil(p["ez:noMana:blue"], "never in Daylight UI's layout")
     local kinds = {}
     for _, c in ipairs(report.changed) do kinds[#kinds + 1] = c.kind .. ":" .. c.field end
-    T.eq(table.concat(kinds, " "), "ez:conditions")
+    T.eq(table.concat(kinds, " "), "set:desat ez:grayOwned ez:conditions",
+        "a gray line owns the gray: Gray out Stay colored, the player's own kept")
+    T.eq(p.desat, "color")
     T.deq(Draft.Rules(key).lines, { L("unusable", "gray"), L("short", "blue") }, "reads back")
     T.eq(select(2, Draft.Write(key, Draft.Rules(key))).changes, 0, "a second write writes nothing")
     T.truthy(Draft.Write(key, { lines = { L("short", "blue") } }))
     T.deq(EZCDMDB.conditions[profile][key], { noMana = { blue = true } })
+    T.isnil(AB.CdmData.Get(1).pieces[key].desat, "Gray out back at Default with the gray line gone")
     T.truthy(Draft.Write(key, { lines = {} }))
     T.isnil(EZCDMDB.conditions[profile], "nothing left for the profile")
     noErrors()
@@ -312,7 +332,7 @@ end)
 T.test("conditions registry: a bad or taken condition is refused; a new one is one Register call", function()
     local _, ns, _, key = world()
     local C, G = ns.Conditions, ns.Grammar
-    local base = { moment = "ready", actions = { gray = { effect = "wash", opts = { id = "gray", color = "OFF" } } },
+    local base = { moment = "ready", actions = { gray = { effect = "wash", opts = { id = "gray", look = "desat" } } },
         fits = function() return true end, read = function() return true end,
         events = { daylight = { "changed" } }, secrecy = "plain", layer = "any" }
     local function with(t)
@@ -340,7 +360,7 @@ T.test("conditions: an outOfCombat condition reads unknown in a fight; a unit ev
     local _, ns, _, key = world()
     local C = ns.Conditions
     T.truthy(C.Register({ key = "calm", moment = "ready", layer = "any", secrecy = "outOfCombat",
-        actions = { gray = { effect = "wash", opts = { id = "gray", color = "OFF" } } },
+        actions = { gray = { effect = "wash", opts = { id = "gray", look = "desat" } } },
         fits = function() return true end, read = function() return true end,
         events = { game = { { "UNIT_POWER_FREQUENT", "player" } } } }))
     T.truthy(ns.Draft.Write(key, { lines = { L("ready", "gray") } }))

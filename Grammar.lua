@@ -412,7 +412,6 @@ end
 --                    shows as one): no almost or cooling down words but the sweep's
 --   aura             "debuff" or "buff", the aura its words name: the client's
 --                    tables, else a harmful spell's debuff, else a buff
---   desat            Daylight UI's Gray out (its desat key)
 -- Form rows show for cooldowns of a class with forms (CdmCard.lua:817).
 -- Totems take no case of their own. Bridge.Shows (CdmOwn.Track) says "totem" for a
 -- totem with no buff and "both" for a Shaman element piece (CdmOwn.lua:108-130), and
@@ -480,7 +479,6 @@ function Grammar.Kind(key, piece, shows)
         untimed = untimed(key),
         buffEvents = Effects.Covered(key),
         noCooldown = realCooldown(key) == false and not Bridge.IsTotem(key) or nil,
-        desat = Bridge.Option(piece, "desat"),
     }
     kind.aura = auraOf(key) or (kind.harmful == true and "debuff") or "buff"
     -- A proc is your own: a buff with a spell (a weapon enchant has none, so the card
@@ -712,25 +710,20 @@ function Grammar.HiddenNote(kind, line)
     return { code = "buff", text = Grammar.ForKind(W.hiddenByBuff, kind), fixes = fixes }
 end
 
--- A note on a piece whose gray line stacks on Daylight UI's own gray: { code, text,
--- fixes }, or nil. Gray out at Default is the game's gray while the spell cools down,
--- and on a debuff it stays on through the debuff's time (the game clears it only for
--- an aura on you). Gray grays it on any cooldown. A "keep its color" line ends it.
--- Only for a can't cast gray, which is also true while the spell cools down.
-function Grammar.GrayNote(kind, lines)
-    if type(kind) ~= "table" or not kind.cooldown or kind.noCooldown or kind.shape ~= "icon" then return nil end
-    if kind.desat ~= "game" and kind.desat ~= "grey" then return nil end
-    local gray
-    for _, line in ipairs(type(lines) == "table" and lines or {}) do
-        if type(line) == "table" then
-            if line.moment == "cooldown" and line.action == "color" then return nil end
-            if line.action == "gray" and Grammar.LineCondition(line) == "cantCast" then gray = true end
+-- The note under Daylight UI's own Gray out line ("While it's cooling down, turn it
+-- gray" or "keep its color") while an EZ-CDM gray line owns the piece's gray
+-- (Gray.lua), or nil.
+function Grammar.GrayOwnedNote(line, lines)
+    if type(line) ~= "table" or line.moment ~= "cooldown" then return nil end
+    if line.action ~= "gray" and line.action ~= "color" then return nil end
+    for _, l in ipairs(type(lines) == "table" and lines or {}) do
+        local ck = type(l) == "table" and Grammar.LineCondition(l)
+        if ck and Conditions.Grays(ck, l.action) then
+            local W = Grammar.WORDING
+            return line.action == "gray" and W.grayOwned or W.colorOwned
         end
     end
-    if not gray then return nil end
-    local debuff = kind.desat == "game" and kind.shows == "both" and kind.aura == "debuff"
-    local W = Grammar.WORDING
-    return { code = "gray", text = debuff and W.grayDebuff or W.grayStacks, fixes = { "color" } }
+    return nil
 end
 
 -- ---------------------------------------------------------------------
@@ -1314,12 +1307,9 @@ Grammar.WORDING = {
     fixShows = "Show its cooldown",
     fixShowsPlain = "Show it",
     fixClause = "Add \"and its buff isn't active\"",
-    -- Under a gray line while Daylight UI's own Gray out grays the icon as it cools
-    -- down (Default or Gray), and its fix: a "keep its color" line.
-    -- grayDebuff: the game's own gray stays on through a debuff's time.
-    grayStacks = "Daylight grays it too while it cools down, so the two grays stack.",
-    grayDebuff = "Daylight grays it too while it cools down, even while its debuff shows, so the grays stack.",
-    fixColor = "Keep its color while it cools down",
+    -- Under Daylight UI's own Gray out line while an EZ-CDM gray line owns the gray.
+    grayOwned = "EZ-CDM draws this gray, along with its own gray lines.",
+    colorOwned = "EZ-CDM's gray lines decide when it turns gray.",
     andWord = "and",
     -- The "and …" blank, a clause's strip chip that takes it out, and the strip's
     -- chip for advanced words (Settings "more").
@@ -1540,13 +1530,12 @@ function Grammar.NeverWords(a, b, kind)
     return WORDING.neverBoth:format(fill(why))
 end
 
--- A one-click fix's words (Grammar.HiddenNote, Grammar.GrayNote) for a piece.
+-- A one-click fix's words (Grammar.HiddenNote) for a piece.
 function Grammar.FixText(fix, kind)
     if fix == "shows" then
         return type(kind) == "table" and kind.noCooldown and WORDING.fixShowsPlain or WORDING.fixShows
     end
     if fix == "clause" then return forKind(WORDING.fixClause, kind) end
-    if fix == "color" then return WORDING.fixColor end
     return tostring(fix)
 end
 

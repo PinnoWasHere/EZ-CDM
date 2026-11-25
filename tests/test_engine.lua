@@ -20,7 +20,7 @@ local function pass(AB) AB.CdmData.Changed(); AB.CdmRows.Refresh(); stub.RunTime
 local state
 
 -- A fresh actions table per condition: Register adds a sound to a plain one's.
-local function wash() return { gray = { effect = "wash", opts = { id = "gray", color = "OFF" } } } end
+local function wash() return { gray = { effect = "wash", opts = { id = "gray", look = "desat" } } } end
 
 -- Five test conditions:
 --   boss    plain, "my target is a boss" (PLAYER_TARGET_CHANGED)
@@ -290,6 +290,7 @@ T.test("engine driver: a client part draws on a layer whose alpha the client set
     T.eq(stub.Plain(layer:GetAlpha()), 1)
     local wash = ns.Overlay.Washes(key) or {}
     T.isnil(wash.gray, "nothing on the holder itself")
+    T.isnil(ns.Overlay.Copy(key, "gray"), "no gray copy on the holder itself: it rides the layer")
     T.eq(lit(ns, key), "boss:gray", "the plain part is lit")
     state.low = false; fire("UNIT_HEALTH", "target")
     T.eq(stub.Plain(layer:GetAlpha()), 0, "the client hides it")

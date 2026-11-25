@@ -22,7 +22,7 @@ local function build()
     w.Pass()
     local C = w.ns.Conditions
     local any = function() return true end
-    local function wash() return { gray = { effect = "wash", opts = { id = "gray", color = "OFF" } } } end
+    local function wash() return { gray = { effect = "wash", opts = { id = "gray", look = "desat" } } } end
     assert(C.Register({ key = "boss", moment = "boss", layer = "any", excludes = {}, secrecy = "plain", actions = wash(), fits = any,
         read = function() return UnitIsBossMob("target") end, events = { game = { "PLAYER_TARGET_CHANGED" } },
         words = { moment = "When my target is a boss", clause = "my target is a boss" } }))

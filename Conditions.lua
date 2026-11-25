@@ -175,6 +175,13 @@ function Conditions.ClientSafe(key, action)
     return e ~= nil and e.client == true
 end
 
+-- Whether a condition's action is a gray: the wash's desaturated copy (Overlay.lua).
+function Conditions.Grays(key, action)
+    local c = byKey[key]
+    local act = c and c.actions[action]
+    return act ~= nil and act.effect == "wash" and type(act.opts) == "table" and act.opts.look == "desat"
+end
+
 -- Whether two conditions can never be true at once: either names the other in its
 -- excludes, or one is about the cooldown icon and the other the buff icon.
 function Conditions.Excludes(a, b)
@@ -475,10 +482,10 @@ local function effectOf(slot) return slot:match("^[^|]+") end
 -- Key as a string -> the piece's own glow style (Daylight UI's glowStyle).
 local styleOf = {}
 
--- What an effect draws for a line: the action's opts with the line's sound or color,
--- number and glow style (the piece's own when it has none).
+-- What an effect draws for a line: the action's opts with the piece's key, the
+-- line's sound or color, number and glow style (the piece's own when it has none).
 local function optsFor(act, spec, k)
-    local out = {}
+    local out = { key = k }
     for f, v in pairs(act.opts or {}) do out[f] = v end
     if type(spec) == "table" then out.value, out.n, out.style = spec.value, spec.n, spec.style end
     if act.effect == "glow" and out.style == nil and k then out.style = styleOf[k] end
@@ -685,6 +692,7 @@ local function readPieces()
 end
 
 local function sync()
+    if ns.Gray then ns.Gray.Reconcile() end
     local profile = Bridge.ProfileOf()
     local saved = profile ~= nil and store()[profile]
     both, styleOf = readPieces()
@@ -692,6 +700,7 @@ local function sync()
     local ticks = false
     for key, v in pairs(type(saved) == "table" and saved or {}) do
         local r = clean(v)
+        if r and ns.Gray and ns.Gray.Cooling(key) then r[Conditions.COOLING] = { gray = true } end
         if r then
             local k = tostring(key)
             now[k] = r
@@ -834,10 +843,12 @@ function Conditions.Lines(key)
     return out
 end
 
--- Whether a line's effect can be seen on a piece now: { lit, shown, alpha, covered }.
--- lit: the driver lights it. shown: the piece's frame and what the effect drew are
--- on show. alpha: what the effect drew, Conditions.SECRET while the client keeps it.
--- covered: the icon its condition is about doesn't show now (Conditions.LineLayer).
+-- Whether a line's effect can be seen on a piece now: { lit, shown, alpha, covered,
+-- gray }. lit: the driver lights it. shown: the piece's frame and what the effect
+-- drew are on show. alpha: what the effect drew, Conditions.SECRET while the client
+-- keeps it. covered: the icon its condition is about doesn't show now
+-- (Conditions.LineLayer). gray: what a gray line's copy shows, out of a fight
+-- (Overlay's check: copy, same, game).
 function Conditions.Visible(key, id)
     local k = tostring(key)
     local out = { lit = false, shown = false, alpha = 0, covered = false }
@@ -853,9 +864,12 @@ function Conditions.Visible(key, id)
     local c = byKey[ck]
     local act = c and c.actions[a]
     local e = act and effects[act.effect]
+    local holder = frame and API.Attach(frame)
+    local target = holder and layers[holder] and layers[holder][id]
+    if holder and e and e.check and not InCombatLockdown() then
+        out.gray = e.check(target or holder, optsFor(act, spec, k))
+    end
     if not (out.lit and frame and frame:IsVisible() and e) then return out end
-    local holder = API.Attach(frame)
-    local target = layers[holder] and layers[holder][id]
     local drawn = target or holder
     if e.shown then
         local obj = e.shown(drawn, optsFor(act, spec, k))
@@ -912,7 +926,7 @@ end
 -- A piece the castable words read: a cooldown, or a spell button (Grammar.Kind).
 local function castable(kind) return kind.cooldown == true or kind.button == true end
 
-local WASH_GRAY = { effect = "wash", opts = { id = "gray", color = "OFF" } }
+local WASH_GRAY = { effect = "wash", opts = { id = "gray", look = "desat" } }
 local GLOW = { effect = "glow" }
 
 -- Can't be cast now, for any reason: on cooldown, short of power, or not usable.
@@ -980,6 +994,25 @@ Conditions.Register({
     secrecy = "plain", layer = "any", excludes = {},
     words = { moment = "While its buff isn't active", clause = "its buff isn't active" },
 })
+
+-- Daylight UI's own "While it's cooling down, turn it gray" (Gray out at Gray), drawn
+-- by EZ-CDM while it owns the piece's gray (Gray.lua). Never registered, so it is
+-- never offered or saved: the driver adds its line to a piece whose kept Gray out
+-- is Gray (Gray.Cooling). It reads a real cooldown, never the global one, as
+-- Daylight UI's Gray does (CdmEffects.lua wantGrey).
+Conditions.COOLING = "daylightCooling"
+byKey[Conditions.COOLING] = {
+    key = Conditions.COOLING, moment = "cooldown", order = 0, priority = 0,
+    actions = { gray = WASH_GRAY },
+    fits = castable,
+    read = function(k)
+        local _, _, onCooldown = Bridge.UsableState(k)
+        return onCooldown
+    end,
+    detail = usableDetail,
+    events = { game = { "SPELL_UPDATE_COOLDOWN" }, daylight = { "changed", "ready", "started" } },
+    secrecy = "plain", layer = "cooldown", excludes = {},
+}
 
 -- ---------------------------------------------------------------------
 -- Wiring

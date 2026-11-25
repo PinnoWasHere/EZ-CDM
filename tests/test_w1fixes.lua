@@ -30,7 +30,7 @@ end
 
 local state
 
-local function wash() return { gray = { effect = "wash", opts = { id = "gray", color = "OFF" } } } end
+local function wash() return { gray = { effect = "wash", opts = { id = "gray", look = "desat" } } } end
 
 -- Test conditions:
 --   boss   plain, any icon

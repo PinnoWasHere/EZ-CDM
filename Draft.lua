@@ -5,10 +5,11 @@ local _, ns = ...
 -- on the spell's group, what it shows (track), the spell fields the grammar owns
 -- (Grammar.FIELDS and hideIn<Key>), its look keys (Grammar.LOOK_FIELDS), then
 -- EZ-CDM's own rules (Effects): the up glow, the fall-off lead and sound, and the
--- glow lines' own styles.
+-- glow lines' own styles. A piece with an EZ-CDM gray line has Gray out written
+-- Stay colored and the player's own kept (Gray).
 -- Only fields that change are written, and no piece ever moves.
 
-local Bridge, Grammar, Effects, Conditions = ns.Bridge, ns.Grammar, ns.Effects, ns.Conditions
+local Bridge, Grammar, Effects, Conditions, Gray = ns.Bridge, ns.Grammar, ns.Effects, ns.Conditions, ns.Gray
 
 local Draft = {}
 ns.Draft = Draft
@@ -269,8 +270,14 @@ local function planFor(key, rules, g)
     if not same(stOld, stNew) then
         op(5, "ez", "glowStyles", stOld, stNew, function() return Effects.SetStyles(g, key, stNew) end)
     end
-    -- So are EZ-CDM's conditions (Conditions.Split).
+    -- So are EZ-CDM's conditions (Conditions.Split). With a gray line among them
+    -- EZ-CDM owns the gray: Gray out goes to Stay colored and the player's own is
+    -- kept, before the rule lands (Gray.Split).
     local cnOld, cnNew = Conditions.Rule(key, g), Conditions.Split(fields)
+    local grOld, grNew = Gray.Record(key, g), Gray.Split(fields, cnNew)
+    if not same(grOld, grNew) then
+        op(5, "ez", "grayOwned", grOld, grNew, function() return Gray.Set(g, key, grNew) end)
+    end
     if not same(cnOld, cnNew) then
         op(5, "ez", "conditions", cnOld, cnNew, function() return Conditions.SetRule(g, key, cnNew) end)
     end
@@ -418,7 +425,7 @@ function Draft.Rules(key)
     local pieces, chains = layout(g)
     local live = pieces[key]
     if not live then return nil end
-    local fields = Conditions.Merge(key, Effects.Merge(key, copy(live), g), g)
+    local fields = Gray.Merge(key, Conditions.Merge(key, Effects.Merge(key, copy(live), g), g), g)
     fields.chain = copy(chains[Bridge.Root(key, g)] or {})
     return Grammar.Decompile(fields, Grammar.Kind(key))
 end

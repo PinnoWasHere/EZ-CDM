@@ -123,7 +123,15 @@ Bridge.NEEDS = {
     -- Overlay: the washes' blue and strength
     "DaylightUI.Style.PowerColor",
     "ActionBars.Skin.FLASH_ALPHA",
+    -- Overlay: the gray, a desaturated copy of the piece's own icon and its shade
+    "ActionBars.CdmRows.pieceInfo",
+    "ActionBars.Cooldowns.IconOf",
+    "ActionBars.Skin.SHADE_FILE",
+    "ActionBars.Skin.SHADE",
 }
+
+-- NEEDS entries that are tables kept by a lowercase name.
+Bridge.TABLES = { ["ActionBars.CdmRows.pieceInfo"] = true }
 
 -- Internals EZ-CDM uses when their module is loaded, as "<root>.<path>" like NEEDS.
 -- One missing doesn't switch EZ-CDM off; the call behind it answers nil and the
@@ -184,6 +192,7 @@ end
 -- a last part in capitals is a value, and anything else is a function.
 local function present(path)
     local v = Bridge.Resolve(path)
+    if Bridge.TABLES[path] then return type(v) == "table" end
     local _, dots = path:gsub("%.", "")
     if dots == 1 and path:match("^[^%.]+") ~= "DaylightUI" then return type(v) == "table" end
     if isValueName(path:match("([^%.]+)$")) then return v ~= nil end
@@ -483,6 +492,10 @@ local function switching()
     for _, fn in ipairs(switchHooks) do fn() end
 end
 
+-- fn(from, id) runs once profile from has been copied into the new profile id.
+local copyHooks = {}
+function Bridge.AfterCopy(fn) copyHooks[#copyHooks + 1] = fn end
+
 -- Copies profile from into a new one (named name, or its name made unique) and
 -- picks the copy for talent set g. g's own layout isn't saved first, so a set with
 -- none gets no extra profile. Every other profile is left as it was. Returns the
@@ -497,6 +510,7 @@ function Bridge.CopyAndAssign(g, from, name)
     local id = call("ActionBars.CdmData.CopyProfile", from, name)
     if not id then return false, "rejected" end
     if not call("ActionBars.CdmData.Assign", g, id) then return false, "rejected" end
+    for _, fn in ipairs(copyHooks) do fn(from, id) end
     return id
 end
 
@@ -927,6 +941,21 @@ function Bridge.ManaColor() return call("DaylightUI.Style.PowerColor", "MANA") e
 -- Daylight UI's wash strength, the auto attack wash on its action buttons
 -- (Skin.FLASH_ALPHA).
 function Bridge.WashAlpha() return Bridge.Resolve("ActionBars.Skin.FLASH_ALPHA") end
+
+-- The icon texture of the item that draws a piece's frame now: the game's item or
+-- Daylight UI's own cooldown icon (CdmRows.pieceInfo, Cooldowns.IconOf), or nil.
+function Bridge.PieceIcon(frame)
+    local info = Bridge.Resolve("ActionBars.CdmRows.pieceInfo")
+    info = type(info) == "table" and type(frame) == "table" and info[frame] or nil
+    local item = type(info) == "table" and info.item or nil
+    if type(item) ~= "table" then return nil end
+    return (call("ActionBars.Cooldowns.IconOf", item))
+end
+
+-- Daylight UI's inner shadow over a CDM icon (Skin.SHADE_FILE at Skin.SHADE).
+function Bridge.IconShade()
+    return Bridge.Resolve("ActionBars.Skin.SHADE_FILE"), Bridge.Resolve("ActionBars.Skin.SHADE")
+end
 
 -- Asks Daylight UI for a pass on the next frame (CdmRows.Refresh, coalesced).
 function Bridge.Refresh() return call("ActionBars.CdmRows.Refresh") end
