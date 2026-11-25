@@ -37,9 +37,13 @@ Drawer.ADD_FORM = WORDING.addForm
 Drawer.ADD_RECIPE = WORDING.addRecipe
 Drawer.COPY_REPORT = WORDING.copyReport
 
--- The strip's heading per kind of word.
-Drawer.HEADINGS = WORDING.headings
+-- The strip's heading per kind of word. "and" is the and … blank's strip.
+Drawer.HEADINGS = setmetatable({ ["and"] = WORDING.headings.clause }, { __index = WORDING.headings })
 Drawer.COLOR_WORDS = { accent = "accent", pick = "pick…" }
+-- Strip keys of the drawer's own: the chip that shows or hides advanced words, and
+-- the chip that takes a clause out.
+Drawer.MORE = "\1more"
+Drawer.DROP = "\1drop"
 
 -- Why a pick didn't write, in plain words.
 Drawer.REFUSED = {
@@ -75,6 +79,7 @@ local notices = {} -- what the last write couldn't do, in plain words
 local openNext     -- a word id whose strip opens on the next draw
 local drawn = {}   -- the word ids the body shows now; a strip lives only while its word does
 local stripFor     -- the word id the strip was last drawn for, so its scroll is kept across picks
+local badNumber    -- the number word whose last typed number was out of range
 
 local function pad() return Bridge.Gap() or 0 end
 
@@ -313,8 +318,11 @@ local function words(s, pieces, opts)
         t:Show()
         b.tokens[#b.tokens + 1] = t
     end
+    -- A control beside the sentence (aside) is not part of what it says.
     local said = {}
-    for i, p in ipairs(pieces) do said[i] = p.text end
+    for _, p in ipairs(pieces) do
+        if not p.aside then said[#said + 1] = p.text end
+    end
     b.said = table.concat(said)
     -- A pooled block forgets what it stood for last time.
     b.line, b.group, b.form, b.note, b.notice, b.refusal, b.adds, b.fade, b.shared, b.choices, b.hint, b.default,
@@ -707,12 +715,65 @@ local function sharedNote(s)
     if text then words(s, { { text = text, size = "small", color = "LABEL" } }).shared = true end
 end
 
+-- Whether the drawer offers advanced conditions (Settings "more").
+local function more()
+    local S = ns.Settings
+    return S ~= nil and S.Get("more") == true
+end
+
+-- The number strip: Daylight UI's number box, and its range under it.
+local function makeNumber(parent)
+    local b = CreateFrame("Frame", nil, parent)
+    b.box = API.Input(b, { numeric = true, maxLetters = 3 })
+    b.box:SetPoint("TOPLEFT", b, "TOPLEFT", 0, 0)
+    b.box:SetWidth(b.box:GetHeight() * 3)
+    b.range = API.Text(b, "small", "LEFT")
+    b.range:SetPoint("TOPLEFT", b.box, "BOTTOMLEFT", 0, -pad())
+    -- Enter and a click away both take the box's focus, and that commits it.
+    b.box:HookScript("OnEditFocusLost", function(self)
+        if b.onCommit then b.onCommit(tonumber(self:GetText() or "")) end
+    end)
+    return b
+end
+
+-- The number box's height, from a box of Daylight UI's own.
+local function inputHeight()
+    local m = meterFrame()
+    if not m.input then m.input = API.Input(m, { numeric = true }) end
+    return math.ceil(m.input:GetHeight() or 0)
+end
+
+local function numberStrip(s, def)
+    local p = def.range
+    local _, textH = measure(WORDING.range, "small")
+    local b = s:Piece("number", makeNumber, inputHeight() + pad() + textH, pad())
+    b.onCommit = nil
+    b.box:SetText(tostring(def.current or p.default))
+    b.range:SetText(WORDING.range:format(p.min, p.max))
+    paint(b.range, badNumber == def.id and "BAD" or "LABEL")
+    b.onCommit = function(n)
+        if slot ~= def or n == def.current then return end
+        if not (n and n % 1 == 0 and n >= p.min and n <= p.max) then
+            if badNumber ~= def.id then
+                badNumber = def.id
+                Drawer.Refresh()
+            end
+            return
+        end
+        badNumber = nil
+        def.picked = n
+        def.onPick(n)
+    end
+    return b
+end
+
 local function fillStrip()
     local s = parts.stripStack
     s:Begin()
     if slot then
         words(s, { { text = slot.heading, size = "small", color = "LABEL" } })
         if slot.kind == "group" then sharedNote(s) end
+        if slot.kind == "number" then numberStrip(s, slot) end
         local pieces = {}
         for _, k in ipairs(slot.keys) do
             pieces[#pieces + 1] = { kind = "chip", text = slot.values[k] or tostring(k), key = k,
@@ -721,6 +782,11 @@ local function fillStrip()
                     if slot and slot.kind == "sound" then Bridge.PreviewAlert(k) end
                     drop(k)
                 end }
+        end
+        -- Advanced words come and go without a write; the strip stays open.
+        if slot.more then
+            pieces[#pieces + 1] = { kind = "chip", text = more() and WORDING.fewer or WORDING.more, key = Drawer.MORE,
+                onClick = function() ns.Settings.Set("more", not more()) end }
         end
         if #pieces > 0 then words(s, pieces).choices = true end
     else
@@ -742,18 +808,78 @@ local function momentNames()
     return out
 end
 
--- The moments that fit, each one's actions, and every action that fits some moment.
+-- The moments the drawer offers, each fitting moment's actions, every action the
+-- offered moments take, and whether "more…" would change the moments.
 local function wordsFor(kind)
     local moments, actions, any, seen = {}, {}, {}, {}
-    for _, w in ipairs(Grammar.Words(kind)) do
+    local view = { drawer = true, more = more() }
+    for _, w in ipairs(Grammar.Words(kind, view)) do
         moments[#moments + 1] = w.moment
-        actions[w.moment] = w.actions
         for _, a in ipairs(w.actions) do seen[a] = true end
     end
+    for _, w in ipairs(Grammar.Words(kind)) do actions[w.moment] = w.actions end
     for _, a in ipairs(Grammar.ACTIONS) do
         if seen[a] then any[#any + 1] = a end
     end
-    return moments, actions, any
+    local other = #Grammar.Words(kind, { drawer = true, more = not view.more })
+    return moments, actions, any, other ~= #moments
+end
+
+-- A clause's or a moment's name on a chip ("my target is below N% health").
+local function clauseNames()
+    local out = {}
+    for _, c in ipairs(ns.Conditions.List()) do out[c.key] = Grammar.ClauseWords(c.key) end
+    out[Drawer.DROP] = WORDING.dropClause
+    return out
+end
+
+-- The clauses line may take at clause j (a new one past the end): the ones open
+-- before it, less those after it, with its own first.
+local function clauseChoices(kind, line, j)
+    local clauses = type(line.clauses) == "table" and line.clauses or {}
+    local before = {}
+    for x = 1, j - 1 do before[x] = clauses[x] end
+    local view = { drawer = true, more = more() }
+    local probe = { moment = line.moment, action = line.action, clauses = before }
+    local later = {}
+    for x = j + 1, #clauses do later[clauses[x].cond] = true end
+    local keys = {}
+    if clauses[j] then keys[1] = clauses[j].cond end
+    for _, k in ipairs(Grammar.Clauses(kind, probe, view)) do
+        if not later[k] and k ~= keys[1] then keys[#keys + 1] = k end
+    end
+    local other = #Grammar.Clauses(kind, probe, { drawer = true, more = not view.more })
+    return keys, other ~= #Grammar.Clauses(kind, probe, view)
+end
+
+-- Puts cond in as clause j; a client one ends the line, so the clauses after it go.
+local function setClause(line, j, cond)
+    line.clauses = line.clauses or {}
+    line.clauses[j] = { cond = cond }
+    local c = ns.Conditions.Get(cond)
+    if c and c.secrecy == "client" then
+        for x = #line.clauses, j + 1, -1 do line.clauses[x] = nil end
+    end
+end
+
+local function dropClause(line, j)
+    if type(line.clauses) ~= "table" then return end
+    table.remove(line.clauses, j)
+    if #line.clauses == 0 then line.clauses = nil end
+end
+
+-- A phrase as pieces, its number (#) a word of its own: the text before it, the
+-- number word, and the text after it. Without a number, the phrase alone.
+local function withNumber(phrase, n, wordFor)
+    local before, after = phrase:match("^(.-)" .. Grammar.NUMBER_MARK .. "(.*)$")
+    if not before then return { wordFor(phrase) } end
+    local out = {}
+    local lead = before:match("^(.-)%s*$")
+    out[#out + 1] = wordFor(lead)
+    if lead ~= before then out[#out + 1] = { text = before:sub(#lead + 1) } end
+    out[#out + 1] = n
+    if after ~= "" then out[#out + 1] = { text = after } end
+    return out
 end
 
 -- Daylight UI's sound list: values and the keys in order, headings left out.
@@ -777,6 +903,9 @@ end
 -- A line on a new moment or action. The value and the glow's own style go with an
 -- action change; a sound line takes the first sound. The fall-off lead stays while
 -- the line stays on "When it's about to fall off", and goes when it leaves.
+-- An EZ-CDM condition's number and clauses: a new moment takes its own number's
+-- default and keeps the clauses it can, none after a client one; a new action keeps
+-- a client clause only where its effect is alpha-safe.
 local function retarget(line, moment, action)
     local keepAt = moment == "recast" and line.moment == "recast"
     if action ~= line.action then
@@ -784,8 +913,20 @@ local function retarget(line, moment, action)
         if not keepAt then line.at = nil end
     end
     if line.moment == "recast" and moment ~= "recast" then line.at = nil end
+    if moment ~= line.moment then line.n = nil end
     line.moment, line.action = moment, action
     if action == "sound" and line.value == nil then line.value = firstSound() end
+    local ck = Grammar.LineCondition(line)
+    local C = ns.Conditions
+    if not ck or C.Get(ck).secrecy == "client" then
+        line.clauses = nil
+    elseif type(line.clauses) == "table" then
+        local safe = C.ClientSafe(ck, action)
+        for j = #line.clauses, 1, -1 do
+            local c = C.Get(line.clauses[j].cond)
+            if line.clauses[j].cond == ck or (c and c.secrecy == "client" and not safe) then dropClause(line, j) end
+        end
+    end
 end
 
 -- The fall-off lead is one per piece: it goes on every "about to fall off" line.
@@ -848,15 +989,25 @@ local function styleChoices(piece)
     return keys, values
 end
 
+-- A number word: its strip is Daylight UI's number box. set(r, n) writes it.
+local function numberWord(id, key, n, set, off)
+    local C = ns.Conditions
+    local now = C.NumberOf(key, n)
+    return word(tostring(now), id, { kind = "number", keys = {}, values = {}, current = now,
+        range = C.Get(key).param, onPick = function(x) edit(function(r) set(r, x) end) end }, true, off)
+end
+
 local function sentence(s, kind, rules, i, line)
-    local moments, actions, any = wordsFor(kind)
+    local moments, actions, any, hasMore = wordsFor(kind)
     local finished = line.moment ~= nil and line.action ~= nil
     local off = finished and not Grammar.Fits(kind, line.moment, line.action) and "OFF" or nil
     local id = "line:" .. i .. ":"
-    local phrase, joint = Grammar.MomentWords(line.moment)
+    local ck = Grammar.LineCondition(line)
+    local C = ns.Conditions
+    local phrase, joint = Grammar.MomentWords(line.moment, ck and Grammar.NUMBER_MARK)
     local pieces = {}
-    pieces[#pieces + 1] = word(phrase, id .. "moment", {
-        kind = "moment", keys = moments, values = momentNames(), current = line.moment,
+    local momentDef = {
+        kind = "moment", keys = moments, values = momentNames(), current = line.moment, more = hasMore,
         onPick = function(m)
             edit(function(r)
                 -- The action stays while it fits the new moment; a blank stays blank.
@@ -867,7 +1018,42 @@ local function sentence(s, kind, rules, i, line)
                 if m == "recast" and l.at == nil then l.at = leadOf(r) end
                 if Grammar.RingOnly(kind, m) then l.style = nil end
             end)
-        end }, line.moment ~= nil, off)
+        end }
+    local nWord = ck and C.Get(ck).param and numberWord(id .. "n", ck, line.n,
+        function(r, x) r.lines[i].n = x end, off)
+    for _, p in ipairs(withNumber(phrase, nWord, function(text)
+        return word(text, id .. "moment", momentDef, line.moment ~= nil, off)
+    end)) do pieces[#pieces + 1] = p end
+    -- "and" clauses, each its own word with its number, then the and … blank.
+    local clauses = ck and type(line.clauses) == "table" and line.clauses or {}
+    for j, cl in ipairs(clauses) do
+        local keys, moreWords = clauseChoices(kind, line, j)
+        keys[#keys + 1] = Drawer.DROP
+        local def = { kind = "clause", keys = keys, values = clauseNames(), current = cl.cond, more = moreWords,
+            onPick = function(k)
+                edit(function(r)
+                    if k == Drawer.DROP then dropClause(r.lines[i], j) else setClause(r.lines[i], j, k) end
+                end)
+            end }
+        local c = C.Get(cl.cond)
+        local w = c and c.param and numberWord(id .. "cn" .. j, cl.cond, cl.n,
+            function(r, x) r.lines[i].clauses[j].n = x end, off)
+        pieces[#pieces + 1] = { text = " " .. WORDING.andWord .. " " }
+        for _, p in ipairs(withNumber(Grammar.ClauseWords(cl.cond, c and Grammar.NUMBER_MARK), w, function(text)
+            return word(text, id .. "clause" .. j, def, true, off)
+        end)) do pieces[#pieces + 1] = p end
+    end
+    if finished and ck then
+        local keys, moreWords = clauseChoices(kind, line, #clauses + 1)
+        if #keys > 0 or moreWords then
+            pieces[#pieces + 1] = { text = " ", aside = true }
+            local chip = word(WORDING.addClause, id .. "and", { kind = "and", keys = keys, values = clauseNames(),
+                more = moreWords, onPick = function(k) edit(function(r) setClause(r.lines[i], #clauses + 1, k) end) end },
+                false)
+            chip.aside = true
+            pieces[#pieces + 1] = chip
+        end
+    end
     if line.moment == "recast" then
         -- "(5 seconds before)", or Daylight UI's own timing with no lead.
         local keys, values = leadChoices()

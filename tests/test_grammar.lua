@@ -226,6 +226,9 @@ local CASES = {
     { L("short", "hide"), { onShort = "hide" } },
     { L("unusable", "gray"), { ["ez:cantCast:gray"] = true } },
     { L("short", "blue"), { ["ez:noMana:blue"] = true } },
+    -- A plain condition's sound line keeps its sound key (Conditions.Spec).
+    { L("unusable", "sound", SOUND), { ["ez:cantCast:sound"] = { value = SOUND } } },
+    { L("short", "sound", SOUND), { ["ez:noMana:sound"] = { value = SOUND } } },
     { L("usable", "glow"), { usableGlow = true } },
     { L("usable", "glow", COLOR), { usableGlow = true, usableGlowColor = COLOR } },
     { L("usable", "sound", SOUND), { usableSound = SOUND } },
@@ -453,7 +456,7 @@ local function pieceWorld(hidden)
 end
 
 local COOLDOWN_WORDS = "always(show) ready(show,fade,hide,glow,sound) cooldown(show,fade,hide,gray,color,nosweep,nogcd) "
-    .. "almost(numbers) unusable(show,fade,hide,gray) short(show,fade,hide,blue) usable(glow,sound)"
+    .. "almost(numbers) unusable(show,fade,hide,gray,sound) short(show,fade,hide,sound,blue) usable(glow,sound)"
 
 T.test("grammar kind: an icon cooldown takes the cooldown words, gray included", function()
     local _, ns, G, _, k = pieceWorld()
@@ -480,7 +483,7 @@ T.test("grammar kind: a bar loses gray and keep color, which are icon rows", fun
     T.falsy(G.Fits(kind, "unusable", "gray"), "the washes cover an icon")
     T.falsy(G.Fits(kind, "short", "blue"))
     T.eq(wordsOf(G, kind), (COOLDOWN_WORDS:gsub(",gray,color,nosweep,nogcd", ""):gsub(" almost%(numbers%)", "")
-        :gsub(",gray%)", ")"):gsub(",blue%)", ")"))
+        :gsub(",gray,sound%)", ",sound)"):gsub(",blue%)", ")"))
         .. " up(show,hide) missing(glow)")
     local f, p = G.Compile({ lines = { L("cooldown", "gray"), L("ready", "glow") } }, kind)
     T.eq(codes(p), "line 1: kind", "gray on a bar is refused")
@@ -888,6 +891,7 @@ T.test("grammar wording: placeholders and strip headings", function()
         sound = "Choose a sound:", fade = "Choose how much shows:", group = "Choose for the whole group:",
         form = "Choose a form:", shows = "Choose what it shows:", style = "Choose a glow style:",
         seconds = "Choose how many seconds:", recipe = "Choose a recipe:",
+        clause = "Choose another condition:", number = "Type a number:",
     })
     -- No phrase starts with a separate When or While: each moment is one phrase.
     for m, phrase in pairs(G.WORDING.moments) do

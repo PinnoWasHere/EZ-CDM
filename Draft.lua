@@ -172,9 +172,11 @@ local PROBLEM_WORDS = {
     twice = "sets the same thing as another line, and the later line wins",
     hidden = "never shows, because a hide line hides the spell then",
     needs = Grammar.WORDING.needs:format(Grammar.Describe({ moment = "missing", action = "show" })),
+    order = "has a part the game hides in a fight before another part; that part must come last",
+    secret = "can't do this on a part the game hides in a fight",
 }
 -- Problems a write can't go past: the line would be dropped.
-local BLOCKING = { blank = true, pair = true, kind = true, value = true, needs = true }
+local BLOCKING = { blank = true, pair = true, kind = true, value = true, needs = true, order = true, secret = true }
 
 local function problemWords(name, rules, p)
     local what

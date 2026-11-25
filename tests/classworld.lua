@@ -299,6 +299,10 @@ end
 --   w.Refresh(id)                a recast while the aura is up: cast, aura again
 --   w.KillTarget() / w.NewTarget()    the target dies and is cleared / a fresh one
 --   w.Usable(can, noPower)       the game's IsSpellUsable for every spell, then its event
+--   w.Unit(unit, fields)         sets a unit's fields (pct, boss, casting, dead...) and
+--                                fires what a condition on it hears; a value may be
+--                                stub.Secret(v), as in a fight
+--   w.Tick(n)                    the shared ticker's beat n times (Conditions.Tick)
 --   w.EnterCombat() / w.LeaveCombat()
 --   w.Advance(s)                 time passes; timers and a pass run
 --   w.Reload(opts)               a /reload with this session's saved variables
@@ -394,6 +398,17 @@ function W.Build(class, opts)
     function w.Usable(can, noPower)
         C_Spell.IsSpellUsable = function() return can, noPower end
         stub.FireEvent("SPELL_UPDATE_USABLE")
+        run()
+    end
+    function w.Unit(unit, fields)
+        stub.units[unit] = stub.units[unit] or {}
+        for k, v in pairs(fields or {}) do stub.units[unit][k] = v end
+        if unit == "target" then stub.FireEvent("PLAYER_TARGET_CHANGED") end
+        for _, e in ipairs({ "UNIT_HEALTH", "UNIT_POWER_UPDATE", "UNIT_FLAGS" }) do stub.FireEvent(e, unit) end
+        run()
+    end
+    function w.Tick(n)
+        for _ = 1, n or 1 do w.ns.Conditions.Tick() end
         run()
     end
     function w.EnterCombat() stub.EnterCombat(); run() end

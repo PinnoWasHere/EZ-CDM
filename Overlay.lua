@@ -5,7 +5,9 @@ local _, ns = ...
 -- fading with API.Fade at Daylight UI's FAST speed. Colors come from Daylight UI:
 --   OFF    API.Colors().OFF, its "truly unavailable" gray
 --   mana   its mana blue (Style.PowerColor("MANA"))
--- opts = { id, color }: one texture per id on each holder.
+-- opts = { id, color }: one texture per id on each holder, or on a line's layer
+-- when a client part drives it (Conditions.lua).
+-- The "sound" effect plays a sound line once as it turns on.
 
 local Bridge, Conditions = ns.Bridge, ns.Conditions
 
@@ -73,9 +75,20 @@ end
 if type(API) == "table" then
     Conditions.RegisterEffect({
         key = "wash",
-        -- A wash covers an icon.
+        -- A wash covers an icon. It is alpha only, so a client part may drive it.
         fits = function(kind) return kind.shape == "icon" end,
+        client = true,
         draw = draw,
         clear = clear,
+    })
+    -- A sound line: Daylight UI's alert (opts.value, a Sound.AlertChoices key),
+    -- played once as the line turns on.
+    Conditions.RegisterEffect({
+        key = "sound",
+        edge = true,
+        draw = function(_, on, opts)
+            if on and type(opts.value) == "string" then Bridge.PlayAlert(opts.value) end
+        end,
+        clear = function() end,
     })
 end

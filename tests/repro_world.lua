@@ -311,10 +311,18 @@ local function observe(w, key, allReads)
     local C = ns.Conditions
     if type(C) == "table" and type(C.List) == "function" then
         local reads = {}
-        local ruled = type(C.Rule) == "function" and C.Rule(key) or {}
+        -- Every condition the piece's lines use, clauses included; a client one
+        -- reads as its sample (true, false or <secret>).
+        local used = {}
+        for _, l in ipairs(type(C.Lines) == "function" and C.Lines(key) or {}) do
+            for _, p in ipairs(l.parts) do used[p.cond] = true end
+        end
+        for ck in pairs(type(C.Rule) == "function" and C.Rule(key) or {}) do used[ck] = true end
         for _, c in ipairs(C.List()) do
-            if allReads or ruled[c.key] then
-                local ok, v = pcall(c.read, key)
+            if allReads or used[c.key] then
+                local ok, v
+                if type(C.Sample) == "function" then ok, v = pcall(C.Sample, c.key, key)
+                else ok, v = pcall(c.read, key) end
                 reads[#reads + 1] = c.key .. "=" .. (ok and tostring(v) or "error")
             end
         end
@@ -358,6 +366,10 @@ step("target dies", function(ctx) ctx.w.KillTarget(); ctx.w.Advance(1.5) end)
 step("new target", function(ctx) ctx.w.NewTarget(); ctx.w.Pass() end)
 step("leave combat", function(ctx) ctx.w.LeaveCombat() end)
 step("wait 4 s", function(ctx) ctx.w.Advance(4) end)
+step("target at 10%", function(ctx) ctx.w.Unit("target", { pct = 0.1 }) end)
+step("target at 90%", function(ctx) ctx.w.Unit("target", { pct = 0.9 }) end)
+step("target is a boss", function(ctx) ctx.w.Unit("target", { boss = true }) end)
+step("tick", function(ctx) ctx.w.Tick(1) end)
 
 -- The named scripts, each a list of steps.
 R.SCRIPTS = {
@@ -369,6 +381,9 @@ R.SCRIPTS = {
                 "new target", "leave combat" },
     combat = { "idle", "enter combat", "cast", "cooldown", "buff up", "can't cast", "usable", "wait 4 s", "ready",
                "buff down", "leave combat" },
+    -- Unit state the engine's conditions read (and-clauses, client parts, the ticker).
+    target = { "idle", "new target", "target is a boss", "target at 90%", "target at 10%", "tick", "enter combat",
+               "target at 90%", "tick", "leave combat" },
 }
 R.SCRIPTS.all = {}
 for _, name in ipairs({ "cooldown", "buff", "proc", "usable", "falloff", "combat" }) do

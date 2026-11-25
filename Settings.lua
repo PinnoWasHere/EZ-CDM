@@ -11,6 +11,7 @@ local addonName, ns = ...
 --   sounds      Bridge.PlayAlert and Bridge.PreviewAlert read it.
 --   updateCheck the newer-version notice (Update.lua).
 --   whatsNew    What's New after an update (News.lua).
+--   more        the drawer offers advanced conditions too (its "more…" chip flips it).
 
 local Bridge, Grammar = ns.Bridge, ns.Grammar
 local API = DaylightUI.API
@@ -22,10 +23,10 @@ ns.Settings = Settings
 Settings.PAGE = addonName .. ".main"
 Settings.LABELS = {
     startBlock = WORDS.startBlock, drawer = WORDS.drawer, sounds = WORDS.sounds,
-    updateCheck = WORDS.updateCheck, whatsNew = WORDS.whatsNew, news = WORDS.news,
+    updateCheck = WORDS.updateCheck, whatsNew = WORDS.whatsNew, news = WORDS.news, more = WORDS.more,
 }
 Settings.DEFAULTS = {
-    startBlock = true, drawer = "last", sounds = true, updateCheck = true, whatsNew = true,
+    startBlock = true, drawer = "last", sounds = true, updateCheck = true, whatsNew = true, more = false,
 }
 
 local function savedVars()
@@ -81,6 +82,8 @@ local function drawerStart()
 end
 APPLY.drawer = drawerStart
 
+function APPLY.more() Drawer.Refresh() end
+
 -- ---------------------------------------------------------------------
 -- The page
 -- ---------------------------------------------------------------------
@@ -102,6 +105,7 @@ Settings.GROUPS = {
           set = function(v) Settings.Set("drawer", v) end,
           default = function() return Settings.DEFAULTS.drawer end },
         toggle("sounds", WORDS.soundsTip),
+        toggle("more", WORDS.moreTip),
         -- The first-run tour again (Tour.lua), opening the editor.
         { type = "button", label = Grammar.WORDING.tour.replay, text = Grammar.WORDING.tour.replayShow,
           func = function() ns.Tour.Replay() end },

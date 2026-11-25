@@ -523,16 +523,58 @@ function Grammar.Extras(kind)
     return out
 end
 
+-- Whether the drawer offers an EZ-CDM condition: never one that is unknown in a
+-- fight, and an advanced one only with more.
+local function offered(c, opts)
+    if not (opts and opts.drawer) then return true end
+    if c.secrecy == "outOfCombat" then return false end
+    return not c.advanced or opts.more == true
+end
+
 -- The moments that fit a piece, each with its actions, in canonical order:
--- { { moment = "ready", actions = { "show", "fade", ... } }, ... }.
-function Grammar.Words(kind)
+-- { { moment = "ready", actions = { "show", "fade", ... } }, ... }. opts.drawer
+-- gives the drawer's view (offered); opts.more shows advanced conditions there.
+function Grammar.Words(kind, opts)
     local out = {}
     for _, m in ipairs(Grammar.MOMENTS) do
         local actions = {}
         for _, a in ipairs(Grammar.ACTIONS) do
-            if Grammar.Fits(kind, m, a) then actions[#actions + 1] = a end
+            local e = MAP[m] and MAP[m][a]
+            local c = e and e.cond and Conditions.Get(e.cond)
+            if Grammar.Fits(kind, m, a) and (not c or offered(c, opts)) then actions[#actions + 1] = a end
         end
         if #actions > 0 then out[#out + 1] = { moment = m, actions = actions } end
+    end
+    return out
+end
+
+-- The EZ-CDM condition a line starts with, or nil.
+function Grammar.LineCondition(line)
+    local e = type(line) == "table" and MAP[line.moment] and MAP[line.moment][line.action]
+    return e and e.cond or nil
+end
+
+-- The conditions a line may take as its next "and" clause, in registry order: an
+-- EZ-CDM line whose parts are all plain so far, each condition once, fitting the
+-- piece. A client one only where the line's effect is alpha-safe, and never on a
+-- sound. opts as Grammar.Words.
+function Grammar.Clauses(kind, line, opts)
+    local out = {}
+    local ck = Grammar.LineCondition(line)
+    if not ck then return out end
+    local used = { [ck] = true }
+    if Conditions.Get(ck).secrecy == "client" then return out end
+    for _, cl in ipairs(type(line.clauses) == "table" and line.clauses or {}) do
+        local c = type(cl) == "table" and Conditions.Get(cl.cond)
+        if not c or c.secrecy == "client" then return out end
+        used[cl.cond] = true
+    end
+    local safe = Conditions.ClientSafe(ck, line.action)
+    for _, c in ipairs(Conditions.List()) do
+        if not used[c.key] and offered(c, opts) and Conditions.FitsKind(c.key, kind)
+            and (c.secrecy ~= "client" or safe) then
+            out[#out + 1] = c.key
+        end
     end
     return out
 end
@@ -618,17 +660,31 @@ function Grammar.ConditionClash(c)
     return false
 end
 
+-- A condition's words, into Grammar.WORDING unless set there already.
+local function installWords(c)
+    local W = Grammar.WORDING
+    local words = type(c.words) == "table" and c.words or {}
+    if not W then return end
+    if type(words.moment) == "string" and W.moments[c.moment] == nil then W.moments[c.moment] = words.moment end
+    if type(words.clause) == "string" and W.clauses[c.key] == nil then W.clauses[c.key] = words.clause end
+end
+
 -- A condition's lines: its moment (a new one joins the end), each action as a
--- field of EZ-CDM's own, and its recipes after the one each names.
+-- field of EZ-CDM's own, and its recipes after the one each names. A condition
+-- that isn't client tier also gets a sound line where its moment has none.
 function Grammar.InstallCondition(c)
     if not indexOf(Grammar.MOMENTS, c.moment) then Grammar.MOMENTS[#Grammar.MOMENTS + 1] = c.moment end
     MAP[c.moment] = MAP[c.moment] or {}
+    if c.secrecy ~= "client" and not c.noSound and c.actions.sound == nil and MAP[c.moment].sound == nil then
+        c.actions.sound = { effect = "sound" }
+    end
+    installWords(c)
     local actions = {}
     for a in pairs(c.actions) do actions[#actions + 1] = a end
     table.sort(actions)
     for _, a in ipairs(actions) do
         local field = Conditions.Field(c.key, a)
-        MAP[c.moment][a] = { field = field, value = true, cond = c.key }
+        MAP[c.moment][a] = { field = field, value = true, cond = c.key, sound = c.actions[a].effect == "sound" or nil }
         if not indexOf(Grammar.ACTIONS, a) then Grammar.ACTIONS[#Grammar.ACTIONS + 1] = a end
         if not indexOf(Grammar.EZ_FIELDS, field) then Grammar.EZ_FIELDS[#Grammar.EZ_FIELDS + 1] = field end
     end
@@ -729,6 +785,37 @@ local function compileGroup(rules, kind, fields, problem)
     end
 end
 
+-- An EZ-CDM line's spec (Conditions.Spec) and its problem code, or nil and the code:
+-- "pair" an unknown clause, "twice" a condition twice, "kind" a clause the piece
+-- doesn't take, "value" a bad number, "order" a client part not last or twice,
+-- "secret" a client part under an effect that isn't alpha-safe.
+local function condSpec(line, entry, kind)
+    local ck = entry.cond
+    if line.n ~= nil and not Conditions.NumberFits(ck, line.n) then return nil, "value" end
+    local clauses = line.clauses
+    if clauses ~= nil and type(clauses) ~= "table" then return nil, "pair" end
+    local seen, client, parts = { [ck] = true }, 0, { Conditions.Get(ck) }
+    for _, cl in ipairs(clauses or {}) do
+        local c = type(cl) == "table" and Conditions.Get(cl.cond)
+        if not c then return nil, "pair" end
+        if seen[cl.cond] then return nil, "twice" end
+        seen[cl.cond] = true
+        if kind and not Conditions.FitsKind(cl.cond, kind) then return nil, "kind" end
+        if cl.n ~= nil and not Conditions.NumberFits(cl.cond, cl.n) then return nil, "value" end
+        parts[#parts + 1] = c
+    end
+    for i, c in ipairs(parts) do
+        if c.secrecy == "client" then
+            client = client + 1
+            if i ~= #parts or client > 1 then return nil, "order" end
+            if not Conditions.ClientSafe(ck, line.action) then return nil, "secret" end
+        end
+    end
+    local spec = Conditions.Spec(ck, line.action,
+        { n = line.n, value = entry.sound and line.value or nil, clauses = clauses })
+    return spec
+end
+
 -- rules -> fields, problems, flags. kind (Grammar.Kind) is optional; without it
 -- every mapped pair is taken.
 -- problems: { line = i, code = ... } for a line left out, or { group = word } /
@@ -767,10 +854,14 @@ function Grammar.Compile(rules, kind)
     end
     for i, line in ipairs(rules.lines or {}) do
         local entry = type(line) == "table" and MAP[line.moment] and MAP[line.moment][line.action]
+        local spec, condCode
+        if entry and entry.cond then spec, condCode = condSpec(line, entry, kind) end
         if type(line) == "table" and (line.moment == nil or line.action == nil) then
             problem({ line = i, code = "blank" })
-        elseif not entry then
+        elseif not entry or (line.clauses ~= nil and not entry.cond) then
             problem({ line = i, code = "pair" })
+        elseif line.n ~= nil and not entry.cond then
+            problem({ line = i, code = "value" })
         elseif not Grammar.Fits(line.action == "flash" and flashKind or kind, line.moment, line.action) then
             problem({ line = i, code = "kind" })
         elseif entry.all then
@@ -793,6 +884,10 @@ function Grammar.Compile(rules, kind)
         elseif entry.alpha and line.value ~= nil
             and not (type(line.value) == "number" and line.value >= 0 and line.value <= 1) then
             problem({ line = i, code = "value" })
+        elseif condCode then
+            problem({ line = i, code = condCode })
+        elseif entry.cond then
+            set(i, entry.field, spec)
         else
             if entry.slot then
                 local had = slotBy[entry.slot]
@@ -908,7 +1003,19 @@ function Grammar.Decompile(fields, kind)
             if entry and not entry.all then
                 local v = entry.field and fields[entry.field]
                 local line
-                if entry.paint then
+                if entry.cond then
+                    if v == true or type(v) == "table" then
+                        line = { moment = m, action = a }
+                        if type(v) == "table" then
+                            line.n = v.n
+                            if entry.sound then line.value = v.value end
+                            if type(v.clauses) == "table" then
+                                line.clauses = {}
+                                for j, cl in ipairs(v.clauses) do line.clauses[j] = { cond = cl.cond, n = cl.n } end
+                            end
+                        end
+                    end
+                elseif entry.paint then
                     local c = fields[entry.paint]
                     if isColor(c) then line = { moment = m, action = a, value = copyColor(c) } end
                 elseif entry.look then
@@ -1018,6 +1125,21 @@ Grammar.WORDING = {
     form = "hide it while I'm in %s",
     -- The one see-through amount a spell has (cdAlpha), as a percent.
     amount = "when see-through, show it at %s",
+    -- Each EZ-CDM condition as an "and" clause, after "and"; %s is the power name
+    -- and # the condition's number.
+    clauses = {
+        cantCast = "I can't cast it",
+        noMana = "I don't have enough %s",
+    },
+    andWord = "and",
+    -- The "and …" blank, a clause's strip chip that takes it out, and the strip's
+    -- chip for advanced words (Settings "more").
+    addClause = "and …",
+    dropClause = "remove this part",
+    more = "more…",
+    fewer = "fewer",
+    -- Under the number box: its range (%d to %d).
+    range = "A whole number from %d to %d.",
     -- A new line's blanks before a word is picked.
     chooseMoment = "choose a moment",
     chooseWhat = "choose what happens",
@@ -1034,6 +1156,7 @@ Grammar.WORDING = {
         sound = "Choose a sound:", fade = "Choose how much shows:", group = "Choose for the whole group:",
         form = "Choose a form:", shows = "Choose what it shows:", style = "Choose a glow style:",
         seconds = "Choose how many seconds:", recipe = "Choose a recipe:",
+        clause = "Choose another condition:", number = "Type a number:",
     },
     -- Each recipe's name on its chip (Grammar.RECIPES).
     recipes = {
@@ -1114,6 +1237,7 @@ Grammar.WORDING = {
         sounds = "Play Sounds", soundsTip = "Fall-off sounds and sound previews.",
         updateCheck = "Newer Version Notice", updateCheckTip = "Swaps versions with guild, group and friends.",
         whatsNew = "Show What's New", whatsNewTip = "Once after each update.",
+        more = "More Condition Choices", moreTip = "Advanced conditions in the drawer's word rows.",
         news = "What's New", newsShow = "Show",
         -- What's New in Daylight UI's window (News.lua), and its one button.
         newsTitle = "What's New in EZ-CDM", okay = "Okay",
@@ -1168,6 +1292,7 @@ Grammar.WORDING = {
     },
 }
 local WORDING = Grammar.WORDING
+for _, c in ipairs(Conditions.List()) do installWords(c) end
 
 -- The player's power, as the game names it ("rage"), else "power".
 function Grammar.PowerName()
@@ -1177,14 +1302,30 @@ function Grammar.PowerName()
     return "power"
 end
 
+-- The number a typed-number word shows: n, else "N" where it is a chip's name.
+Grammar.NUMBER_MARK = "#"
+
+-- A phrase with its power name (%s) and number (#) put in. A "%" after the number
+-- stays as it is.
+local function fill(phrase, n)
+    if phrase:find("%s", 1, true) then phrase = phrase:gsub("%%s", (Grammar.PowerName():gsub("%%", "%%%%"))) end
+    return (phrase:gsub(Grammar.NUMBER_MARK, n ~= nil and tostring(n) or "N"))
+end
+
 -- A moment's phrase and what joins it to the action (", " or " "). A moment not
--- picked yet reads as its blank.
-function Grammar.MomentWords(moment)
+-- picked yet reads as its blank. n is a typed number, "N" on a chip when nil.
+function Grammar.MomentWords(moment, n)
     if moment == nil then return WORDING.chooseMoment, ", " end
     local phrase = WORDING.moments[moment]
     if not phrase then return tostring(moment), " " end
-    if phrase:find("%s", 1, true) then phrase = phrase:format(Grammar.PowerName()) end
-    return phrase, WORDING.noComma[moment] and " " or ", "
+    return fill(phrase, n), WORDING.noComma[moment] and " " or ", "
+end
+
+-- A condition's clause phrase ("my target is a boss"), n as in MomentWords.
+function Grammar.ClauseWords(key, n)
+    local phrase = WORDING.clauses[key]
+    if not phrase then return tostring(key) end
+    return fill(phrase, n)
 end
 
 -- A group word's words: on (true, or a "where" value) or off.
@@ -1260,9 +1401,14 @@ function Grammar.LeadWords(n) return WORDING.lead:format(Grammar.Seconds(n)) end
 -- The line as one sentence, in US English.
 function Grammar.Describe(line)
     if type(line) ~= "table" then return "" end
-    local phrase, joint = Grammar.MomentWords(line.moment)
+    local ck = Grammar.LineCondition(line)
+    local phrase, joint = Grammar.MomentWords(line.moment, ck and Conditions.NumberOf(ck, line.n))
     local entry = MAP[line.moment] and MAP[line.moment][line.action]
     if entry and entry.lead and line.at ~= nil then phrase = phrase .. " " .. Grammar.LeadWords(line.at) end
+    for _, cl in ipairs(ck and type(line.clauses) == "table" and line.clauses or {}) do
+        local key = type(cl) == "table" and cl.cond
+        phrase = phrase .. " " .. WORDING.andWord .. " " .. Grammar.ClauseWords(key, Conditions.NumberOf(key, cl.n))
+    end
     return phrase:sub(1, 1):upper() .. phrase:sub(2) .. joint .. actionWords(line) .. "."
 end
 
