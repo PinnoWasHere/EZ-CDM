@@ -571,6 +571,7 @@ T.test("drawer wording: every moment chip is the same phrase the sentence shows"
     local keys = strip(Drawer).keys
     T.truthy(#keys > 1, "the moments that fit")
     for _, m in ipairs(keys) do
+        if m == Drawer.MORE then break end
         T.eq(stub.Text(strip(Drawer).chip[m].text), (G.MomentWords(m)), m .. "'s chip is its phrase")
         pick(Drawer, m)
         T.eq(stub.Text(wordOf(Drawer, 3, "moment").text), (G.MomentWords(m)), m .. ": the sentence shows the same")
@@ -591,10 +592,12 @@ T.test("drawer strip: lists exactly what Grammar.Words allows, the current one l
     Ed.Select(k.clap)
     local kind = G.Kind(k.clap)
     local moments, actions = {}, {}
-    for _, w in ipairs(G.Words(kind)) do
+    for _, w in ipairs(G.Words(kind, { drawer = true })) do
         moments[#moments + 1] = w.moment
         actions[w.moment] = w.actions
     end
+    -- Advanced words wait behind more…, the strip's last chip.
+    if ns.Conditions.AnyAdvanced() then moments[#moments + 1] = Drawer.MORE end
     T.eq(keysText(strip(Drawer).keys), "", "nothing until a word is clicked")
     wordOf(Drawer, 1, "moment"):Click()
     local s = strip(Drawer)
@@ -637,7 +640,8 @@ T.test("drawer strip: lists exactly what Grammar.Words allows, the current one l
     Ed.Select(k.shout)
     addLink(Drawer, "line"):Click()
     local shoutMoments = {}
-    for _, w in ipairs(G.Words(G.Kind(k.shout))) do shoutMoments[#shoutMoments + 1] = w.moment end
+    for _, w in ipairs(G.Words(G.Kind(k.shout), { drawer = true })) do shoutMoments[#shoutMoments + 1] = w.moment end
+    if ns.Conditions.AnyAdvanced() then shoutMoments[#shoutMoments + 1] = Drawer.MORE end
     T.eq(keysText(strip(Drawer).keys), keysText(shoutMoments), "a buff's moments")
     noErrors()
 end)

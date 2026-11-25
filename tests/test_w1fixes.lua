@@ -415,10 +415,17 @@ end)
 
 T.test("fix 4: with no advanced condition there is no more… chip", function()
     local _, ns, AB, key = world({ bare = true })
+    -- The shipped advanced ones (in combat, in a group...) made plain for this check.
+    local was = {}
+    for _, c in ipairs(ns.Conditions.List()) do
+        was[c] = c.advanced
+        c.advanced = nil
+    end
     write(ns, AB, key, { line("blocked", "gray") })
     local Drawer = editor(ns, AB, key)
     wordOf(Drawer, 1, "moment"):Click()
     T.isnil(strip(Drawer).chip[Drawer.MORE])
+    for c, v in pairs(was) do c.advanced = v end
     noErrors()
 end)
 

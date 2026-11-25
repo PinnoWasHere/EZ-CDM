@@ -128,6 +128,8 @@ Bridge.NEEDS = {
     "ActionBars.Cooldowns.IconOf",
     "ActionBars.Skin.SHADE_FILE",
     "ActionBars.Skin.SHADE",
+    -- Conditions: my totem stands (which totem a slot holds, from your own casts)
+    "ActionBars.CdmCustom.TotemUp",
 }
 
 -- NEEDS entries that are tables kept by a lowercase name.
@@ -369,6 +371,14 @@ end
 function Bridge.IsTotem(key)
     local sid = Bridge.SpellOf(key)
     return sid ~= nil and call("ActionBars.CdmCustom.Totem", sid) ~= nil
+end
+
+-- Whether this totem spell's totem stands now: true or false, nil for a spell that
+-- is no timed totem. Daylight UI tells the slot's totem from your own casts, since
+-- the slot's spell is secret in a fight; whether a slot holds one never is.
+function Bridge.TotemUp(sid)
+    if sid == nil or call("ActionBars.CdmCustom.Totem", sid) == nil then return nil end
+    return call("ActionBars.CdmCustom.TotemUp", sid) ~= nil
 end
 
 -- A look key's value for a placed piece as the card reads it (CdmCard.lua:228-234):

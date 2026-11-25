@@ -3,7 +3,7 @@ local SW = require("sweep_lib")
 -- The universality sweep (tests/sweep_lib.lua), class group a, and the
 -- sweep's own check that it finds every class.
 
-T.test("sweep: the catalogue's nine classes, each in one group", function()
+T.test("sweep: the catalogue's nine classes, each variant in one group", function()
     local found, sets = {}, {}
     for _, c in ipairs(SW.Classes()) do
         T.isnil(found[c.class], c.class .. " has one set")
@@ -11,15 +11,22 @@ T.test("sweep: the catalogue's nine classes, each in one group", function()
         T.truthy(c.shared >= 10, c.class .. " shares " .. c.shared .. " spells with Daylight UI's list")
         found[c.class], sets[c.set] = true, true
     end
+    -- Each class's variants run once, across the groups.
     local grouped = {}
     for _, list in pairs(SW.GROUPS) do
-        for _, name in ipairs(list) do
+        for _, entry in ipairs(list) do
+            local name, variants = SW.Entry(entry)
             T.truthy(found[name], name .. " is a catalogue class")
-            T.isnil(grouped[name], name .. " is in one group")
-            grouped[name] = true
+            for _, v in ipairs(variants) do
+                local id = name .. " " .. v
+                T.isnil(grouped[id], id .. " is in one group")
+                grouped[id] = true
+            end
         end
     end
-    for name in pairs(found) do T.truthy(grouped[name], name .. " is in a group") end
+    for name in pairs(found) do
+        for _, v in ipairs(SW.VARIANT_ORDER) do T.truthy(grouped[name .. " " .. v], name .. " " .. v .. " is in a group") end
+    end
     T.eq(T.count(found), 9)
 end)
 

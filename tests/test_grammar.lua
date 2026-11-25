@@ -185,7 +185,8 @@ end)
 T.test("grammar: gray and color go with cooldown only, and sounds only where Daylight UI has one", function()
     local _, _, G = world()
     for _, m in ipairs(G.MOMENTS) do
-        T.eq(G.MAP[m].gray ~= nil, m == "cooldown" or m == "unusable" or m == "blocked" or m == "noBuff", m .. " gray")
+        T.eq(G.MAP[m].gray ~= nil, m == "cooldown" or m == "unusable" or m == "blocked" or m == "noBuff"
+            or m == "outOfRange" or m == "targetCasting" or m == "onlyGcd", m .. " gray")
         T.eq(G.MAP[m].color ~= nil, m == "cooldown", m .. " color")
     end
     T.eq(G.MAP.blocked.gray.cond, "cantCast", "can't cast gray is EZ-CDM's condition")
@@ -266,6 +267,17 @@ local CASES = {
     { L("almost", "numbers", COLOR), { look = { low = true, lowColor = COLOR } } },
     { { moment = "almost", action = "numbers", at = 5 }, { look = { low = true, lowAt = 5 } } },
 }
+
+-- Batch A's conditions (test_batch_a): each action is EZ-CDM's own field.
+local BATCH_A = { "hasTarget", "targetEnemy", "targetBoss", "outOfRange", "targetCasting", "onlyGcd", "formBear",
+                  "formCat", "formAquatic", "formTravel", "formMoonkin", "formStealth", "formBattle", "formDefensive",
+                  "formBerserker", "totemUp", "weaponBuffMissing", "inCombat", "noCombat", "inGroup", "inInstance" }
+local GRAYS = { outOfRange = true, targetCasting = true, onlyGcd = true }
+for _, k in ipairs(BATCH_A) do
+    CASES[#CASES + 1] = { L(k, "glow"), { ["ez:" .. k .. ":glow"] = true } }
+    CASES[#CASES + 1] = { L(k, "sound", SOUND), { ["ez:" .. k .. ":sound"] = { value = SOUND } } }
+    if GRAYS[k] then CASES[#CASES + 1] = { L(k, "gray"), { ["ez:" .. k .. ":gray"] = true } } end
+end
 
 local function withChain(t)
     local out = { chain = {} }
@@ -433,11 +445,24 @@ end)
 -- Step 3: applicability
 -- ---------------------------------------------------------------------
 
--- Words(kind) as text: "ready(show,fade) up(glow)".
+-- Batch A's moments, which test_batch_a checks; the card checks here leave them out.
+local BATCH_MOMENT = {}
+for _, k in ipairs(BATCH_A) do BATCH_MOMENT[k] = true end
+
+-- Words(kind) as text, batch A's left out: "ready(show,fade) up(glow)".
 local function wordsOf(G, kind)
     local out = {}
-    for _, e in ipairs(G.Words(kind)) do out[#out + 1] = e.moment .. "(" .. table.concat(e.actions, ",") .. ")" end
+    for _, e in ipairs(G.Words(kind)) do
+        if not BATCH_MOMENT[e.moment] then out[#out + 1] = e.moment .. "(" .. table.concat(e.actions, ",") .. ")" end
+    end
     return table.concat(out, " ")
+end
+local function cardMoments(G, kind)
+    local n = 0
+    for _, e in ipairs(G.Words(kind)) do
+        if not BATCH_MOMENT[e.moment] then n = n + 1 end
+    end
+    return n
 end
 
 -- A layout with one piece of each kind, drawn once. hidden = the game's buff rows
@@ -1156,7 +1181,7 @@ local function cardWords(G, AB, id)
         for _, a in ipairs(G.ACTIONS) do
             if offered[m] and offered[m][a] then acts[#acts + 1] = a end
         end
-        if #acts > 0 then out[#out + 1] = m .. "(" .. table.concat(acts, ",") .. ")" end
+        if #acts > 0 and not BATCH_MOMENT[m] then out[#out + 1] = m .. "(" .. table.concat(acts, ",") .. ")" end
     end
     local extras = {}
     for _, e in ipairs(G.EXTRAS) do
@@ -1635,7 +1660,7 @@ T.test("grammar vs card: the shaman's element pieces", function()
             T.eq(ns.Bridge.Shows(el, set.pieces[el]), "both", el .. ": Totem and buff")
             agrees(G, AB, el, el .. (hidden and ", buff rows hidden" or ""))
             if not hidden then
-                T.eq(#G.Words(G.Kind(el)), 12, el .. ": all 11 of the card's moments, and EZ-CDM's can't cast")
+                T.eq(cardMoments(G, G.Kind(el)), 12, el .. ": all 11 of the card's moments, and EZ-CDM's can't cast")
             end
         end
         noErrors()

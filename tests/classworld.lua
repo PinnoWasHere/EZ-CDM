@@ -154,6 +154,11 @@ function W.World(c, opts)
     local fam = W.Families()
     stub.neverSecretAuras = {}
     local DUI, ns = stub.LoadPlugin({ actionbars = true, login = false, before = function()
+        -- No form and out of stealth until w.Form; no spell checks range until w.HasRange.
+        _G.GetShapeshiftFormInfo = function() return nil end
+        _G.IsStealthed = function() return false end
+        C_Spell.SpellHasRange = function() return false end
+        C_Spell.EnableSpellRangeCheck = function() end
         local power = W.POWER[c.class] or { 0, "MANA", "Mana" }
         _G[power[2]] = power[3]
         stub.SetUnits({ player = { name = "Me", class = c.class, friend = true, powerType = power[1],
@@ -321,6 +326,28 @@ W.EVENT_DRIVERS = {
     UNIT_HEALTH = function(w) w.Unit("player", {}) end,
     UNIT_POWER_UPDATE = function(w) w.Unit("player", {}) end,
     UNIT_FLAGS = function(w) w.Unit("target", {}) end,
+    UNIT_FACTION = function(w) w.Unit("target", {}) end,
+    UNIT_CLASSIFICATION_CHANGED = function(w) w.Unit("target", {}) end,
+    SPELL_RANGE_CHECK_UPDATE = function(w) w.Range(true) end,
+    UNIT_SPELLCAST_START = function(w) w.TargetCasts("cast") end,
+    UNIT_SPELLCAST_STOP = function(w) w.TargetCasts(nil) end,
+    UNIT_SPELLCAST_FAILED = function(w) w.TargetCasts(nil, "FAILED") end,
+    UNIT_SPELLCAST_INTERRUPTED = function(w) w.TargetCasts(nil, "INTERRUPTED") end,
+    UNIT_SPELLCAST_CHANNEL_START = function(w) w.TargetCasts("channel") end,
+    UNIT_SPELLCAST_CHANNEL_STOP = function(w) w.TargetCasts(nil, "CHANNEL_STOP") end,
+    UNIT_SPELLCAST_SUCCEEDED = function(w) w.Cast(w.c.rows[1].spell) end,
+    UPDATE_SHAPESHIFT_FORM = function(w) w.Form(nil) end,
+    UPDATE_SHAPESHIFT_FORMS = function(w) w.Form(nil) end,
+    UPDATE_STEALTH = function(w) w.Form(nil) end,
+    PLAYER_TOTEM_UPDATE = function(w) w.Totem(1, nil) end,
+    WEAPON_ENCHANT_CHANGED = function(w) w.Enchant({}) end,
+    PLAYER_EQUIPMENT_CHANGED = function(w) w.Enchant({}) end,
+    UNIT_INVENTORY_CHANGED = function(w) w.Enchant({}) end,
+    PLAYER_REGEN_DISABLED = function(w) w.EnterCombat() end,
+    PLAYER_REGEN_ENABLED = function(w) w.EnterCombat(); w.LeaveCombat() end,
+    GROUP_ROSTER_UPDATE = function(w) w.Group(false) end,
+    PLAYER_ENTERING_WORLD = function(w) w.Instance(nil) end,
+    ZONE_CHANGED_NEW_AREA = function(w) w.Instance(nil) end,
 }
 W.HANDLER_DRIVERS = {
     changed = function(w) w.Usable(true, false) end,
@@ -339,6 +366,18 @@ function W.Build(class, opts)
     local function login(o)
         w.DUI, w.ns, w.AB = W.World(c, o)
         client(opts.spec or 1)
+        -- The range checks EZ-CDM turns on, and the spells only the GCD holds (w.Gcd).
+        w.rangeChecks, w.gcd = {}, {}
+        C_Spell.EnableSpellRangeCheck = function(id, on) w.rangeChecks[id] = on end
+        local cooldown = C_Spell.GetSpellCooldown
+        C_Spell.GetSpellCooldown = function(id)
+            local info = cooldown(id)
+            if not w.gcd[id] then return info end
+            local out = {}
+            for k, v in pairs(type(info) == "table" and info or {}) do out[k] = v end
+            out.isActive, out.isOnGCD = true, true
+            return out
+        end
     end
     login(opts)
     local casts = 0
@@ -429,11 +468,106 @@ function W.Build(class, opts)
         stub.units[unit] = stub.units[unit] or {}
         for k, v in pairs(fields or {}) do stub.units[unit][k] = v end
         if unit == "target" then stub.FireEvent("PLAYER_TARGET_CHANGED") end
-        for _, e in ipairs({ "UNIT_HEALTH", "UNIT_POWER_UPDATE", "UNIT_FLAGS" }) do stub.FireEvent(e, unit) end
+        for _, e in ipairs({ "UNIT_HEALTH", "UNIT_POWER_UPDATE", "UNIT_FLAGS", "UNIT_FACTION", "UNIT_CLASSIFICATION_CHANGED" }) do
+            stub.FireEvent(e, unit)
+        end
         run()
     end
     function w.Tick(n)
         for _ = 1, n or 1 do w.ns.Conditions.Tick() end
+        run()
+    end
+    -- Batch A's drivers (Conditions.lua): each sets the fake game's answer, then sends
+    -- the event the client sends.
+
+    -- ids = { [spell id] = true }: the spells whose range the game checks.
+    function w.HasRange(ids)
+        C_Spell.SpellHasRange = function(id) return ids[id] == true end
+    end
+    -- The target in range (true), out of it (false) or no answer (nil); a secret too.
+    function w.Range(v)
+        C_Spell.IsSpellInRange = function(_, u)
+            if u == "target" and stub.units.target then return v end
+        end
+        stub.FireEvent("SPELL_RANGE_CHECK_UPDATE", 0, v, true)
+        run()
+    end
+    -- The target casts ("cast"), channels ("channel") or stops (nil). ending names how
+    -- a cast ends: "STOP" (the default), "FAILED", "INTERRUPTED" or "CHANNEL_STOP".
+    function w.TargetCasts(kind, ending)
+        local t = stub.units.target
+        if not t then return end
+        t.cast = kind == "cast" and { name = "Fireball" } or nil
+        t.channel = kind == "channel" and { name = "Drain Life" } or nil
+        local e = kind == "cast" and "START" or kind == "channel" and "CHANNEL_START" or ending or "STOP"
+        stub.FireEvent("UNIT_SPELLCAST_" .. e, "target")
+        run()
+    end
+    -- Only the global cooldown holds spell id (on), or nothing does.
+    function w.Gcd(id, on)
+        w.gcd[id] = on and true or nil
+        stub.FireEvent("SPELL_UPDATE_COOLDOWN")
+        run()
+    end
+    -- In the class's form key (Daylight UI's CdmEffects.FORMS), or none for nil. A
+    -- form's answer is secret with o.secret.
+    function w.Form(key, o)
+        local forms = (w.ns.Bridge.Forms() or {})[c.class] or {}
+        local bar = {}
+        for _, f in ipairs(forms) do
+            if f.spells and not f.stealth then bar[#bar + 1] = f end
+        end
+        stub.forms = #bar
+        _G.GetShapeshiftFormInfo = function(i)
+            local f = bar[i]
+            if not f then return nil end
+            local on = f.key == key
+            if o and o.secret then on = stub.Secret(on) end
+            return "icon", on, true, f.spells[1]
+        end
+        _G.IsStealthed = function()
+            for _, f in ipairs(forms) do
+                if f.stealth and f.key == key then return true end
+            end
+            return false
+        end
+        stub.FireEvent("UPDATE_SHAPESHIFT_FORMS")
+        stub.FireEvent("UPDATE_SHAPESHIFT_FORM")
+        stub.FireEvent("UPDATE_STEALTH")
+        run()
+    end
+    -- Totem spell id stands in slot after your cast of it; nil empties the slot.
+    function w.Totem(slot, id)
+        stub.totems[slot] = id and { spell = id, duration = stub.Duration(30) } or nil
+        if id then w.Cast(id) end
+        stub.FireEvent("PLAYER_TOTEM_UPDATE", slot)
+        run()
+    end
+    -- The weapons' enchants: { { slot = Enum.WeaponSlot, enchantID } }.
+    function w.Enchant(list)
+        stub.SetWeaponEnchants(list)
+        stub.FireEvent("PLAYER_EQUIPMENT_CHANGED")
+        stub.FireEvent("WEAPON_ENCHANT_CHANGED")
+        stub.FireEvent("UNIT_INVENTORY_CHANGED", "player")
+        run()
+    end
+    function w.Group(on)
+        -- In a group EZ-CDM tells its version over the game's addon messages.
+        _G.C_ChatInfo = _G.C_ChatInfo or {
+            SendAddonMessage = function() return 0 end,
+            InChatMessagingLockdown = function() return false end,
+            AreOutgoingAddonChatMessagesRestricted = function() return false end,
+        }
+        stub.inGroup = on and true or false
+        stub.FireEvent("GROUP_ROSTER_UPDATE")
+        run()
+    end
+    -- Where you are: "party", "raid", "pvp", "arena", or nil for the open world. The
+    -- client sends both after the loading screen.
+    function w.Instance(kind)
+        stub.SetInstance(kind)
+        stub.FireEvent("PLAYER_ENTERING_WORLD")
+        stub.FireEvent("ZONE_CHANGED_NEW_AREA")
         run()
     end
     function w.EnterCombat() stub.EnterCombat(); run() end

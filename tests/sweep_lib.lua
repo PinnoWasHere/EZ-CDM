@@ -537,17 +537,21 @@ end
 -- the class's named untimed pieces are among them.
 SW.UNTIMED_NAMED = { SHAMAN = { "Ghost Wolf" }, PRIEST = { "Shadowform" }, DRUID = { "Moonkin Aura" } }
 function SW.UntimedTests(group)
-    for _, class in ipairs(SW.GROUPS[group]) do
-        T.test("sweep untimed: " .. class .. " pieces that never fall off offer no recast", function()
-            local seen = {}
-            for _, u in ipairs(SW.Untimed(class)) do
-                seen[u.name] = true
-                T.falsy(u.recast, class .. " " .. u.name .. " (" .. tostring(u.key) .. ") offers the recast moment")
-            end
-            for _, name in ipairs(SW.UNTIMED_NAMED[class] or {}) do
-                T.truthy(seen[name], class .. " " .. name .. " is placed and untimed")
-            end
-        end)
+    for _, entry in ipairs(SW.GROUPS[group]) do
+        local class, variants = SW.Entry(entry)
+        -- Once per class: in the group that holds its first variant.
+        if variants[1] == SW.VARIANT_ORDER[1] then
+            T.test("sweep untimed: " .. class .. " pieces that never fall off offer no recast", function()
+                local seen = {}
+                for _, u in ipairs(SW.Untimed(class)) do
+                    seen[u.name] = true
+                    T.falsy(u.recast, class .. " " .. u.name .. " (" .. tostring(u.key) .. ") offers the recast moment")
+                end
+                for _, name in ipairs(SW.UNTIMED_NAMED[class] or {}) do
+                    T.truthy(seen[name], class .. " " .. name .. " is placed and untimed")
+                end
+            end)
+        end
     end
 end
 
@@ -888,14 +892,26 @@ end
 -- ---------------------------------------------------------------------
 
 -- The class groups, one test file each (each fits the run's per-file CPU budget).
+-- An entry is a class, every variant, or "CLASS:variant" for that variant only.
 SW.GROUPS = {
-    a = { "DRUID" },
-    b = { "PALADIN", "PRIEST" },
-    c = { "SHAMAN", "WARLOCK" },
-    d = { "ROGUE", "WARRIOR" },
+    a = { "DRUID:shown", "DRUID:hidden" },
+    b = { "PALADIN" },
+    c = { "SHAMAN" },
+    d = { "ROGUE" },
     e = { "MAGE" },
-    f = { "HUNTER" },
+    f = { "HUNTER:shown", "HUNTER:hidden" },
+    g = { "PRIEST" },
+    h = { "WARLOCK" },
+    i = { "WARRIOR:shown", "WARRIOR:hidden" },
+    j = { "DRUID:bars", "HUNTER:bars", "WARRIOR:bars" },
 }
+
+-- A group entry's class and its variants.
+function SW.Entry(entry)
+    local class, variant = entry:match("^(%u+):(%a+)$")
+    if class then return class, { variant } end
+    return entry, SW.VARIANT_ORDER
+end
 
 SW.CHECKS = {
     { "world", "the world loads and the tray's pieces place" },
@@ -916,9 +932,10 @@ SW.CHECKS = {
 --   sweep known rule still seen: <name>                 fails once a rule meets nothing
 function SW.Tests(group)
     local seenRule = {}
-    for _, name in ipairs(SW.GROUPS[group]) do
+    for _, entry in ipairs(SW.GROUPS[group]) do
+        local name, variants = SW.Entry(entry)
         local c = SW.Class(name)
-        for _, variant in ipairs(SW.VARIANT_ORDER) do
+        for _, variant in ipairs(variants) do
             local tag = name .. " " .. variant
             local res = c and SW.Run(c, variant) or { counts = {}, fails = {} }
             for _, check in ipairs(SW.CHECKS) do
@@ -981,7 +998,7 @@ function SW.Tests(group)
     for _, k in ipairs(SW.KNOWN) do
         local here = k.classes == nil
         for _, cl in ipairs(k.classes or {}) do
-            for _, name in ipairs(SW.GROUPS[group]) do here = here or cl == name end
+            for _, entry in ipairs(SW.GROUPS[group]) do here = here or cl == (SW.Entry(entry)) end
         end
         if here then
             T.test("sweep known rule still seen: " .. k.name, function()

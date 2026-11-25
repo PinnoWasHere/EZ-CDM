@@ -359,6 +359,33 @@ local function realCooldown(key)
     return v:find("c", 1, true) ~= nil
 end
 
+-- Whether the client's tables give a piece's spell a letter (AuraLinks.spells): true,
+-- else nil.
+local function lettered(key, ch)
+    local v = letters(Bridge.SpellOf(key))
+    return v ~= nil and v:find(ch, 1, true) ~= nil or nil
+end
+
+-- The enchant ids a piece's weapon buff cast puts on a weapon, any rank's, as a set
+-- (AuraLinks.imbues), or nil for a piece that casts none.
+function Grammar.Imbues(key)
+    local t = type(ns.AuraLinks) == "table" and ns.AuraLinks.imbues
+    local list = type(t) == "table" and t[Bridge.SpellOf(key)]
+    if type(list) ~= "table" then return nil end
+    local out = {}
+    for _, id in ipairs(list) do out[id] = true end
+    return out
+end
+
+-- Whether a piece's spell checks range to a target: the game's own answer, nil when
+-- it won't say.
+local function ranged(key)
+    local sid = Bridge.SpellOf(key)
+    local S = type(C_Spell) == "table" and C_Spell or {}
+    if sid == nil or type(S.SpellHasRange) ~= "function" then return nil end
+    return plain(S.SpellHasRange(sid)) == true or nil
+end
+
 -- The aura a piece shows by the client's tables, "debuff" or "buff": a debuff when
 -- its spell or any id it holds puts one on an enemy, else a buff when one puts one
 -- up. nil when the tables name no aura.
@@ -412,6 +439,11 @@ end
 --                    shows as one): no almost or cooling down words but the sweep's
 --   aura             "debuff" or "buff", the aura its words name: the client's
 --                    tables, else a harmful spell's debuff, else a buff
+--   ranged           its spell checks range to a target (C_Spell.SpellHasRange)
+--   interrupt        its spell interrupts a cast (AuraLinks.spells "i")
+--   gcd              the global cooldown touches its spell (AuraLinks.spells "g")
+--   imbue            its spell puts a buff on a weapon (AuraLinks.imbues)
+--   totem            its spell is a timed totem (Bridge.IsTotem)
 -- Form rows show for cooldowns of a class with forms (CdmCard.lua:817).
 -- Totems take no case of their own. Bridge.Shows (CdmOwn.Track) says "totem" for a
 -- totem with no buff and "both" for a Shaman element piece (CdmOwn.lua:108-130), and
@@ -479,6 +511,11 @@ function Grammar.Kind(key, piece, shows)
         untimed = untimed(key),
         buffEvents = Effects.Covered(key),
         noCooldown = realCooldown(key) == false and not Bridge.IsTotem(key) or nil,
+        ranged = ranged(key),
+        interrupt = lettered(key, "i"),
+        gcd = lettered(key, "g"),
+        imbue = Grammar.Imbues(key) ~= nil or nil,
+        totem = Bridge.IsTotem(key) or nil,
     }
     kind.aura = auraOf(key) or (kind.harmful == true and "debuff") or "buff"
     -- A proc is your own: a buff with a spell (a weapon enchant has none, so the card

@@ -49,11 +49,11 @@ local function saysBuff(text) return tostring(text):find("%f[%a]buff%f[%A]") ~= 
 T.test("data: the shipped spell facts name cooldowns and auras from the client's tables", function()
     local spells = W.Links().spells
     T.truthy(type(spells) == "table", "AuraLinks.spells")
-    T.eq(spells[LHW], "", "Lesser Healing Wave: no cooldown, no aura")
-    T.eq(spells[FLAME], "cd", "Flame Shock: a cooldown (its category's 6 s) and a debuff")
-    T.eq(spells[SHIELD], "b", "Lightning Shield: a buff, no cooldown")
-    T.eq(spells[122], "cd", "Frost Nova")
-    T.eq(spells[20271], "c", "Judgement: its own 10 s")
+    T.eq(spells[LHW], "g", "Lesser Healing Wave: no cooldown, no aura, on the global cooldown")
+    T.eq(spells[FLAME], "cdg", "Flame Shock: a cooldown (its category's 6 s) and a debuff")
+    T.eq(spells[SHIELD], "bg", "Lightning Shield: a buff, no cooldown")
+    T.eq(spells[122], "cdg", "Frost Nova")
+    T.eq(spells[20271], "c", "Judgement: its own 10 s, off the global cooldown")
 end)
 
 T.test("data: the facts agree with Daylight UI's own cooldowns and the catalogue's aura targets", function()

@@ -34,7 +34,11 @@ local addonName, ns = ...
 --              ways. Its words.never[key] says why. A "cooldown" and a "buff" part
 --              never hold together either
 --   clauseOnly optional: offered only after "and", never as a line's moment
---   detail(key)  optional: plain fields for the dev log
+--   detail(key)  optional: the game's answers it reads, for the dev log, each plain or
+--              Conditions.SECRET
+--   using(keys)  optional: told on each sync which pieces' rules use it ({ [key] =
+--              true }, empty when none), so it can ask the game for the events it
+--              needs (a spell's range check)
 --   events     { game = { "EVENT" or { "EVENT", unit } }, daylight = { WatchCooldown
 --              handler names } }: what may change it
 --   priority   optional: on one effect, the higher lit condition wins (default 0)
@@ -124,6 +128,7 @@ local function problem(c)
     for _, h in ipairs(ev.daylight or {}) do
         if not Conditions.DAYLIGHT[h] then return "bad handler" end
     end
+    if c.using ~= nil and type(c.using) ~= "function" then return "bad using" end
     if badParam(c.param) then return "bad param" end
     if c.ticker and c.secrecy ~= "client" then return "bad ticker" end
     if not Conditions.LAYERS[c.layer] then return "bad layer" end
@@ -711,6 +716,18 @@ local function sync()
         end
     end
     rules = now
+    local users = {}
+    for k, r in pairs(now) do
+        for ck, c in pairs(usedBy(r)) do
+            if c.using then
+                users[ck] = users[ck] or {}
+                users[ck][k] = true
+            end
+        end
+    end
+    for _, c in ipairs(list) do
+        if c.using then c.using(users[c.key] or {}) end
+    end
     for k, h in pairs(watches) do
         local names = now[k] and table.concat(handlersFor(now[k], k), " ")
         if names ~= watchedWith[k] then
@@ -1000,6 +1017,375 @@ Conditions.Register({
     events = { daylight = { "buffUp", "buffDown", "changed" } },
     secrecy = "plain", layer = "any", excludes = {},
     words = { moment = "While its buff isn't active", clause = "its buff isn't active" },
+})
+
+-- ---------------------------------------------------------------------
+-- Wave 1, batch A: the game's plain answers (docs/specs/conditions-waves.md)
+-- ---------------------------------------------------------------------
+
+local function secret(v) return type(issecretvalue) == "function" and issecretvalue(v) == true end
+local function secretTable(t) return type(issecrettable) == "function" and issecrettable(t) == true end
+
+-- A game answer for the dev log: Conditions.SECRET while the game keeps it.
+local function logged(v)
+    if secret(v) then return Conditions.SECRET end
+    return v
+end
+
+-- A piece's key as Daylight UI's calls take it: a game cooldown's id is a number.
+local function pieceKey(k) return tonumber(k) or k end
+local function spellOf(k) return Bridge.SpellOf(pieceKey(k)) end
+
+-- A fresh actions table each, since Register adds a sound to a plain one's. Gray
+-- stays with the cooldown icon's words, as Daylight UI's card keeps it.
+local function grayOrGlow() return { gray = WASH_GRAY, glow = GLOW } end
+local function glowOnly() return { glow = GLOW } end
+local function anyPiece() return true end
+
+-- Whether you have a target: true or false, nil when the game won't say.
+local function targetNow()
+    local v = UnitExists("target")
+    if secret(v) then return nil end
+    return v and true or false
+end
+
+-- A question about the target: false with no target, else ask's answer, nil when
+-- the game keeps it secret.
+local function ofTarget(ask)
+    local t = targetNow()
+    if t ~= true then return t end
+    local v = ask()
+    if secret(v) then return nil end
+    return v
+end
+
+Conditions.Register({
+    key = "hasTarget", moment = "hasTarget", actions = glowOnly(), fits = anyPiece,
+    read = targetNow,
+    detail = function() return { target = logged(UnitExists("target")) } end,
+    events = { game = { "PLAYER_TARGET_CHANGED" } }, secrecy = "plain", layer = "any", excludes = {},
+    words = { moment = "When I have a target", clause = "I have a target" },
+})
+
+Conditions.Register({
+    key = "targetEnemy", moment = "targetEnemy", actions = glowOnly(), fits = anyPiece,
+    read = function()
+        return ofTarget(function()
+            local v = UnitCanAttack("player", "target")
+            if secret(v) then return v end
+            return v and true or false
+        end)
+    end,
+    detail = function()
+        return { target = logged(UnitExists("target")), canAttack = logged(UnitCanAttack("player", "target")) }
+    end,
+    events = { game = { "PLAYER_TARGET_CHANGED", { "UNIT_FLAGS", "target" }, { "UNIT_FACTION", "target" } } },
+    secrecy = "plain", layer = "any", excludes = {},
+    words = { moment = "When my target is an enemy", clause = "my target is an enemy" },
+})
+
+-- A boss as Daylight UI's nameplates tell one: a world boss, or the game's boss mob.
+Conditions.Register({
+    key = "targetBoss", moment = "targetBoss", actions = glowOnly(), fits = anyPiece,
+    read = function()
+        return ofTarget(function()
+            local class = UnitClassification("target")
+            if secret(class) then return class end
+            if class == "worldboss" then return true end
+            local boss = UnitIsBossMob("target")
+            if secret(boss) then return boss end
+            return boss == true
+        end)
+    end,
+    detail = function()
+        return { target = logged(UnitExists("target")), classification = logged(UnitClassification("target")),
+                 bossMob = logged(UnitIsBossMob("target")) }
+    end,
+    events = { game = { "PLAYER_TARGET_CHANGED", { "UNIT_CLASSIFICATION_CHANGED", "target" } } },
+    secrecy = "plain", layer = "any", excludes = {},
+    words = { moment = "When my target is a boss", clause = "my target is a boss" },
+})
+
+-- The target is out of this spell's range. The game sends SPELL_RANGE_CHECK_UPDATE
+-- only for a spell whose check is on, so each ruled piece's spell has its check on
+-- while a rule uses it.
+local rangeChecked = {}
+Conditions.Register({
+    key = "outOfRange", moment = "outOfRange", actions = grayOrGlow(),
+    fits = function(kind) return kind.ranged == true and castable(kind) end,
+    read = function(k)
+        local sid = spellOf(k)
+        if type(sid) ~= "number" then return nil end
+        local v = ofTarget(function() return C_Spell.IsSpellInRange(sid, "target") end)
+        if v == nil then return nil end
+        return v == false
+    end,
+    detail = function(k)
+        local sid = spellOf(k)
+        return { spell = sid, target = logged(UnitExists("target")),
+                 inRange = type(sid) == "number" and logged(C_Spell.IsSpellInRange(sid, "target")) or nil }
+    end,
+    using = function(keys)
+        local want = {}
+        for k in pairs(keys) do
+            local sid = spellOf(k)
+            if type(sid) == "number" then want[sid] = true end
+        end
+        for sid in pairs(rangeChecked) do
+            if not want[sid] then
+                C_Spell.EnableSpellRangeCheck(sid, false)
+                rangeChecked[sid] = nil
+            end
+        end
+        for sid in pairs(want) do
+            if not rangeChecked[sid] then
+                C_Spell.EnableSpellRangeCheck(sid, true)
+                rangeChecked[sid] = true
+            end
+        end
+    end,
+    events = { game = { "PLAYER_TARGET_CHANGED", "SPELL_RANGE_CHECK_UPDATE" } },
+    secrecy = "plain", layer = "cooldown", excludes = {},
+    words = { moment = "When my target is out of range", clause = "my target is out of range" },
+})
+
+-- The target casts or channels. A cast's fields go secret in restricted fights, but
+-- whether the call returned one is a plain type, as Daylight UI's cast bars read it
+-- (CastBar.lua). Offered on interrupts.
+local function castingNow()
+    local cast = UnitCastingInfo("target")
+    if type(cast) ~= "nil" then return true end
+    local channel = UnitChannelInfo("target")
+    return type(channel) ~= "nil"
+end
+Conditions.Register({
+    key = "targetCasting", moment = "targetCasting", actions = grayOrGlow(),
+    fits = function(kind) return kind.interrupt == true and castable(kind) end,
+    read = function() return ofTarget(castingNow) end,
+    detail = function()
+        local cast, channel = UnitCastingInfo("target"), UnitChannelInfo("target")
+        return { target = logged(UnitExists("target")), casting = type(cast) ~= "nil", channel = type(channel) ~= "nil" }
+    end,
+    events = { game = { "PLAYER_TARGET_CHANGED", { "UNIT_SPELLCAST_START", "target" },
+                        { "UNIT_SPELLCAST_STOP", "target" }, { "UNIT_SPELLCAST_FAILED", "target" },
+                        { "UNIT_SPELLCAST_INTERRUPTED", "target" }, { "UNIT_SPELLCAST_CHANNEL_START", "target" },
+                        { "UNIT_SPELLCAST_CHANNEL_STOP", "target" } } },
+    secrecy = "plain", layer = "cooldown", excludes = {},
+    words = { moment = "When my target is casting", clause = "my target is casting" },
+})
+
+-- Only the global cooldown holds it. isOnGCD never goes secret
+-- (SpellSharedDocumentation, NeverSecret) and is current on SPELL_UPDATE_COOLDOWN.
+local function cooldownOf(k)
+    local sid = spellOf(k)
+    local info = type(sid) == "number" and C_Spell.GetSpellCooldown(sid) or nil
+    return sid, type(info) == "table" and info or nil
+end
+Conditions.Register({
+    key = "onlyGcd", moment = "onlyGcd", actions = grayOrGlow(),
+    fits = function(kind) return kind.gcd == true and castable(kind) end,
+    read = function(k)
+        local _, info = cooldownOf(k)
+        if not info or secret(info.isOnGCD) then return nil end
+        return info.isOnGCD == true
+    end,
+    detail = function(k)
+        local sid, info = cooldownOf(k)
+        return { spell = sid, isActive = info and logged(info.isActive), isOnGCD = info and logged(info.isOnGCD) }
+    end,
+    events = { game = { "SPELL_UPDATE_COOLDOWN" }, daylight = { "ready", "started" } },
+    secrecy = "plain", layer = "cooldown", excludes = {},
+    words = { moment = "When it's only on the global cooldown", clause = "it's only on the global cooldown" },
+})
+
+-- Your class's forms, stances and stealth, from Daylight UI's own list
+-- (CdmEffects.FORMS), or nil for a class with none.
+local function myForms()
+    local all, class = Bridge.Forms(), Bridge.MyClass()
+    return type(all) == "table" and class and all[class] or nil
+end
+
+-- The form you're in by its key, "" for none, nil when the game won't say.
+local function formNow()
+    local forms = myForms()
+    if not forms then return nil end
+    local bySpell = {}
+    for _, f in ipairs(forms) do
+        for _, sid in ipairs(f.spells or {}) do bySpell[sid] = f.key end
+    end
+    local n = GetNumShapeshiftForms()
+    if secret(n) then return nil end
+    for i = 1, n or 0 do
+        local _, active, _, sid = GetShapeshiftFormInfo(i)
+        if secret(active) or secret(sid) then return nil end
+        if active and bySpell[sid] then return bySpell[sid] end
+    end
+    for _, f in ipairs(forms) do
+        if f.stealth then
+            local v = IsStealthed()
+            if secret(v) then return nil end
+            if v then return f.key end
+        end
+    end
+    return ""
+end
+
+local FORM_EVENTS = { "UPDATE_SHAPESHIFT_FORM", "UPDATE_SHAPESHIFT_FORMS", "UPDATE_STEALTH" }
+
+-- One condition per form a class can be in, its "no form" left out, offered to that
+-- class only. You're in one at a time.
+local formClasses = {}
+for class in pairs(Bridge.Forms() or {}) do formClasses[#formClasses + 1] = class end
+table.sort(formClasses)
+for _, class in ipairs(formClasses) do
+    local forms = Bridge.Forms()[class]
+    local mine = {}
+    for _, f in ipairs(forms) do
+        if not f.none then mine[#mine + 1] = f end
+    end
+    for _, f in ipairs(mine) do
+        local fkey = f.key
+        local others, never = {}, {}
+        for _, o in ipairs(mine) do
+            if o ~= f then
+                others[#others + 1] = "form" .. o.key
+                never["form" .. o.key] = "I'm in one at a time"
+            end
+        end
+        Conditions.Register({
+            key = "form" .. fkey, moment = "form" .. fkey, actions = glowOnly(),
+            fits = function()
+                for _, o in ipairs(myForms() or {}) do
+                    if o.key == fkey then return true end
+                end
+                return false
+            end,
+            read = function()
+                local now = formNow()
+                if now == nil then return nil end
+                return now == fkey
+            end,
+            detail = function()
+                local now = formNow()
+                return { form = now == "" and "none" or now, stealthed = logged(IsStealthed()) }
+            end,
+            events = { game = FORM_EVENTS }, secrecy = "plain", layer = "any", excludes = others,
+            words = { moment = "When I'm in " .. f.name, clause = "I'm in " .. f.name, never = never },
+        })
+    end
+end
+
+-- This spell's totem stands (Bridge.TotemUp).
+Conditions.Register({
+    key = "totemUp", moment = "totemUp", actions = glowOnly(),
+    fits = function(kind) return kind.totem == true end,
+    read = function(k) return Bridge.TotemUp(spellOf(k)) end,
+    detail = function(k) return { spell = spellOf(k), up = Bridge.TotemUp(spellOf(k)) } end,
+    events = { game = { "PLAYER_TOTEM_UPDATE", { "UNIT_SPELLCAST_SUCCEEDED", "player" } },
+               daylight = { "changed", "ready", "started" } },
+    secrecy = "plain", layer = "any", excludes = {},
+    words = { moment = "While my totem stands", clause = "my totem stands" },
+})
+
+-- Each weapon slot's enchant list, or nil when the client refuses the read. The
+-- client answers weapon enchants plainly in a fight (Daylight UI's Weapons.lua).
+local function weaponEnchants()
+    local lists = {}
+    local ok = Bridge.SafeCall(function()
+        for _, slot in pairs(Enum.WeaponSlot) do lists[#lists + 1] = C_Item.GetWeaponEnchantInfo(slot) end
+    end)
+    if not ok then return nil end
+    return lists
+end
+
+-- Whether a weapon holds one of the enchant ids in want: true or false, nil when the
+-- game won't say.
+local function enchanted(want)
+    local lists = weaponEnchants()
+    if not lists then return nil end
+    local found = false
+    for _, list in ipairs(lists) do
+        if secretTable(list) then return nil end
+        for _, e in ipairs(list) do
+            if secretTable(e) or secret(e.hasEnchant) or secret(e.enchantID) then return nil end
+            if e.hasEnchant and want[e.enchantID] then found = true end
+        end
+    end
+    return found
+end
+
+-- No weapon holds this spell's weapon buff, any rank's (Grammar.Imbues).
+Conditions.Register({
+    key = "weaponBuffMissing", moment = "weaponBuffMissing", actions = glowOnly(),
+    fits = function(kind) return kind.imbue == true end,
+    read = function(k)
+        local want = ns.Grammar and ns.Grammar.Imbues(pieceKey(k))
+        if not want then return nil end
+        local on = enchanted(want)
+        if on == nil then return nil end
+        return not on
+    end,
+    detail = function()
+        local lists = weaponEnchants()
+        if not lists then return { enchants = "refused" } end
+        local ids = {}
+        for _, list in ipairs(lists) do
+            for _, e in ipairs(secretTable(list) and {} or list) do ids[#ids + 1] = tostring(logged(e.enchantID)) end
+        end
+        return { enchants = #ids > 0 and table.concat(ids, ",") or "none" }
+    end,
+    events = { game = { "WEAPON_ENCHANT_CHANGED", "PLAYER_EQUIPMENT_CHANGED", { "UNIT_INVENTORY_CHANGED", "player" } } },
+    secrecy = "plain", layer = "any", excludes = {},
+    words = { moment = "When my weapon buff is missing", clause = "my weapon buff is missing" },
+})
+
+-- What you're doing and where, per spell, as Daylight UI's group rules read them
+-- (CdmRows.Now). Advanced, since they mostly follow "and".
+local COMBAT_EVENTS = { "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED" }
+
+Conditions.Register({
+    key = "inCombat", moment = "inCombat", actions = glowOnly(), fits = anyPiece, advanced = true,
+    read = function() return InCombatLockdown() == true end,
+    detail = function() return { inCombat = InCombatLockdown() == true } end,
+    events = { game = COMBAT_EVENTS }, secrecy = "plain", layer = "any", excludes = { "noCombat" },
+    words = { moment = "When I'm in combat", clause = "I'm in combat",
+              never = { noCombat = "I'm in combat or out of it" } },
+})
+
+Conditions.Register({
+    key = "noCombat", moment = "noCombat", actions = glowOnly(), fits = anyPiece, advanced = true,
+    read = function() return InCombatLockdown() ~= true end,
+    detail = function() return { inCombat = InCombatLockdown() == true } end,
+    events = { game = COMBAT_EVENTS }, secrecy = "plain", layer = "any", excludes = { "inCombat" },
+    words = { moment = "When I'm out of combat", clause = "I'm out of combat" },
+})
+
+Conditions.Register({
+    key = "inGroup", moment = "inGroup", actions = glowOnly(), fits = anyPiece, advanced = true,
+    read = function()
+        local v = IsInGroup()
+        if secret(v) then return nil end
+        return v == true
+    end,
+    detail = function() return { group = logged(IsInGroup()) } end,
+    events = { game = { "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD" } },
+    secrecy = "plain", layer = "any", excludes = {},
+    words = { moment = "When I'm in a group", clause = "I'm in a group" },
+})
+
+-- Dungeons, raids, battlegrounds and arenas, as Daylight UI's Show in: Instances.
+local INSTANCES = { party = true, raid = true, pvp = true, arena = true }
+Conditions.Register({
+    key = "inInstance", moment = "inInstance", actions = glowOnly(), fits = anyPiece, advanced = true,
+    read = function()
+        local _, kind = IsInInstance()
+        if secret(kind) then return nil end
+        return INSTANCES[kind] == true
+    end,
+    detail = function() return { instance = logged((select(2, IsInInstance()))) } end,
+    events = { game = { "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA" } },
+    secrecy = "plain", layer = "any", excludes = {},
+    words = { moment = "When I'm in an instance", clause = "I'm in an instance" },
 })
 
 -- Daylight UI's own "While it's cooling down, turn it gray" (Gray out at Gray), drawn
