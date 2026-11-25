@@ -77,6 +77,8 @@ end
 --                  (ezStyles, Effects)
 --   cond           an EZ-CDM condition's line (Conditions.Register, InstallCondition)
 --   glow           an EZ-CDM glow line: the line's value is its color, its style its own
+--   valued         an EZ-CDM look line whose value its effect takes: "color" (nil = the
+--                  accent), "text" or "icon" (nil = not picked yet)
 local MAP = {
     always = { show = { all = SHOW_RULES, value = "show" } },
     ready = showRule("onReady"),
@@ -877,6 +879,14 @@ function Grammar.Words(kind, opts)
     return out
 end
 
+-- What a look line's value holds ("color", "text", "icon"), through a merged
+-- moment's alias; nil for any other line.
+function Grammar.ValueKind(moment, action)
+    local e = MAP[moment] and MAP[moment][action]
+    if e and e.alias and e.merge then e = MAP[e.alias.moment][e.alias.action] end
+    return e and e.valued or nil
+end
+
 -- The EZ-CDM condition a line starts with, or nil.
 function Grammar.LineCondition(line)
     local e = type(line) == "table" and MAP[line.moment] and MAP[line.moment][line.action]
@@ -1099,6 +1109,12 @@ function Grammar.InstallCondition(c)
         c.actions.sound = { effect = "sound" }
     end
     installWords(c)
+    -- The looks join the action words in their own order (Looks.LIST).
+    for _, l in ipairs(Conditions.Looks()) do
+        if c.actions[l.action] and not indexOf(Grammar.ACTIONS, l.action) then
+            Grammar.ACTIONS[#Grammar.ACTIONS + 1] = l.action
+        end
+    end
     local actions = {}
     for a in pairs(c.actions) do actions[#actions + 1] = a end
     table.sort(actions)
@@ -1106,9 +1122,14 @@ function Grammar.InstallCondition(c)
         local field = Conditions.Field(c.key, a)
         local effect = c.actions[a].effect
         MAP[c.moment][a] = { field = field, value = true, cond = c.key, sound = effect == "sound" or nil,
-                             glow = effect == "glow" or nil }
+                             glow = effect == "glow" or nil, valued = Conditions.ValueKind(c.key, a) }
         if not indexOf(Grammar.ACTIONS, a) then Grammar.ACTIONS[#Grammar.ACTIONS + 1] = a end
         if not indexOf(Grammar.EZ_FIELDS, field) then Grammar.EZ_FIELDS[#Grammar.EZ_FIELDS + 1] = field end
+        -- A moment merged into another shows its looks there too, as its glow and sound.
+        local merged = Grammar.MERGED[c.moment]
+        if merged and MAP[merged.into][a] == nil then
+            MAP[merged.into][a] = { alias = { moment = c.moment, action = a }, merge = merged.flag }
+        end
     end
     for _, r in ipairs(c.recipes or {}) do
         if not recipeOf(r.key) and c.actions[r.action] then
@@ -1240,7 +1261,8 @@ local function condSpec(line, entry, kind)
             if not Conditions.ClientSafe(ck, line.action) then return nil, "secret" end
         end
     end
-    local spec = Conditions.Spec(ck, line.action, { n = line.n, value = (entry.sound or entry.glow) and line.value or nil,
+    local spec = Conditions.Spec(ck, line.action, { n = line.n,
+        value = (entry.sound or entry.glow or entry.valued) and line.value or nil,
         style = entry.glow and line.style or nil, clauses = clauses })
     return spec
 end
@@ -1291,6 +1313,12 @@ function Grammar.Compile(rules, kind)
         if entry and entry.cond then spec, condCode = condSpec(line, entry, kind) end
         if type(line) == "table" and (line.moment == nil or line.action == nil) then
             problem({ line = i, code = "blank" })
+        elseif entry and (entry.valued == "text" or entry.valued == "icon") and line.value == nil then
+            -- Its words or its icon aren't picked yet.
+            problem({ line = i, code = "blank" })
+        elseif entry and entry.valued and line.value ~= nil
+            and Conditions.CleanValue(entry.valued, line.value) == nil then
+            problem({ line = i, code = "value" })
         elseif not entry or (line.clauses ~= nil and not entry.cond) then
             problem({ line = i, code = "pair" })
         elseif line.n ~= nil and not entry.cond then
@@ -1450,6 +1478,7 @@ function Grammar.Decompile(fields, kind)
                             line.n = v.n
                             if entry.sound then line.value = v.value end
                             if entry.glow then line.value, line.style = v.value, v.style end
+                            if entry.valued then line.value = v.value end
                             if type(v.clauses) == "table" then
                                 line.clauses = {}
                                 for j, cl in ipairs(v.clauses) do line.clauses[j] = { cond = cl.cond, n = cl.n } end
@@ -1562,7 +1591,17 @@ Grammar.WORDING = {
         gray = "turn it gray", blue = "tint it blue", color = "keep its color", sound = "play a sound",
         nosweep = "hide the sweep", nogcd = "hide the global cooldown sweep", tint = "color the sweep",
         flash = "flash it", numbers = "color the numbers",
+        -- EZ-CDM's looks (Looks.lua).
+        pop = "pop it", shake = "shake it", sparkle = "sparkle", screen = "flash the screen's edge",
+        pulse = "pulse it", border = "color its border", halo = "light a halo behind it",
+        text = "show words on it", swap = "swap its icon",
     },
+    -- A text look's words in a line ("show \"Kick!\" on it"), and its blank.
+    textShown = "show \"%s\" on it",
+    chooseText = "type…",
+    -- An icon look's blank and its picked word.
+    chooseIcon = "pick…",
+    iconPicked = "the icon you picked",
     -- An action's word at one moment, where it differs (an alias's, Grammar.Canonical).
     actionsAt = { ends = { glow = "glow until it's back" } },
     shows = { both = "show its buff, then its cooldown", cooldown = "show its cooldown", buff = "show only its buff" },
@@ -1625,7 +1664,14 @@ Grammar.WORDING = {
         form = "Choose a form:", shows = "Choose what it shows:", style = "Choose a glow style:",
         seconds = "Choose how many seconds:", recipe = "Choose a recipe:",
         clause = "Choose another condition:", number = "Type a number:",
+        text = "Type a few words:", icon = "Choose an icon:",
     },
+    -- Under a one-shot look's line while Daylight UI's motion is off.
+    motionOff = "Daylight UI's motion is off, so this doesn't show.",
+    -- Under the words' box: how many letters they may have (%d).
+    textRange = "Up to %d letters.",
+    -- Daylight UI's icon picker's title.
+    iconTitle = "An icon for this line",
     -- Each recipe's name on its chip (Grammar.RECIPES).
     recipes = {
         readyAlert = "Ready alert", outOfWay = "Hidden", dimCooling = "Dim while cooling",
@@ -1908,6 +1954,10 @@ local function actionWords(line)
         return string.format("%s (%s visible)", WORDING.actions.fade, percent(line.value))
     end
     if (a == "glow" or a == "tint") and line.value then return WORDING.actions[a] .. " in " .. WORDING.picked end
+    local valued = Grammar.ValueKind(line.moment, a)
+    if valued == "color" and line.value then return Grammar.ActionWords(line.moment, a) .. " in " .. WORDING.picked end
+    if valued == "text" and type(line.value) == "string" then return WORDING.textShown:format(line.value) end
+    if valued == "icon" and line.value ~= nil then return Grammar.ActionWords(line.moment, a) .. " for " .. WORDING.iconPicked end
     if a == "numbers" then
         local out = WORDING.actions.numbers
         if line.value then out = out .. " in " .. WORDING.picked end

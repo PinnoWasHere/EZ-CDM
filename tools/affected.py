@@ -24,7 +24,9 @@ EVERY_SHIPPED = ["test_load", "test_hygiene", "test_guards", "test_lag"]
 TOC_TESTS = ["test_load", "test_hygiene", "test_guards"]
 # The every-class sweep: Grammar, Draft, Effects and the Bridge they read, for each class.
 SWEEP = ["test_sweep_a", "test_sweep_b", "test_sweep_c", "test_sweep_d", "test_sweep_e", "test_sweep_f",
-         "test_sweep_g", "test_sweep_h", "test_sweep_i", "test_sweep_j"]
+         "test_sweep_g", "test_sweep_h", "test_sweep_i", "test_sweep_j", "test_sweep_k", "test_sweep_l",
+         "test_sweep_m", "test_sweep_n", "test_sweep_o", "test_sweep_p", "test_sweep_q", "test_sweep_r",
+         "test_sweep_s", "test_sweep_t", "test_sweep_u", "test_sweep_looks_a", "test_sweep_looks_b"]
 # A shipped file's own tests and the tests of the files built on it. Drawer reads
 # Draft; Draft reads Grammar and Effects; all of them read Bridge. Grammar reads the
 # aura links and Effects. Start reads Grammar's words, and shares the editor's hooks
@@ -39,6 +41,7 @@ BUILT_ON = {
     "Start.lua": ["test_start", "test_drawer", "test_tour"],
     "Drawer.lua": ["test_drawer", "test_start", "test_tour"],
     "Tour.lua": ["test_tour"],
+    "Looks.lua": ["test_looks", "test_overlay", "test_drawer", "test_draft"] + SWEEP,
 }
 # The harness itself: the load test proves it still loads Daylight UI and EZ-CDM.
 HARNESS = {"tests/ez_harness.lua", "tests/run.lua", "tests/pin.lua"}

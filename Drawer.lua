@@ -667,10 +667,18 @@ end
 -- Writes the shown spell's finished lines, group and form words at once. Lines
 -- with a blank wait in the drawer. A write leaves the strip open on its word;
 -- target is the line it is on. A refusal writes nothing, says why and closes it.
+-- A line waits while a word is blank: its moment, its action, or a look's words or
+-- icon.
+local function blank(l)
+    if l.moment == nil or l.action == nil then return true end
+    local v = Grammar.ValueKind(l.moment, l.action)
+    return (v == "text" or v == "icon") and l.value == nil
+end
+
 local function commit(rules, target)
     local done, open = {}, {}
     for _, l in ipairs(rules.lines) do
-        if l.moment ~= nil and l.action ~= nil then done[#done + 1] = l else open[#open + 1] = l end
+        if blank(l) then open[#open + 1] = l else done[#done + 1] = l end
     end
     pending, refused, notices = open, nil, {}
     local ok, why, report = Draft.Write(shown, { lines = done, group = rules.group, forms = rules.forms,
@@ -821,13 +829,88 @@ local function numberStrip(s, def)
     return b
 end
 
+-- The words strip: Daylight UI's text box, and how many letters fit under it.
+local function makeText(parent)
+    local b = CreateFrame("Frame", nil, parent)
+    b.box = API.Input(b, { maxLetters = ns.Conditions.TEXT_MAX })
+    b.box:SetPoint("TOPLEFT", b, "TOPLEFT", 0, 0)
+    b.box:SetWidth(b.box:GetHeight() * 6)
+    b.range = API.Text(b, "small", "LEFT")
+    b.range:SetPoint("TOPLEFT", b.box, "BOTTOMLEFT", 0, -pad())
+    -- As the number box: Enter or a press away commits, Escape writes nothing.
+    b.box:HookScript("OnEditFocusLost", function(self)
+        if b.escaped then
+            b.escaped = nil
+            return
+        end
+        if not self:IsVisible() then
+            b.resume = self:GetText()
+            return
+        end
+        if b.onCommit then b.onCommit(self:GetText()) end
+    end)
+    b.box:SetScript("OnEscapePressed", function(self)
+        b.escaped = true
+        self:ClearFocus()
+        if b.onEscape then b.onEscape() end
+    end)
+    return b
+end
+
+local function textStrip(s, def)
+    local _, textH = measure(WORDING.textRange, "small")
+    local b = s:Piece("text", makeText, inputHeight() + pad() + textH, pad())
+    b.onCommit, b.onEscape = nil, nil
+    if b.resume ~= nil and focusedFor == def.id then
+        b.box:SetText(b.resume)
+        b.box:SetFocus()
+    elseif not (b.box:HasFocus() and focusedFor == def.id) then
+        b.box:SetText(type(def.current) == "string" and def.current or "")
+    end
+    b.resume = nil
+    b.range:SetText(WORDING.textRange:format(ns.Conditions.TEXT_MAX))
+    paint(b.range, badNumber == def.id and "BAD" or "LABEL")
+    b.onCommit = function(text)
+        if slot ~= def then return end
+        local clean = ns.Conditions.CleanValue("text", text)
+        if clean ~= nil and clean == def.current then return end
+        if clean == nil then
+            if badNumber ~= def.id then
+                badNumber = def.id
+                Drawer.Refresh()
+            end
+            return
+        end
+        badNumber = nil
+        def.picked = clean
+        def.onPick(clean)
+    end
+    b.onEscape = function()
+        if slot ~= def then return end
+        slot, badNumber = nil, nil
+        Drawer.Refresh()
+    end
+    if focusedFor ~= def.id then
+        focusedFor = def.id
+        b.box:SetFocus()
+        b.box:HighlightText()
+    end
+    return b
+end
+
 local function fillStrip()
     local s = parts.stripStack
     s:Begin()
     if slot then
         words(s, { { text = slot.heading, size = "small", color = "LABEL" } })
         if slot.kind == "group" then sharedNote(s) end
-        if slot.kind == "number" then numberStrip(s, slot) else focusedFor = nil end
+        if slot.kind == "number" then
+            numberStrip(s, slot)
+        elseif slot.kind == "text" then
+            textStrip(s, slot)
+        else
+            focusedFor = nil
+        end
         local pieces = {}
         for _, k in ipairs(slot.keys) do
             pieces[#pieces + 1] = { kind = "chip", text = slot.values[k] or tostring(k), key = k,
@@ -1150,6 +1233,7 @@ local function sentence(s, kind, rules, i, line)
         onPick = function(a) edit(function(r) retarget(r.lines[i], r.lines[i].moment, a) end) end,
         clear = function() edit(function(r) retarget(r.lines[i], r.lines[i].moment, nil) end) end },
         line.action ~= nil, off)
+    local valued = line.moment ~= nil and line.action ~= nil and Grammar.ValueKind(line.moment, line.action) or nil
     if line.action == "sound" then
         local values, keys = sounds()
         local name = values[line.value]
@@ -1157,7 +1241,22 @@ local function sentence(s, kind, rules, i, line)
         pieces[#pieces + 1] = word(type(name) == "string" and name or tostring(line.value), id .. "sound", {
             kind = "sound", keys = keys, values = values, current = line.value,
             onPick = function(k) edit(function(r) r.lines[i].value = k end) end }, true, off)
-    elseif line.action == "glow" or line.action == "tint" then
+    elseif valued == "text" then
+        pieces[#pieces + 1] = { text = " " }
+        pieces[#pieces + 1] = word(type(line.value) == "string" and ("\"" .. line.value .. "\"") or WORDING.chooseText,
+            id .. "text", {
+            kind = "text", keys = {}, values = {}, current = line.value,
+            onPick = function(t) edit(function(r) r.lines[i].value = t end) end }, line.value ~= nil, off)
+    elseif valued == "icon" then
+        pieces[#pieces + 1] = { text = " " }
+        pieces[#pieces + 1] = word(line.value ~= nil and WORDING.iconPicked or WORDING.chooseIcon, id .. "icon", {
+            kind = "icon", keys = { "pick" }, values = { pick = Drawer.COLOR_WORDS.pick }, current = nil,
+            onPick = function()
+                Bridge.PickIcon({ title = WORDING.iconTitle, first = { Bridge.SpellTexture(shown) },
+                    current = line.value,
+                    onPick = function(icon) edit(function(r) r.lines[i].value = icon end) end })
+            end, writes = false }, line.value ~= nil, off)
+    elseif line.action == "glow" or line.action == "tint" or valued == "color" then
         -- A glow's own style, unless it is EZ-CDM's combat ring.
         if line.action == "glow" and line.moment ~= nil and not Grammar.RingOnly(kind, line.moment) then
             local keys, values = styleChoices(true)
@@ -1223,6 +1322,13 @@ local function sentence(s, kind, rules, i, line)
     pieces[#pieces + 1] = { text = "." }
     local b = words(s, pieces, { onRemove = function() edit(function(r) table.remove(r.lines, i) end) end })
     b.line = i
+    -- A one-shot look moves, and Daylight UI's motion off keeps it away.
+    if finished and ck and not Bridge.MotionOn() then
+        local e = ns.Conditions.Effect(ns.Conditions.Get(ck).actions[line.action].effect)
+        if e and e.edge and e.key ~= "sound" then
+            words(s, { { text = WORDING.motionOff, size = "small", color = "LABEL" } }).motionOff = i
+        end
+    end
     return b
 end
 

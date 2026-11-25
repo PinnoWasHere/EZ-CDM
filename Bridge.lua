@@ -130,6 +130,18 @@ Bridge.NEEDS = {
     "ActionBars.Skin.SHADE",
     -- Conditions: my totem is up (which totem a slot holds, from your own casts)
     "ActionBars.CdmCustom.TotemUp",
+    -- Looks: Daylight UI's motion, pulse, glow laps, halo, shell border, icon picker
+    "DaylightUI.Motion.On",
+    "DaylightUI.Motion.Flash",
+    "DaylightUI.Motion.Bump",
+    "DaylightUI.Motion.Tween",
+    "ActionBars.CdmEffects.Flash",
+    "DaylightUI.Widgets.GLOW_LAP",
+    "DaylightUI.Style.AURA_HALO",
+    "DaylightUI.Style.PlaceAuraHalo",
+    "DaylightUI.Style.LightShell",
+    "DaylightUI.Style.SetShellColors",
+    "DaylightUI.Widgets.PickIcon",
 }
 
 -- NEEDS entries that are tables kept by a lowercase name.
@@ -974,6 +986,47 @@ end
 
 -- Asks Daylight UI for a pass on the next frame (CdmRows.Refresh, coalesced).
 function Bridge.Refresh() return call("ActionBars.CdmRows.Refresh") end
+
+-- ---------------------------------------------------------------------
+-- The looks (Looks.lua)
+-- ---------------------------------------------------------------------
+
+-- Whether the player has motion on (Daylight UI's general.motion, Motion.On).
+function Bridge.MotionOn() return call("DaylightUI.Motion.On") ~= false end
+
+-- Daylight UI's flash: a texture at full alpha fading to nothing (Motion.Flash).
+function Bridge.Flash(tex, dur) return call("DaylightUI.Motion.Flash", tex, dur) end
+
+-- Daylight UI's nudge: a region scaled from `from` back to 1 (Motion.Bump).
+function Bridge.Bump(region, from, dur) return call("DaylightUI.Motion.Bump", region, from, dur) end
+
+-- Daylight UI's shared number tween (Motion.Tween): step(v) from `from` to `to`.
+function Bridge.Tween(key, from, to, dur, step, done)
+    return call("DaylightUI.Motion.Tween", key, from, to, dur, step, done)
+end
+
+-- Daylight UI's pulse on its own shared driver, the empty bar's "flash it"
+-- (CdmEffects.Flash): part's alpha breathes while holder is shown.
+function Bridge.Pulse(holder, part, on) return call("ActionBars.CdmEffects.Flash", holder, part, on) end
+
+-- The seconds one lap of a glow style takes (Widgets.GLOW_LAP).
+function Bridge.GlowLap(style)
+    local laps = Bridge.Resolve("DaylightUI.Widgets.GLOW_LAP")
+    local v = type(laps) == "table" and laps[style] or nil
+    return type(v) == "number" and v or nil
+end
+
+-- Daylight UI's halo behind an aura button: its art (Style.AURA_HALO), and its place
+-- round a frame w px wide (Style.PlaceAuraHalo).
+function Bridge.HaloArt() return Bridge.Resolve("DaylightUI.Style.AURA_HALO") end
+function Bridge.PlaceHalo(halo, frame, w) return call("DaylightUI.Style.PlaceAuraHalo", halo, frame, w) end
+
+-- A shell's border in the accent (Style.LightShell) or in a color (Style.SetShellColors).
+function Bridge.LightShell(s) return call("DaylightUI.Style.LightShell", s) end
+function Bridge.ShellColor(s, color) return call("DaylightUI.Style.SetShellColors", s, color, nil) end
+
+-- Daylight UI's icon picker (Widgets.PickIcon): spec = { title, first, current, onPick }.
+function Bridge.PickIcon(spec) return call("DaylightUI.Widgets.PickIcon", spec) end
 
 -- ---------------------------------------------------------------------
 -- The tour engine (Tour.lua), the one Daylight UI's /cdm layout tour runs on

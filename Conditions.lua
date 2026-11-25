@@ -48,8 +48,15 @@ local addonName, ns = ...
 --   key, fits(kind) optional, draw(target, on, opts), clear(target)
 --   shown(target, opts)  optional: what it drew on target, for Conditions.Visible
 --   client     draws only alpha-safe looks, so a line with a client part may use it
---   edge       fires once as its line turns on (a sound)
+--   edge       fires once as its line turns on (a sound, a flash)
 --   stack      each line has a slot of its own instead of one priority winner
+--   value      optional: what a line's value holds for it, "color" ({ r, g, b }),
+--              "text" (a few plain words) or "icon" (a file id or name)
+--
+-- A look (Conditions.RegisterLook) is an action every condition's lines may end in,
+-- drawn by one effect: "flash it", "pop it" (Looks.lua). Each registered condition
+-- takes every look, unless it is clauseOnly. Fits keeps the ones its piece or its
+-- client part can't draw.
 --
 -- A line is its condition (the moment), optional "and" clauses, and an action. Its
 -- plain parts are ANDed here. A client part may only come last, once: the effect
@@ -89,9 +96,15 @@ Conditions.VERSION = 2
 Conditions.TICK = 0.2
 -- What the dev suite logs for a value the game keeps secret.
 Conditions.SECRET = "<secret>"
+-- What a line's value may hold for an effect (the effect's value field).
+Conditions.VALUES = { color = true, text = true, icon = true }
+-- The most letters a text look's words may have.
+Conditions.TEXT_MAX = 12
 
 local list, byKey = {}, {}
 local effects = {}
+-- The looks, in order: { action, effect }.
+local looks = {}
 
 -- ---------------------------------------------------------------------
 -- The registry
@@ -142,10 +155,19 @@ end
 
 -- Adds a condition. Grammar takes its lines at once (Grammar.InstallCondition).
 -- Returns true, or false and why.
+-- A look on a condition's lines, unless it is clauseOnly or has that action already.
+-- A client condition takes only the alpha-safe ones.
+local function addLook(c, look)
+    if c.clauseOnly or c.actions[look.action] ~= nil then return end
+    if c.secrecy == "client" and not effects[look.effect].client then return end
+    c.actions[look.action] = { effect = look.effect }
+end
+
 function Conditions.Register(c)
     local why = problem(c)
     if not why and ns.Grammar and ns.Grammar.ConditionClash(c) then why = "taken" end
     if why then return false, why end
+    for _, look in ipairs(looks) do addLook(c, look) end
     c.priority = type(c.priority) == "number" and c.priority or 0
     c.order = #list + 1
     list[#list + 1] = c
@@ -159,11 +181,70 @@ function Conditions.List() return list end
 
 function Conditions.RegisterEffect(e)
     if type(e) ~= "table" or type(e.key) ~= "string" or effects[e.key]
-        or type(e.draw) ~= "function" or type(e.clear) ~= "function" then return false end
+        or type(e.draw) ~= "function" or type(e.clear) ~= "function"
+        or (e.value ~= nil and not Conditions.VALUES[e.value]) then return false end
     effects[e.key] = e
     return true
 end
 function Conditions.Effect(key) return effects[key] end
+
+-- Adds a look: action on every registered condition's lines, drawn by a registered
+-- effect. Returns true, or false for an unknown effect or a taken action.
+function Conditions.RegisterLook(action, effect)
+    if type(action) ~= "string" or not effects[effect] then return false end
+    for _, look in ipairs(looks) do
+        if look.action == action then return false end
+    end
+    local look = { action = action, effect = effect }
+    looks[#looks + 1] = look
+    for _, c in ipairs(list) do
+        addLook(c, look)
+        if ns.Grammar and ns.Grammar.InstallCondition then ns.Grammar.InstallCondition(c) end
+    end
+    return true
+end
+
+-- The looks in order: { { action, effect }, ... }.
+function Conditions.Looks()
+    local out = {}
+    for i, l in ipairs(looks) do out[i] = { action = l.action, effect = l.effect } end
+    return out
+end
+
+-- What a line's value holds for its action's effect: "color", "text", "icon" or nil.
+function Conditions.ValueKind(key, action)
+    local c = byKey[key]
+    local act = c and c.actions[action]
+    local e = act and effects[act.effect]
+    return e and e.value or nil
+end
+
+-- A text look's words, cleaned: trimmed, no escape codes, at most TEXT_MAX letters.
+-- nil for none.
+local function cleanText(v)
+    if type(v) ~= "string" then return nil end
+    v = v:gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if v == "" then return nil end
+    local n = 0
+    for _ in v:gmatch("[^\128-\191]") do n = n + 1 end
+    if n > Conditions.TEXT_MAX then return nil end
+    return v
+end
+
+-- A value as saved for a value kind, or nil when it isn't one.
+function Conditions.CleanValue(kind, v)
+    if kind == "color" then
+        if type(v) == "table" and type(v[1]) == "number" and type(v[2]) == "number" and type(v[3]) == "number" then
+            return { v[1], v[2], v[3] }
+        end
+    elseif kind == "text" then
+        return cleanText(v)
+    elseif kind == "icon" then
+        if type(v) == "number" and v > 0 and v % 1 == 0 then return v end
+        if type(v) == "string" and v ~= "" and not v:find("|", 1, true) then return v end
+    end
+    return nil
+end
 
 -- Whether a condition reads on a piece of kind (any piece when kind is nil).
 function Conditions.FitsKind(key, kind)
@@ -311,6 +392,9 @@ function Conditions.Spec(ck, action, spec)
             out.value = { v[1], v[2], v[3] }
         end
         if type(spec.style) == "string" then out.style = spec.style end
+    else
+        local e = effects[act.effect]
+        if e and e.value then out.value = Conditions.CleanValue(e.value, spec.value) end
     end
     local clauses = {}
     for _, cl in ipairs(type(spec.clauses) == "table" and spec.clauses or {}) do

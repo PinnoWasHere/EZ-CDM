@@ -17,6 +17,7 @@ Effects.lua
 Conditions.lua
 Overlay.lua
 Gray.lua
+Looks.lua
 AuraLinks.lua
 Grammar.lua
 Draft.lua

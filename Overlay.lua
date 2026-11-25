@@ -66,12 +66,36 @@ local function copyMasks(c, icon)
     end
 end
 
+-- A plain copy on a piece no item draws (an aura icon holder's piece, where the
+-- client's own button holds the icon): the spell's texture as the editor shows it,
+-- cropped as Daylight UI crops an icon, over the whole target. False with none.
+local function standIn(c, frame)
+    local file = c.file
+    if file == nil then file = Bridge.SpellTexture(tonumber(c.key) or c.key) end
+    if not frame or file == nil then return false end
+    c.tex:ClearAllPoints()
+    c.tex:SetAllPoints(c.frame)
+    c.tex:SetTexture(file)
+    Bridge.CropIcon(c.tex)
+    c.tex:SetVertexColor(1, 1, 1, 1)
+    c.tex:SetDesaturated(false)
+    for i = #c.masks, 1, -1 do
+        c.tex:RemoveMaskTexture(c.masks[i])
+        c.shade:RemoveMaskTexture(c.masks[i])
+        c.masks[i] = nil
+    end
+    c.over = c.frame
+    return true
+end
+
 -- Lays the copy on the piece's icon as it is now. Plain values only, so a secret
--- texture or crop keeps the last one. False when the piece has no icon.
+-- texture or crop keeps the last one. False when the piece has no icon; a plain
+-- copy then stands in with the spell's texture.
 local function follow(c)
     local frame = Conditions.FrameOf(c.key)
     local icon = frame and Bridge.PieceIcon(frame)
-    if not icon then return false end
+    if not icon then return c.plain == true and standIn(c, frame) end
+    c.over = icon
     local owner = icon:GetParent()
     if owner then
         c.frame:SetFrameStrata(owner:GetFrameStrata())
@@ -80,13 +104,14 @@ local function follow(c)
     end
     c.tex:ClearAllPoints()
     c.tex:SetAllPoints(icon)
-    local file = icon:GetTexture()
+    local file = c.file
+    if file == nil then file = icon:GetTexture() end
     if file ~= nil and not secret(file) then c.tex:SetTexture(file) end
     local coords = { icon:GetTexCoord() }
     if #coords > 0 and not secret(coords[1]) then c.tex:SetTexCoord(unpack(coords)) end
     local r, g, b, a = icon:GetVertexColor()
     if r ~= nil and not secret(r) then c.tex:SetVertexColor(r, g, b, a) end
-    c.tex:SetDesaturated(true)
+    c.tex:SetDesaturated(not c.plain)
     copyMasks(c, icon)
     return true
 end
@@ -103,7 +128,9 @@ swaps:SetScript("OnEvent", function()
     end)
 end)
 
-local function copyFor(target, id, key)
+-- plain: a copy in the icon's own color with no shade (Looks.lua's pop, shake and
+-- swap), else the gray.
+local function copyFor(target, id, key, plain)
     local set = copies[target]
     if not set then
         set = {}
@@ -117,10 +144,14 @@ local function copyFor(target, id, key)
         local tex = f:CreateTexture(nil, "ARTWORK")
         local shade = f:CreateTexture(nil, "ARTWORK", nil, 3)
         shade:SetAllPoints(tex)
-        local file, alpha = Bridge.IconShade()
-        if file then shade:SetTexture(file) end
-        shade:SetVertexColor(0, 0, 0, alpha or 0)
-        c = { frame = f, tex = tex, shade = shade, masks = {} }
+        if plain then
+            shade:Hide()
+        else
+            local file, alpha = Bridge.IconShade()
+            if file then shade:SetTexture(file) end
+            shade:SetVertexColor(0, 0, 0, alpha or 0)
+        end
+        c = { frame = f, tex = tex, shade = shade, masks = {}, plain = plain and true or nil }
         set[id] = c
         if not listening then
             listening = true
@@ -174,8 +205,23 @@ end
 
 local function clear(holder)
     for _, t in pairs(washes[holder] or {}) do API.Fade(t, 0, "FAST") end
-    for _, c in pairs(copies[holder] or {}) do API.Fade(c.frame, 0, 0) end
+    for _, c in pairs(copies[holder] or {}) do
+        if not c.plain then API.Fade(c.frame, 0, 0) end
+    end
 end
+
+-- A copy of a piece's icon on target, in the icon's own color, laid on the icon as
+-- it is now, at alpha 0 for the caller to show. file shows another icon in its place
+-- (nil: the icon's own). nil when the piece has no icon.
+function Overlay.IconCopy(target, id, key, file)
+    local c = copyFor(target, id, key, true)
+    c.file = file
+    if not follow(c) then return nil end
+    return c
+end
+
+-- The copy IconCopy made on target, or nil.
+function Overlay.CopyOn(target, id) return copies[target] and copies[target][id] or nil end
 
 -- For tests: a piece's wash textures by id, once drawn.
 function Overlay.Washes(key)

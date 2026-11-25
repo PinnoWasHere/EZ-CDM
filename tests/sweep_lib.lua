@@ -27,6 +27,8 @@ local ESSENTIAL, UTILITY, BUFFS, BARS = W.ESSENTIAL, W.UTILITY, W.BUFFS, W.BARS
 local COLOR = { 0.2, 0.4, 0.6 }
 local TINT = { 0.2, 0.4, 0.6, 0.5 }
 local LEAD = 5
+-- A look line's sample value, by the value its effect takes.
+SW.LOOK_VALUES = { color = COLOR, text = "Now!", icon = 136048 }
 local ITEM, ADDED_SPELL = W.ITEM, W.ADDED_SPELL
 
 -- The catalogue's classes and the class world (tests/classworld.lua).
@@ -385,14 +387,28 @@ function SW.Cases(G, B, kind)
         for k, v in pairs(extra or {}) do rules[k] = v end
         out[#out + 1] = { what = what, rules = rules }
     end
+    -- A look draws the same on every condition, so each is checked on the first plain
+    -- and the first client moment that offers it.
+    local C = _G.EZCDM_Conditions
+    local looks, lookSeen = {}, {}
+    for _, l in ipairs(C and C.Looks() or {}) do looks[l.action] = true end
     for _, w in ipairs(G.Words(kind)) do
         for _, a in ipairs(w.actions) do
+            local entry = G.MAP[w.moment] and G.MAP[w.moment][a]
+            local cond = entry and entry.cond and C.Get(entry.cond)
+            local seenAs = looks[a] and cond and (a .. ":" .. (cond.secrecy == "client" and "client" or "plain"))
+            local skip = seenAs and lookSeen[seenAs]
+            if seenAs then lookSeen[seenAs] = true end
             local line = { moment = w.moment, action = a }
             if a == "glow" or a == "tint" or a == "numbers" then line.value = a == "tint" and TINT or COLOR end
             if a == "sound" then line.value = sound end
             if a == "fade" then line.value = 0.25 end
+            local valued = G.ValueKind(w.moment, a)
+            if valued then line.value = SW.LOOK_VALUES[valued] end
             if w.moment == "recast" or (w.moment == "almost" and a == "numbers") then line.at = LEAD end
-            if a == "flash" then
+            if skip then
+                -- Checked on an earlier moment.
+            elseif w.moment == "missing" and a == "flash" then
                 add("missing show + flash", { { moment = "missing", action = "show" }, line })
             else
                 add(w.moment .. " " .. a, { line })
@@ -457,6 +473,19 @@ function SW.Effects(G, B, kind)
     if lead and G.Fits(kind, "recast", "sound") then
         lines[#lines + 1] = { moment = "recast", action = "sound", value = sound, at = lead }
         names[#names + 1] = "fall-off sound"
+    end
+    -- Each look on the first moment that offers it.
+    local C = _G.EZCDM_Conditions
+    for _, l in ipairs(C and C.Looks() or {}) do
+        for _, w in ipairs(G.Words(kind)) do
+            local entry = G.MAP[w.moment] and G.MAP[w.moment][l.action]
+            if entry and entry.cond and G.Fits(kind, w.moment, l.action) then
+                lines[#lines + 1] = { moment = w.moment, action = l.action,
+                                      value = entry.valued and SW.LOOK_VALUES[entry.valued] or nil }
+                names[#names + 1] = "look " .. l.action
+                break
+            end
+        end
     end
     return lines, names
 end
@@ -937,16 +966,27 @@ end
 -- The class groups, one test file each (each fits the run's per-file CPU budget).
 -- An entry is a class, every variant, or "CLASS:variant" for that variant only.
 SW.GROUPS = {
-    a = { "DRUID:shown", "DRUID:hidden" },
-    b = { "PALADIN" },
-    c = { "SHAMAN" },
+    a = { "DRUID:shown" },
+    b = { "PALADIN:shown" },
+    c = { "SHAMAN:shown" },
     d = { "ROGUE" },
-    e = { "MAGE" },
-    f = { "HUNTER:shown", "HUNTER:hidden" },
-    g = { "PRIEST" },
-    h = { "WARLOCK" },
+    e = { "MAGE:shown" },
+    f = { "HUNTER:shown" },
+    g = { "PRIEST:shown" },
+    h = { "WARLOCK:shown" },
     i = { "WARRIOR:shown", "WARRIOR:hidden" },
-    j = { "DRUID:bars", "HUNTER:bars", "WARRIOR:bars" },
+    j = { "DRUID:bars", "HUNTER:bars" },
+    k = { "SHAMAN:hidden" },
+    l = { "MAGE:hidden" },
+    m = { "WARLOCK:hidden" },
+    n = { "WARRIOR:bars" },
+    o = { "DRUID:hidden" },
+    p = { "PALADIN:hidden" },
+    q = { "HUNTER:hidden" },
+    r = { "PRIEST:hidden" },
+    s = { "PALADIN:bars", "SHAMAN:bars" },
+    t = { "MAGE:bars", "PRIEST:bars" },
+    u = { "WARLOCK:bars" },
 }
 
 -- A group entry's class and its variants.

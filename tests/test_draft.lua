@@ -298,7 +298,9 @@ T.test("draft write: no word ever moves a piece", function()
     end
     for _, w in ipairs(G.Words(G.Kind(k.clap))) do
         for _, a in ipairs(w.actions) do
-            local value = a == "sound" and sound or a == "glow" and GOLD or nil
+            local valued = G.ValueKind(w.moment, a)
+            local value = a == "sound" and sound or (a == "glow" or valued == "color") and GOLD
+                or valued == "text" and "Now!" or valued == "icon" and 136048 or nil
             try({ lines = { L(w.moment, a, value) } }, w.moment .. " " .. a)
         end
     end

@@ -306,7 +306,7 @@ local function withChain(t)
 end
 
 T.test("grammar compile: each sentence gives the expected fields", function()
-    local _, _, G = world()
+    local _, ns, G = world()
     local seen = {}
     for _, c in ipairs(CASES) do
         local line = c[1]
@@ -326,6 +326,22 @@ T.test("grammar compile: each sentence gives the expected fields", function()
     T.deq(fields, withChain({}))
     fields, problems = G.Compile({ lines = { L("missing", "flash"), L("missing", "hide") } })
     T.eq(codes(problems), "line 1: needs", "Hide (Buff missing) leaves nothing to flash")
+    -- Every look on every EZ-CDM moment: its field, with its value where it takes one.
+    local samples = { color = COLOR, text = "Kick!", icon = 136048 }
+    for _, l in ipairs(ns.Conditions.Looks()) do
+        for _, m in ipairs(G.MOMENTS) do
+            local e = G.MAP[m][l.action]
+            if e and e.cond then
+                local v = e.valued and samples[e.valued]
+                local f, p = G.Compile({ lines = { L(m, l.action, v) } })
+                T.eq(codes(p), "", m .. " " .. l.action .. ": no problems")
+                T.deq(f, withChain({ [e.field] = v and { value = v } or true }), m .. " " .. l.action)
+                seen[m .. " " .. l.action] = true
+            elseif e and e.alias and e.merge then
+                seen[m .. " " .. l.action] = true
+            end
+        end
+    end
     -- The cases cover every pair the map has.
     for _, m in ipairs(G.MOMENTS) do
         for _, a in ipairs(G.ACTIONS) do
@@ -515,9 +531,12 @@ local function pieceWorld(hidden)
     return DUI, ns, G, AB, k
 end
 
+-- The looks (Looks.lua) an icon takes on a plain line and on a client one.
+local LOOKS = "flash,pop,shake,sparkle,screen,pulse,border,halo,text,swap"
+local CLIENT_LOOKS = "pulse,border,halo,text,swap"
 local COOLDOWN_WORDS = "always(show) ready(show,fade,hide,glow,sound) cooldown(show,fade,hide,gray,color,nosweep,nogcd) "
-    .. "almost(numbers) blocked(glow,gray,sound) unusable(show,fade,hide,glow,gray,sound) short(show,fade,hide,glow,sound,blue) "
-    .. "usable(glow,sound)"
+    .. "almost(numbers) blocked(glow,gray,sound," .. LOOKS .. ") unusable(show,fade,hide,glow,gray,sound," .. LOOKS
+    .. ") short(show,fade,hide,glow,sound," .. LOOKS .. ",blue) usable(glow,sound)"
 
 T.test("grammar kind: an icon cooldown takes the cooldown words, gray included", function()
     local _, ns, G, _, k = pieceWorld()
@@ -530,7 +549,8 @@ T.test("grammar kind: an icon cooldown takes the cooldown words, gray included",
     T.deq(kind.forms, { "Battle", "Defensive", "Berserker" }, "the warrior's stances")
     -- Buff up's Visibility and the missing glow still apply (CdmCard.lua:678, 702).
     -- Batch B: health and the rage it costs, as a percent (test_batch_b).
-    T.eq(wordsOf(G, kind), COOLDOWN_WORDS .. " up(show,hide,nosweep,tint) missing(glow) playerLow(glow) powerLow(glow)")
+    T.eq(wordsOf(G, kind), COOLDOWN_WORDS .. " up(show,hide,nosweep,tint) missing(glow) playerLow(glow," .. CLIENT_LOOKS
+        .. ") powerLow(glow," .. CLIENT_LOOKS .. ")")
     T.eq(ns.Bridge.Tracked(k.icon) ~= false, kind.tracked)
     noErrors()
 end)
@@ -544,9 +564,12 @@ T.test("grammar kind: a bar loses gray and keep color, which are icon rows", fun
     T.truthy(G.Fits(kind, "cooldown", "fade"))
     T.falsy(G.Fits(kind, "unusable", "gray"), "the washes cover an icon")
     T.falsy(G.Fits(kind, "short", "blue"))
-    T.eq(wordsOf(G, kind), (COOLDOWN_WORDS:gsub(",gray,color,nosweep,nogcd", ""):gsub(" almost%(numbers%)", "")
-        :gsub(",gray,sound%)", ",sound)"):gsub(",blue%)", ")"))
-        .. " up(show,hide) missing(glow) playerLow(glow)")
+    -- A bar takes the looks that don't cover an icon.
+    local barLooks = "sparkle,screen,border,text"
+    T.eq(wordsOf(G, kind), "always(show) ready(show,fade,hide,glow,sound) cooldown(show,fade,hide) "
+        .. "blocked(glow,sound," .. barLooks .. ") unusable(show,fade,hide,glow,sound," .. barLooks
+        .. ") short(show,fade,hide,glow,sound," .. barLooks .. ") usable(glow,sound)"
+        .. " up(show,hide) missing(glow) playerLow(glow,border,text)")
     local f, p = G.Compile({ lines = { L("cooldown", "gray"), L("ready", "glow") } }, kind)
     T.eq(codes(p), "line 1: kind", "gray on a bar is refused")
     T.deq(f, withChain({ readyGlow = true }))
@@ -593,7 +616,7 @@ T.test("grammar kind: Daylight UI's own piece", function()
     T.truthy(kind.custom, "Daylight UI's own piece")
     T.truthy(kind.cooldown, "Thunder Clap has a cooldown")
     T.falsy(kind.buff)
-    T.eq(wordsOf(G, kind), COOLDOWN_WORDS .. " playerLow(glow) powerLow(glow)")
+    T.eq(wordsOf(G, kind), COOLDOWN_WORDS .. " playerLow(glow," .. CLIENT_LOOKS .. ") powerLow(glow," .. CLIENT_LOOKS .. ")")
     noErrors()
 end)
 
@@ -956,6 +979,7 @@ T.test("grammar wording: placeholders and strip headings", function()
         form = "Choose a form:", shows = "Choose what it shows:", style = "Choose a glow style:",
         seconds = "Choose how many seconds:", recipe = "Choose a recipe:",
         clause = "Choose another condition:", number = "Type a number:",
+        text = "Type a few words:", icon = "Choose an icon:",
     })
     -- No phrase starts with a separate When or While: each moment is one phrase.
     for m, phrase in pairs(G.WORDING.moments) do

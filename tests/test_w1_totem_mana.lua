@@ -64,7 +64,8 @@ T.test("totem merge: Searing Totem shows one While my totem is up, with Daylight
     T.truthy(kind.totemTime, "Daylight UI times the standing totem as its cooldown")
     local m = moments(G, kind)
     T.isnil(m.totemUp, "no second totem moment")
-    T.eq(m.cooldown, "show,fade,hide,glow,gray,color,sound,nosweep,nogcd", "the union, in action order")
+    T.eq(m.cooldown, "show,fade,hide,glow,gray,color,sound,nosweep,nogcd,flash,pop,shake,sparkle,screen,pulse,border,"
+        .. "halo,text,swap", "the union, in action order, totemUp's looks too")
     T.eq((G.MomentWords("cooldown", nil, kind)), "While my totem is up")
     T.eq((G.MomentWords("ready", nil, kind)), "When my totem is down", "kept")
     T.eq((G.MomentWords("almost", nil, kind)), "When my totem is almost gone", "kept")
