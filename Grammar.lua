@@ -420,6 +420,27 @@ local function costOf(key)
     return true, table.concat(words, " or ")
 end
 
+-- The powers a "below #%" word can name: a bar the player holds as a percent.
+local PERCENT = { mana = true, rage = true, energy = true, focus = true }
+
+-- The powers a piece's casts cost that your class's player has (AuraLinks.classPowers)
+-- and that read as a percent, as a list ({ "energy", "rage" }). nil when any of them
+-- isn't one (combo points alone, health, a pet's focus, another class's energy) or the
+-- piece costs nothing.
+function Grammar.LowPowers(key)
+    local cost, words = costOf(key)
+    if cost ~= true then return nil end
+    local L = type(ns.AuraLinks) == "table" and type(ns.AuraLinks.classPowers) == "table" and ns.AuraLinks.classPowers or {}
+    local mine = {}
+    for _, w in ipairs(L[Bridge.MyClass() or ""] or {}) do mine[w] = true end
+    local out = {}
+    for w in (words .. " or "):gmatch("(.-) or ") do
+        if not (PERCENT[w] and mine[w]) then return nil end
+        out[#out + 1] = w
+    end
+    return #out > 0 and out or nil
+end
+
 -- The enchant ids a piece's weapon buff cast puts on a weapon, any rank's, as a set
 -- (AuraLinks.imbues), or nil for a piece that casts none.
 function Grammar.Imbues(key)
@@ -573,6 +594,8 @@ end
 --                    free spell
 --   power            the powers its cast costs, as words ("rage"); nil names the
 --                    player's own (Grammar.PowerName)
+--   lowPower         every power it costs is one your class's player has as a
+--                    percent (Grammar.LowPowers), so "my [power] is below #%" fits
 --   charges          the most charges its aura comes with (AuraLinks.charges)
 --   chargesSeen      the game never keeps those auras secret, so their count reads
 --                    in a fight (C_Secrets.GetSpellAuraSecrecy NeverSecret)
@@ -672,6 +695,7 @@ function Grammar.Kind(key, piece, shows)
     if not noAura then kind.aura = auraWord or (unlisted and kind.harmful == true and "debuff") or "buff" end
     kind.charges, kind.chargesSeen = chargesOf(key)
     kind.cost, kind.power = costOf(key)
+    kind.lowPower = Grammar.LowPowers(key) ~= nil or nil
     -- A proc is your own: a buff with a spell (a weapon enchant has none, so the card
     -- hides its recast row, CdmCard.lua:420-424) that no other class puts on you. The
     -- aura links decide where they name a spell you know; elsewhere, any buff you

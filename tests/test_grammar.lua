@@ -188,7 +188,7 @@ T.test("grammar: gray and color go with cooldown only, and sounds only where Day
     local _, _, G = world()
     for _, m in ipairs(G.MOMENTS) do
         T.eq(G.MAP[m].gray ~= nil, m == "cooldown" or m == "unusable" or m == "blocked" or m == "noBuff"
-            or m == "outOfRange" or m == "targetCasting" or m == "onlyGcd", m .. " gray")
+            or m == "outOfRange" or m == "targetCasting" or m == "onlyGcd" or m == "targetInterruptible", m .. " gray")
         T.eq(G.MAP[m].color ~= nil, m == "cooldown", m .. " color")
     end
     T.eq(G.MAP.blocked.gray.cond, "cantCast", "can't cast gray is EZ-CDM's condition")
@@ -290,6 +290,14 @@ for _, k in ipairs(BATCH_A) do
     CASES[#CASES + 1] = { L(k, "sound", SOUND), { ["ez:" .. k .. ":sound"] = { value = SOUND } } }
     if GRAYS[k] then CASES[#CASES + 1] = { L(k, "gray"), { ["ez:" .. k .. ":gray"] = true } } end
 end
+
+-- Batch B's client conditions (test_batch_b): glow, and gray on the cooldown one; no
+-- sound, and a typed number where it takes one.
+for _, k in ipairs({ "targetLow", "playerLow", "powerLow", "targetInterruptible" }) do
+    CASES[#CASES + 1] = { L(k, "glow"), { ["ez:" .. k .. ":glow"] = true } }
+end
+CASES[#CASES + 1] = { { moment = "targetLow", action = "glow", n = 35 }, { ["ez:targetLow:glow"] = { n = 35 } } }
+CASES[#CASES + 1] = { L("targetInterruptible", "gray"), { ["ez:targetInterruptible:gray"] = true } }
 
 local function withChain(t)
     local out = { chain = {} }
@@ -521,7 +529,8 @@ T.test("grammar kind: an icon cooldown takes the cooldown words, gray included",
     T.falsy(kind.showsBuff, "its buff isn't shown")
     T.deq(kind.forms, { "Battle", "Defensive", "Berserker" }, "the warrior's stances")
     -- Buff up's Visibility and the missing glow still apply (CdmCard.lua:678, 702).
-    T.eq(wordsOf(G, kind), COOLDOWN_WORDS .. " up(show,hide,nosweep,tint) missing(glow)")
+    -- Batch B: health and the rage it costs, as a percent (test_batch_b).
+    T.eq(wordsOf(G, kind), COOLDOWN_WORDS .. " up(show,hide,nosweep,tint) missing(glow) playerLow(glow) powerLow(glow)")
     T.eq(ns.Bridge.Tracked(k.icon) ~= false, kind.tracked)
     noErrors()
 end)
@@ -537,7 +546,7 @@ T.test("grammar kind: a bar loses gray and keep color, which are icon rows", fun
     T.falsy(G.Fits(kind, "short", "blue"))
     T.eq(wordsOf(G, kind), (COOLDOWN_WORDS:gsub(",gray,color,nosweep,nogcd", ""):gsub(" almost%(numbers%)", "")
         :gsub(",gray,sound%)", ",sound)"):gsub(",blue%)", ")"))
-        .. " up(show,hide) missing(glow)")
+        .. " up(show,hide) missing(glow) playerLow(glow)")
     local f, p = G.Compile({ lines = { L("cooldown", "gray"), L("ready", "glow") } }, kind)
     T.eq(codes(p), "line 1: kind", "gray on a bar is refused")
     T.deq(f, withChain({ readyGlow = true }))
@@ -584,7 +593,7 @@ T.test("grammar kind: Daylight UI's own piece", function()
     T.truthy(kind.custom, "Daylight UI's own piece")
     T.truthy(kind.cooldown, "Thunder Clap has a cooldown")
     T.falsy(kind.buff)
-    T.eq(wordsOf(G, kind), COOLDOWN_WORDS)
+    T.eq(wordsOf(G, kind), COOLDOWN_WORDS .. " playerLow(glow) powerLow(glow)")
     noErrors()
 end)
 
@@ -1685,7 +1694,8 @@ T.test("grammar vs card: the shaman's element pieces", function()
             T.eq(ns.Bridge.Shows(el, set.pieces[el]), "both", el .. ": Totem and buff")
             agrees(G, AB, el, el .. (hidden and ", buff rows hidden" or ""))
             if not hidden then
-                T.eq(cardMoments(G, G.Kind(el)), 12, el .. ": all 11 of the card's moments, and EZ-CDM's can't cast")
+                -- And batch B's health and mana words.
+                T.eq(cardMoments(G, G.Kind(el)), 14, el .. ": all 11 of the card's moments, EZ-CDM's can't cast, health and mana")
             end
         end
         noErrors()

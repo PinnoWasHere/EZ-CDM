@@ -1402,6 +1402,192 @@ Conditions.Register({
     words = { moment = "When its charges are down to #", clause = "its charges are down to #" },
 })
 
+-- ---------------------------------------------------------------------
+-- Wave 1, batch B: the client tier (docs/specs/conditions-waves.md)
+-- ---------------------------------------------------------------------
+
+-- Each drive hands the game's answer to the layer's alpha and never reads it. A
+-- percent goes through a curve the game evaluates (UnitHealthPercent,
+-- UnitPowerPercent: SecretWhenCurveSecret), as Daylight UI's low-health warning and
+-- nameplate execute lights do (CombatText/Feed.lua, Plate.lua).
+
+-- "health": zero is dead, not low (Daylight UI's Feed curve). "power": an empty bar
+-- is low.
+local curves = { health = {}, power = {} }
+
+-- A curve that gives 1 below n% and 0 from n% up, linear with near-upright edges as
+-- Daylight UI builds them; nil when the game has no curves.
+local function belowCurve(what, n)
+    local made = curves[what][n]
+    if made ~= nil then return made or nil end
+    made = false
+    if C_CurveUtil and C_CurveUtil.CreateCurve then
+        local c = C_CurveUtil.CreateCurve()
+        if c then
+            if Enum.LuaCurveType and c.SetType then c:SetType(Enum.LuaCurveType.Linear) end
+            local at = n / 100
+            if what == "health" then
+                c:AddPoint(0, 0)
+                c:AddPoint(0.001, 1)
+            else
+                c:AddPoint(0, 1)
+            end
+            c:AddPoint(at - 0.001, 1)
+            c:AddPoint(at, 0)
+            c:AddPoint(1, 0)
+            made = c
+        end
+    end
+    curves[what][n] = made
+    return made or nil
+end
+
+-- Sets layer's alpha to the game's answer: a number or a secret goes in whole; no
+-- answer leaves the layer dark.
+local function alphaFrom(layer, v)
+    if secret(v) or type(v) == "number" then
+        layer:SetAlpha(v)
+    else
+        layer:SetAlpha(0)
+    end
+end
+
+-- A game answer for the dev log: plain, Conditions.SECRET, or "nil" for none.
+local function answer(v)
+    if secret(v) then return Conditions.SECRET end
+    if v == nil then return "nil" end
+    return v
+end
+
+-- unit's health under n%, into layer. No target is no health to be low.
+local function driveHealth(unit, layer, n)
+    if unit == "target" and targetNow() ~= true then return layer:SetAlpha(0) end
+    local curve = belowCurve("health", n)
+    if not curve then return layer:SetAlpha(0) end
+    alphaFrom(layer, UnitHealthPercent(unit, true, curve))
+end
+
+local function healthDetail(unit)
+    local out = {}
+    if unit == "target" then
+        out.target = answer(UnitExists("target"))
+        if targetNow() ~= true then return out end
+    end
+    out.pct = answer(UnitHealthPercent(unit, true))
+    return out
+end
+
+-- The target's health is under n% (an execute window). Offered on a spell cast at a
+-- unit you pick.
+Conditions.Register({
+    key = "targetLow", moment = "targetLow", actions = glowOnly(), fits = atTarget,
+    param = { min = 1, max = 99, default = 20, unit = "%" },
+    drive = function(_, layer, opts) driveHealth("target", layer, opts.n or 20) end,
+    detail = function() return healthDetail("target") end,
+    events = { game = { "PLAYER_TARGET_CHANGED", { "UNIT_HEALTH", "target" }, { "UNIT_MAXHEALTH", "target" } } },
+    secrecy = "client", layer = "any", excludes = {},
+    words = { moment = "When my target is below #% health", clause = "my target is below #% health" },
+})
+
+-- Your health is under n%: a reason to press a piece you can cast.
+Conditions.Register({
+    key = "playerLow", moment = "playerLow", actions = glowOnly(), fits = castable,
+    param = { min = 1, max = 99, default = 30, unit = "%" },
+    drive = function(_, layer, opts) driveHealth("player", layer, opts.n or 30) end,
+    detail = function() return healthDetail("player") end,
+    events = { game = { { "UNIT_HEALTH", "player" }, { "UNIT_MAXHEALTH", "player" } } },
+    secrecy = "client", layer = "any", excludes = {},
+    words = { moment = "When I'm below #% health", clause = "I'm below #% health" },
+})
+
+-- A power word's PowerType (PowerTypeConstants: Mana 0, Rage 1, Focus 2, Energy 3).
+local POWER_TYPES = { mana = "Mana", rage = "Rage", focus = "Focus", energy = "Energy" }
+local function powerType(word)
+    local name = POWER_TYPES[word]
+    return name and Enum.PowerType and Enum.PowerType[name] or nil
+end
+
+-- The power a piece's "below #%" reads: the one it costs, or of two (Skull Bash:
+-- energy in Cat Form, rage in Bear Form) the one your bar shows now. nil for none.
+local function lowPowerOf(k)
+    local words = ns.Grammar and ns.Grammar.LowPowers(pieceKey(k))
+    if not words then return nil end
+    if #words == 1 then return powerType(words[1]) end
+    local now = UnitPowerType("player")
+    if secret(now) then return nil end
+    for _, w in ipairs(words) do
+        if powerType(w) == now then return now end
+    end
+    return nil
+end
+
+-- Your power, the one the piece's cast costs, is under n%. Offered on a piece you can
+-- cast whose cost is a bar your class's player has (Grammar.LowPowers).
+Conditions.Register({
+    key = "powerLow", moment = "powerLow", actions = glowOnly(),
+    fits = function(kind) return kind.lowPower == true and castable(kind) end,
+    param = { min = 1, max = 99, default = 30, unit = "%" },
+    drive = function(_, layer, opts)
+        local t = lowPowerOf(opts.key)
+        local curve = belowCurve("power", opts.n or 30)
+        if t == nil or not curve then return layer:SetAlpha(0) end
+        alphaFrom(layer, UnitPowerPercent("player", t, false, curve))
+    end,
+    detail = function(k)
+        local t = lowPowerOf(k)
+        if t == nil then return { power = "none" } end
+        local s = C_Secrets and C_Secrets.GetPowerTypeSecrecy and C_Secrets.GetPowerTypeSecrecy(t)
+        return { power = t, pct = answer(UnitPowerPercent("player", t, false)), secrecy = answer(s) }
+    end,
+    events = { game = { { "UNIT_POWER_UPDATE", "player" }, { "UNIT_MAXPOWER", "player" },
+                        { "UNIT_DISPLAYPOWER", "player" } } },
+    secrecy = "client", layer = "any", excludes = {},
+    words = { moment = "When my %s is below #%", clause = "my %s is below #%" },
+})
+
+-- The target's cast or channel and its notInterruptible flag (8th of UnitCastingInfo,
+-- 7th of UnitChannelInfo), the flag plain or secret; nil with no cast. A cast's
+-- fields go secret in restricted fights (SecretWhenUnitSpellCastRestricted), but
+-- whether one came back is a plain type, as Daylight UI's cast bars read it.
+local function castFlag()
+    local cast, _, _, _, _, _, _, ni = UnitCastingInfo("target")
+    if type(cast) ~= "nil" then return true, ni end
+    local channel, _, _, _, _, _, ni2 = UnitChannelInfo("target")
+    if type(channel) ~= "nil" then return true, ni2 end
+    return false, nil
+end
+
+-- The target's cast can be interrupted. The flag goes secret in boss fights, keystones
+-- and battlegrounds (Daylight UI CastBar.lua), so the game sets the layer from it
+-- (SetAlphaFromBoolean, secret-safe). A flag the game leaves out reads unknown: dark.
+Conditions.Register({
+    key = "targetInterruptible", moment = "targetInterruptible", actions = grayOrGlow(),
+    fits = function(kind) return kind.interrupt == true and castable(kind) end,
+    drive = function(_, layer)
+        if targetNow() ~= true then return layer:SetAlpha(0) end
+        local casting, ni = castFlag()
+        if not casting then return layer:SetAlpha(0) end
+        if secret(ni) or type(ni) == "boolean" then
+            layer:SetAlphaFromBoolean(ni, 0, 1)
+        else
+            layer:SetAlpha(0)
+        end
+    end,
+    detail = function()
+        local t = targetNow()
+        if t ~= true then return { target = logged(UnitExists("target")) } end
+        local casting, ni = castFlag()
+        return { target = true, casting = casting, notInterruptible = casting and answer(ni) or nil }
+    end,
+    events = { game = { "PLAYER_TARGET_CHANGED", { "UNIT_SPELLCAST_START", "target" },
+                        { "UNIT_SPELLCAST_STOP", "target" }, { "UNIT_SPELLCAST_FAILED", "target" },
+                        { "UNIT_SPELLCAST_INTERRUPTED", "target" }, { "UNIT_SPELLCAST_CHANNEL_START", "target" },
+                        { "UNIT_SPELLCAST_CHANNEL_STOP", "target" }, { "UNIT_SPELLCAST_INTERRUPTIBLE", "target" },
+                        { "UNIT_SPELLCAST_NOT_INTERRUPTIBLE", "target" } } },
+    secrecy = "client", layer = "cooldown", excludes = {},
+    words = { moment = "When my target's cast can be interrupted", clause = "my target's cast can be interrupted" },
+})
+
 -- What you're doing and where, per spell, as Daylight UI's group rules read them
 -- (CdmRows.Now). Advanced, since they mostly follow "and".
 local COMBAT_EVENTS = { "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED" }

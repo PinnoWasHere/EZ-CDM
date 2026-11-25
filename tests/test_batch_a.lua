@@ -85,8 +85,9 @@ T.test("batch A: the rows Forever can't answer plainly are not registered", func
     local w = W.Build("WARRIOR")
     local C = w.ns.Conditions
     -- Interruptible: the cast's notInterruptible is secret in boss fights, keystones
-    -- and battlegrounds (Daylight UI CastBar.lua), so it is never plain.
-    T.falsy(C.Get("targetInterruptible"), "no plain interruptible")
+    -- and battlegrounds (Daylight UI CastBar.lua), so it is never plain: batch B
+    -- draws it through the client tier (test_batch_b).
+    T.eq(C.Get("targetInterruptible") and C.Get("targetInterruptible").secrecy, "client", "no plain interruptible")
     -- Charges: no class spell in the client's tables has a charge category.
     T.falsy(C.Get("fullCharges"), "no full charges")
     T.falsy(C.Get("recharging"), "no recharging")

@@ -575,7 +575,11 @@ T.test("drawer wording: every moment chip is the same phrase the sentence shows"
         local kind = G.Kind(k.clap)
         T.eq(stub.Text(strip(Drawer).chip[m].text), (G.MomentWords(m, nil, kind)), m .. "'s chip is its phrase")
         pick(Drawer, m)
-        T.eq(stub.Text(wordOf(Drawer, 3, "moment").text), (G.MomentWords(m, nil, kind)), m .. ": the sentence shows the same")
+        -- A moment that takes a number shows its words up to it; the number box follows.
+        local want = G.MomentWords(m, nil, kind)
+        local c = ns.Conditions.Get(m)
+        if c and c.param then want = want:match("^(.-)%s*N") end
+        T.eq(stub.Text(wordOf(Drawer, 3, "moment").text), want, m .. ": the sentence shows the same")
     end
     -- Always takes no comma: "Always show it."
     pick(Drawer, "always")

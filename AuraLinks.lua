@@ -35,6 +35,8 @@
 -- costs: a spell in spells -> the powers its cast costs, from every SpellPower row with a
 -- cost, in OrderIndex order (PowerType's names; health is type -2). A spell in spells
 -- and not here costs nothing (Charge, Battle Stance).
+-- classPowers: a class token -> the powers its player has (ChrClassesXPowerTypes), in
+-- PowerType order. A hunter's is mana alone: the focus its spells cost is its pet's.
 
 local _, ns = ...
 
@@ -6224,5 +6226,16 @@ ns.AuraLinks = {
         [1329283] = { "energy" }, -- Shank
         [1329549] = { "energy" }, -- Shank
         [1329555] = { "health" }, -- Reckless Swings
+    },
+    classPowers = {
+        DRUID = { "mana", "rage", "energy", "combo points" },
+        HUNTER = { "mana" },
+        MAGE = { "mana", "combo points" },
+        PALADIN = { "mana" },
+        PRIEST = { "mana" },
+        ROGUE = { "energy", "combo points" },
+        SHAMAN = { "mana" },
+        WARLOCK = { "mana" },
+        WARRIOR = { "rage", "combo points" },
     },
 }

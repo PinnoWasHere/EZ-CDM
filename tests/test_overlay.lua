@@ -306,7 +306,12 @@ T.test("conditions registry: each has fits, read, events, secrecy, words, an eff
     for _, c in ipairs(C.List()) do
         keys[#keys + 1] = c.key
         T.eq(type(c.fits), "function", c.key .. " fits")
-        T.eq(type(c.read), "function", c.key .. " read")
+        -- A client one hands the game's answer to a layer and never reads it.
+        if c.secrecy == "client" then
+            T.eq(type(c.drive), "function", c.key .. " drive")
+        else
+            T.eq(type(c.read), "function", c.key .. " read")
+        end
         T.truthy(#(c.events.game or {}) + #(c.events.daylight or {}) > 0, c.key .. " has events")
         T.truthy(C.SECRECY[c.secrecy], c.key .. " secrecy")
         T.truthy(G.WORDING.moments[c.moment], c.key .. ": its moment has words")
@@ -327,7 +332,8 @@ T.test("conditions registry: each has fits, read, events, secrecy, words, an eff
     end
     T.eq(table.concat(keys, " "), "cantCast notUsable noMana noBuff hasTarget targetEnemy targetBoss outOfRange "
         .. "targetCasting onlyGcd formBear formCat formAquatic formTravel formMoonkin formStealth formBattle "
-        .. "formDefensive formBerserker totemUp weaponBuffMissing chargesLeft inCombat noCombat inGroup inInstance",
+        .. "formDefensive formBerserker totemUp weaponBuffMissing chargesLeft targetLow playerLow powerLow targetInterruptible "
+        .. "inCombat noCombat inGroup inInstance",
         "the shipped ones, in order")
     noErrors()
 end)

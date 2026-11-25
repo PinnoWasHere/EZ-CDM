@@ -307,6 +307,12 @@ end
 --   w.Unit(unit, fields)         sets a unit's fields (pct, boss, casting, dead...) and
 --                                fires what a condition on it hears; a value may be
 --                                stub.Secret(v), as in a fight
+--   w.Health(unit, pct, how)     unit's health at pct (0-1); how "plain", "secret" or "nil"
+--   w.Power(t, pct, how)         your power of PowerType t at pct (0-1), the same
+--   w.Bar(t, token)              the bar your power shows now (a druid's form)
+--   w.Interruptible(ni)          the target's cast can't be interrupted (true), can
+--                                (false), or the flag is left out (nil); a secret too
+--   w.Fire(event, ...)           a game event as the client sends it
 --   w.Tick(n)                    the shared ticker's beat n times (Conditions.Tick)
 --   w.EnterCombat() / w.LeaveCombat()
 --   w.Advance(s)                 time passes; timers and a pass run
@@ -324,7 +330,12 @@ W.EVENT_DRIVERS = {
     end,
     PLAYER_TARGET_CHANGED = function(w) w.NewTarget() end,
     UNIT_HEALTH = function(w) w.Unit("player", {}) end,
+    UNIT_MAXHEALTH = function(w) w.Health("player", 0.5); w.Fire("UNIT_MAXHEALTH", "player") end,
     UNIT_POWER_UPDATE = function(w) w.Unit("player", {}) end,
+    UNIT_MAXPOWER = function(w) w.Power(0, 0.5); w.Fire("UNIT_MAXPOWER", "player", "MANA") end,
+    UNIT_DISPLAYPOWER = function(w) w.Bar(0, "MANA") end,
+    UNIT_SPELLCAST_INTERRUPTIBLE = function(w) w.TargetCasts("cast"); w.Interruptible(false) end,
+    UNIT_SPELLCAST_NOT_INTERRUPTIBLE = function(w) w.TargetCasts("cast"); w.Interruptible(true) end,
     UNIT_FLAGS = function(w) w.Unit("target", {}) end,
     UNIT_FACTION = function(w) w.Unit("target", {}) end,
     UNIT_CLASSIFICATION_CHANGED = function(w) w.Unit("target", {}) end,
@@ -360,6 +371,73 @@ W.HANDLER_DRIVERS = {
     proc = function(w, id) w.Proc(id) end,
 }
 
+-- The client tier's game (docs/tasks/w1-batch-b.md): curves, health and power
+-- percents, as Forever's docs describe them. A curve maps a 0-1 percent to its value
+-- by straight lines between its points (Enum.LuaCurveType.Linear). Each unit's
+-- answer may be plain, secret (as in a restricted fight) or nil (the game leaving it
+-- out, as it did with an aura's charges in a fight):
+--   unit.pct, unit.pctAnswer          health, 0-1; "plain", "secret" or "nil"
+--   unit.powers[type], .powerAnswer   each power's percent, 0-1 (full when unset)
+-- W.curves counts the curves made.
+function W.ClientTier()
+    local keep = { curve = rawget(_G, "C_CurveUtil"), health = _G.UnitHealthPercent,
+                   power = rawget(_G, "UnitPowerPercent"), types = Enum.LuaCurveType, powers = Enum.PowerType }
+    Enum.LuaCurveType = Enum.LuaCurveType or { Linear = 0, Step = 1, Cosine = 2, Cubic = 3 }
+    Enum.PowerType = Enum.PowerType or { Mana = 0, Rage = 1, Focus = 2, Energy = 3, ComboPoints = 4 }
+    W.curves = 0
+    _G.C_CurveUtil = { CreateCurve = function()
+        W.curves = W.curves + 1
+        local c = { points = {} }
+        function c.SetType(self, t) self.type = t end
+        function c.AddPoint(self, x, y)
+            self.points[#self.points + 1] = { x, y }
+            table.sort(self.points, function(a, b) return a[1] < b[1] end)
+        end
+        function c.Evaluate(self, x)
+            local p = self.points
+            if #p == 0 then return 0 end
+            if x <= p[1][1] then return p[1][2] end
+            for i = 2, #p do
+                if x <= p[i][1] then
+                    local a, b = p[i - 1], p[i]
+                    if b[1] == a[1] then return b[2] end
+                    return a[2] + (b[2] - a[2]) * (x - a[1]) / (b[1] - a[1])
+                end
+            end
+            return p[#p][2]
+        end
+        return c
+    end }
+    local function answer(how, v)
+        if how == "nil" then return nil end
+        if how == "secret" then return stub.Secret(v) end
+        return v
+    end
+    _G.UnitHealthPercent = function(u, _, curve)
+        stub.lastCurve = curve
+        local x = stub.units[u]
+        if not x then return 0 end
+        local how = x.pctAnswer or (stub.Plain(x.pct) ~= x.pct and "secret") or "plain"
+        local p = stub.Plain(x.pct) or 0
+        return answer(how, curve and curve:Evaluate(p) or p)
+    end
+    _G.UnitPowerPercent = function(u, t, _, curve)
+        local x = stub.units[u]
+        if not x then return 0 end
+        local p = x.powers and x.powers[t] or 1
+        return answer(x.powerAnswer or "plain", curve and curve:Evaluate(p) or p)
+    end
+    -- Then the game's own secrecy over them, by their doc flags (tests/secret_api.lua):
+    -- UnitHealthPercent's SecretReturns is always, UnitPowerPercent's
+    -- SecretWhenUnitPowerRestricted in a fight.
+    stub.WrapSecrets()
+    stub.onReset = stub.onReset or {}
+    stub.onReset[#stub.onReset + 1] = function()
+        _G.C_CurveUtil, _G.UnitHealthPercent, _G.UnitPowerPercent = keep.curve, keep.health, keep.power
+        Enum.LuaCurveType, Enum.PowerType = keep.types, keep.powers
+    end
+end
+
 function W.Build(class, opts)
     opts = opts or {}
     local c = type(class) == "table" and class or assert(W.Class(class), tostring(class))
@@ -367,6 +445,7 @@ function W.Build(class, opts)
     local function login(o)
         w.DUI, w.ns, w.AB = W.World(c, o)
         client(opts.spec or 1)
+        W.ClientTier()
         -- The range checks EZ-CDM turns on, and the spells only the GCD holds (w.Gcd).
         w.rangeChecks, w.gcd = {}, {}
         C_Spell.EnableSpellRangeCheck = function(id, on) w.rangeChecks[id] = on end
@@ -481,6 +560,48 @@ function W.Build(class, opts)
     -- Batch A's drivers (Conditions.lua): each sets the fake game's answer, then sends
     -- the event the client sends.
 
+    -- A game event as the client sends it, then the timers it sets.
+    function w.Fire(event, ...)
+        stub.FireEvent(event, ...)
+        run()
+    end
+    -- Batch B's drivers (W.ClientTier). how is "plain" (nil), "secret" or "nil".
+    -- unit's health at pct (0-1), then its health event.
+    function w.Health(unit, pct, how)
+        stub.units[unit] = stub.units[unit] or {}
+        stub.units[unit].pct, stub.units[unit].pctAnswer = pct, how or "plain"
+        stub.FireEvent("UNIT_HEALTH", unit)
+        run()
+    end
+    -- Your power of PowerType t at pct (0-1), then the power event.
+    function w.Power(t, pct, how)
+        local me = stub.units.player or {}
+        stub.units.player = me
+        me.powers = me.powers or {}
+        me.powers[t], me.powerAnswer = pct, how or "plain"
+        stub.FireEvent("UNIT_POWER_UPDATE", "player", "MANA")
+        run()
+    end
+    -- The bar your power shows now (UnitPowerType: a druid's form), then its event.
+    function w.Bar(t, token)
+        local me = stub.units.player or {}
+        stub.units.player = me
+        me.powerType, me.powerToken = t, token
+        stub.FireEvent("UNIT_DISPLAYPOWER", "player")
+        run()
+    end
+    -- The target's cast now can't be interrupted (true), can (false), or the game
+    -- leaves the flag out (nil); a secret too. Sends the game's event for it.
+    function w.Interruptible(ni)
+        local t = stub.units.target
+        local c = t and (t.cast or t.channel)
+        if not c then return end
+        c.notInterruptible = ni
+        local locked = stub.Plain(ni) == true
+        stub.FireEvent(locked and "UNIT_SPELLCAST_NOT_INTERRUPTIBLE" or "UNIT_SPELLCAST_INTERRUPTIBLE", "target")
+        run()
+    end
+
     -- ids = { [spell id] = true }: the spells whose range the game checks.
     function w.HasRange(ids)
         C_Spell.SpellHasRange = function(id) return ids[id] == true end
@@ -495,11 +616,12 @@ function W.Build(class, opts)
     end
     -- The target casts ("cast"), channels ("channel") or stops (nil). ending names how
     -- a cast ends: "STOP" (the default), "FAILED", "INTERRUPTED" or "CHANNEL_STOP".
+    -- A cast can be interrupted (notInterruptible false) unless w.Interruptible says.
     function w.TargetCasts(kind, ending)
         local t = stub.units.target
         if not t then return end
-        t.cast = kind == "cast" and { name = "Fireball" } or nil
-        t.channel = kind == "channel" and { name = "Drain Life" } or nil
+        t.cast = kind == "cast" and { name = "Fireball", notInterruptible = false } or nil
+        t.channel = kind == "channel" and { name = "Drain Life", notInterruptible = false } or nil
         local e = kind == "cast" and "START" or kind == "channel" and "CHANNEL_START" or ending or "STOP"
         stub.FireEvent("UNIT_SPELLCAST_" .. e, "target")
         run()
