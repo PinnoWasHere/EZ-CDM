@@ -7,6 +7,9 @@ local _, ns = ...
 --   mana   its mana blue (Style.PowerColor("MANA"))
 -- opts = { id, color }: one texture per id on each holder, or on a line's layer
 -- when a client part drives it (Conditions.lua).
+-- The "glow" effect runs Daylight UI's glow (API.GlowAround) round the holder, or
+-- round a line's layer, whose alpha a client part sets. Motion off keeps it away,
+-- as Daylight UI's own glows.
 -- The "sound" effect plays a sound line once as it turns on.
 
 local Bridge, Conditions = ns.Bridge, ns.Conditions
@@ -80,6 +83,29 @@ if type(API) == "table" then
         client = true,
         draw = draw,
         clear = clear,
+        shown = function(target, opts)
+            local id = opts.id or opts.color
+            return washes[target] and washes[target][id] or nil
+        end,
+    })
+    -- A glow round the icon in the line's color (the accent when none) and style (the
+    -- piece's when none). Alpha only, so a client part may drive it.
+    local glowing = setmetatable({}, { __mode = "k" })
+    Conditions.RegisterEffect({
+        key = "glow",
+        client = true,
+        draw = function(target, on, opts)
+            local c = on and type(opts.value) == "table" and opts.value or nil
+            API.GlowAround(target, on, { style = opts.style, r = c and c[1], g = c and c[2], b = c and c[3] })
+            glowing[target] = on and true or nil
+        end,
+        clear = function(target)
+            if glowing[target] then
+                API.GlowAround(target, false)
+                glowing[target] = nil
+            end
+        end,
+        shown = function(target) return glowing[target] and target or nil end,
     })
     -- A sound line: Daylight UI's alert (opts.value, a Sound.AlertChoices key),
     -- played once as the line turns on.

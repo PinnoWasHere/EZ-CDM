@@ -24,9 +24,16 @@ local addonName, ns = ...
 --   param      optional { min, max, default, unit }: it takes a typed whole number n
 --   advanced   optional: offered only behind the drawer's "more…"
 --   ticker     optional, client only: re-driven on the shared ticker
---   words      optional { moment, clause }: its phrases, put in Grammar.WORDING
---              unless set there; "#" marks the number
+--   words      optional { moment, clause, never }: its phrases, put in
+--              Grammar.WORDING unless set there; "#" marks the number, "%s" the
+--              power name. never[key] is why it can't hold with that condition
 --   noSound    optional: no sound action
+--   layer      the icon it is about: "cooldown", "buff" or "any". On a piece that
+--              shows its buff and its cooldown, a line draws only while its icon shows
+--   excludes   { condition key, ... }: parts it can never be true with, read both
+--              ways. Its words.never[key] says why. A "cooldown" and a "buff" part
+--              never hold together either
+--   clauseOnly optional: offered only after "and", never as a line's moment
 --   detail(key)  optional: plain fields for the dev log
 --   events     { game = { "EVENT" or { "EVENT", unit } }, daylight = { WatchCooldown
 --              handler names } }: what may change it
@@ -35,6 +42,7 @@ local addonName, ns = ...
 --
 -- An effect (Conditions.RegisterEffect):
 --   key, fits(kind) optional, draw(target, on, opts), clear(target)
+--   shown(target, opts)  optional: what it drew on target, for Conditions.Visible
 --   client     draws only alpha-safe looks, so a line with a client part may use it
 --   edge       fires once as its line turns on (a sound)
 --   stack      each line has a slot of its own instead of one priority winner
@@ -51,7 +59,8 @@ local addonName, ns = ...
 -- C_Timer ticker (Conditions.TICK), on only while a rule uses a ticker condition.
 --
 -- Rules live in EZCDMDB.conditions[profile][key] = { [condition] = { [action] = spec } },
--- spec true or { n, value, clauses = { { cond, n } } } (Conditions.Spec). Draft reads
+-- spec true or { n, value, style, clauses = { { cond, n } } } (Conditions.Spec): value
+-- is a sound's key or a glow's color, style a glow's own style. Draft reads
 -- and writes them through Conditions.Merge and Conditions.Split.
 
 local Bridge = ns.Bridge
@@ -69,6 +78,9 @@ local weak = { __mode = "k" }
 Conditions.DAYLIGHT = { ready = true, started = true, usable = true, proc = true, buffUp = true,
                         buffDown = true, changed = true }
 Conditions.SECRECY = { plain = true, outOfCombat = true, client = true }
+Conditions.LAYERS = { cooldown = true, buff = true, any = true }
+-- The saved rules' form. 2: "cantCast" is any reason; the old one is "notUsable".
+Conditions.VERSION = 2
 -- The shared ticker's beat, in seconds.
 Conditions.TICK = 0.2
 -- What the dev suite logs for a value the game keeps secret.
@@ -114,6 +126,13 @@ local function problem(c)
     end
     if badParam(c.param) then return "bad param" end
     if c.ticker and c.secrecy ~= "client" then return "bad ticker" end
+    if not Conditions.LAYERS[c.layer] then return "bad layer" end
+    if c.excludes ~= nil then
+        if type(c.excludes) ~= "table" then return "bad excludes" end
+        for _, k in ipairs(c.excludes) do
+            if type(k) ~= "string" then return "bad excludes" end
+        end
+    end
 end
 
 -- Adds a condition. Grammar takes its lines at once (Grammar.InstallCondition).
@@ -156,13 +175,47 @@ function Conditions.ClientSafe(key, action)
     return e ~= nil and e.client == true
 end
 
+-- Whether two conditions can never be true at once: either names the other in its
+-- excludes, or one is about the cooldown icon and the other the buff icon.
+function Conditions.Excludes(a, b)
+    local ca, cb = byKey[a], byKey[b]
+    if not (ca and cb) then return false end
+    for _, k in ipairs(ca.excludes or {}) do
+        if k == b then return true end
+    end
+    for _, k in ipairs(cb.excludes or {}) do
+        if k == a then return true end
+    end
+    local la, lb = ca.layer, cb.layer
+    return (la == "cooldown" and lb == "buff") or (la == "buff" and lb == "cooldown")
+end
+
+-- The icon a line is about: its first part that names one, else "any".
+function Conditions.LineLayer(ck, spec)
+    local c = byKey[ck]
+    if c and c.layer ~= "any" then return c.layer end
+    for _, cl in ipairs(type(spec) == "table" and type(spec.clauses) == "table" and spec.clauses or {}) do
+        local x = type(cl) == "table" and byKey[cl.cond]
+        if x and x.layer ~= "any" then return x.layer end
+    end
+    return "any"
+end
+
+-- Whether any advanced condition the drawer could offer is registered.
+function Conditions.AnyAdvanced()
+    for _, c in ipairs(list) do
+        if c.advanced and c.secrecy ~= "outOfCombat" then return true end
+    end
+    return false
+end
+
 -- Whether a condition's action fits a piece: the condition reads it and the effect
 -- can draw on it, and a client condition's effect draws alpha-safe looks. Any piece
 -- when kind is nil.
 function Conditions.Fits(key, action, kind)
     local c = byKey[key]
     local act = c and c.actions[action]
-    if not act then return false end
+    if not act or c.clauseOnly then return false end
     if c.secrecy == "client" and not Conditions.ClientSafe(key, action) then return false end
     if kind == nil then return true end
     local e = effects[act.effect]
@@ -190,9 +243,35 @@ end
 -- Saved rules
 -- ---------------------------------------------------------------------
 
+-- Rules saved before VERSION 2 meant Daylight UI's Not usable by "cantCast". They
+-- move to "notUsable", which keeps what the player sees; "cantCast" now counts a
+-- cooldown and short power too.
+local function migrate(all)
+    for _, pieces in pairs(all) do
+        for _, rule in pairs(type(pieces) == "table" and pieces or {}) do
+            if type(rule) == "table" then
+                for _, acts in pairs(rule) do
+                    for _, spec in pairs(type(acts) == "table" and acts or {}) do
+                        for _, cl in ipairs(type(spec) == "table" and type(spec.clauses) == "table" and spec.clauses or {}) do
+                            if type(cl) == "table" and cl.cond == "cantCast" then cl.cond = "notUsable" end
+                        end
+                    end
+                end
+                if rule.cantCast ~= nil and rule.notUsable == nil then
+                    rule.notUsable, rule.cantCast = rule.cantCast, nil
+                end
+            end
+        end
+    end
+end
+
 local function store()
     if type(EZCDMDB) ~= "table" then EZCDMDB = {} end
     if type(EZCDMDB.conditions) ~= "table" then EZCDMDB.conditions = {} end
+    if EZCDMDB.conditionsVersion ~= Conditions.VERSION then
+        migrate(EZCDMDB.conditions)
+        EZCDMDB.conditionsVersion = Conditions.VERSION
+    end
     return EZCDMDB.conditions
 end
 
@@ -214,6 +293,13 @@ function Conditions.Spec(ck, action, spec)
     local out = {}
     out.n = savedNumber(ck, spec.n)
     if act.effect == "sound" and type(spec.value) == "string" then out.value = spec.value end
+    if act.effect == "glow" then
+        local v = spec.value
+        if type(v) == "table" and type(v[1]) == "number" and type(v[2]) == "number" and type(v[3]) == "number" then
+            out.value = { v[1], v[2], v[3] }
+        end
+        if type(spec.style) == "string" then out.style = spec.style end
+    end
     local clauses = {}
     for _, cl in ipairs(type(spec.clauses) == "table" and spec.clauses or {}) do
         if type(cl) == "table" and byKey[cl.cond] then
@@ -335,6 +421,8 @@ local drawn = setmetatable({}, weak)
 local layers = setmetatable({}, weak)
 -- Key as a string -> line id -> { c, holder, layer, n }: lit lines on the ticker.
 local ticking = {}
+-- Key as a string -> true for a piece that shows its buff and its cooldown in turn.
+local both = {}
 local ticker
 local listener
 
@@ -373,13 +461,27 @@ local function tell(k, c, action, effect, on)
 end
 
 local function idParts(id) return id:match("^(.-):(.*)$") end
+
+-- Whether the icon a line is about shows on a piece now. A piece that shows its
+-- buff and its cooldown shows the buff while it is up, else the cooldown.
+local function layerShows(k, layer)
+    if layer == "any" or not both[k] then return true end
+    local up = Bridge.BuffState(k)
+    if layer == "cooldown" then return up ~= true end
+    return up == true
+end
 local function effectOf(slot) return slot:match("^[^|]+") end
 
--- What an effect draws for a line: the action's opts with the line's sound and number.
-local function optsFor(act, spec)
+-- Key as a string -> the piece's own glow style (Daylight UI's glowStyle).
+local styleOf = {}
+
+-- What an effect draws for a line: the action's opts with the line's sound or color,
+-- number and glow style (the piece's own when it has none).
+local function optsFor(act, spec, k)
     local out = {}
     for f, v in pairs(act.opts or {}) do out[f] = v end
-    if type(spec) == "table" then out.value, out.n = spec.value, spec.n end
+    if type(spec) == "table" then out.value, out.n, out.style = spec.value, spec.n, spec.style end
+    if act.effect == "glow" and out.style == nil and k then out.style = styleOf[k] end
     return out
 end
 
@@ -409,7 +511,7 @@ local function refresh(k)
             local act = c.actions[a]
             local e = effects[act.effect]
             local _, plain, client = partsOf(ck, spec)
-            local lit = holder ~= nil and plain ~= nil
+            local lit = holder ~= nil and plain ~= nil and layerShows(k, Conditions.LineLayer(ck, spec))
             for _, p in ipairs(lit and plain or {}) do
                 if readOf(p.c, k, numberOf(p)) ~= true then
                     lit = false
@@ -419,7 +521,7 @@ local function refresh(k)
             local id = ck .. ":" .. a
             local own = client ~= nil or (e ~= nil and (e.stack or e.edge))
             local slot = own and (act.effect .. "|" .. id) or act.effect
-            local rec = { c = c, action = a, id = id, ek = act.effect, client = client, opts = optsFor(act, spec) }
+            local rec = { c = c, action = a, id = id, ek = act.effect, client = client, opts = optsFor(act, spec, k) }
             asked[slot] = asked[slot] or {}
             asked[slot][#asked[slot] + 1] = rec
             local w = want[slot]
@@ -555,10 +657,12 @@ end
 local watches, watchedWith = {}, {}
 local me
 
-local function handlersFor(rule)
+local function handlersFor(rule, k)
     local names = {}
     for _, c in pairs(usedBy(rule)) do
         for _, h in ipairs(c.events.daylight or {}) do names[h] = true end
+        -- Its icon comes and goes with the buff.
+        if both[k] and c.layer ~= "any" then names.buffUp, names.buffDown = true, true end
     end
     local sorted = {}
     for h in pairs(names) do sorted[#sorted + 1] = h end
@@ -566,9 +670,24 @@ local function handlersFor(rule)
     return sorted
 end
 
+-- Each placed piece that shows its buff and its cooldown in turn, and each one's
+-- glow style.
+local function readPieces()
+    local layout = Bridge.Layout()
+    local two, styles = {}, {}
+    for key, p in pairs(type(layout) == "table" and type(layout.pieces) == "table" and layout.pieces or {}) do
+        local k = tostring(key)
+        if Bridge.Shows(key, p) == "both" then two[k] = true end
+        local st = Bridge.Option(p, "glowStyle")
+        if type(st) == "string" then styles[k] = st end
+    end
+    return two, styles
+end
+
 local function sync()
     local profile = Bridge.ProfileOf()
     local saved = profile ~= nil and store()[profile]
+    both, styleOf = readPieces()
     local now, want = {}, {}
     local ticks = false
     for key, v in pairs(type(saved) == "table" and saved or {}) do
@@ -584,14 +703,14 @@ local function sync()
     end
     rules = now
     for k, h in pairs(watches) do
-        local names = now[k] and table.concat(handlersFor(now[k]), " ")
+        local names = now[k] and table.concat(handlersFor(now[k], k), " ")
         if names ~= watchedWith[k] then
             if h then API.Off(h) end
             watches[k], watchedWith[k] = nil, nil
         end
     end
     for k, r in pairs(now) do
-        local names = handlersFor(r)
+        local names = handlersFor(r, k)
         if watches[k] == nil and #names > 0 then
             me = me or API.For(addonName)
             local handlers = {}
@@ -715,6 +834,46 @@ function Conditions.Lines(key)
     return out
 end
 
+-- Whether a line's effect can be seen on a piece now: { lit, shown, alpha, covered }.
+-- lit: the driver lights it. shown: the piece's frame and what the effect drew are
+-- on show. alpha: what the effect drew, Conditions.SECRET while the client keeps it.
+-- covered: the icon its condition is about doesn't show now (Conditions.LineLayer).
+function Conditions.Visible(key, id)
+    local k = tostring(key)
+    local out = { lit = false, shown = false, alpha = 0, covered = false }
+    local ck = idParts(id)
+    local rule = rules[k]
+    local a = select(2, idParts(id))
+    local spec = rule and rule[ck] and rule[ck][a]
+    if spec ~= nil then out.covered = not layerShows(k, Conditions.LineLayer(ck, spec)) end
+    for slot, v in pairs(litNow[k] or {}) do
+        if v == id then out.lit = true; out.slot = slot end
+    end
+    local frame = frameOf[k]
+    local c = byKey[ck]
+    local act = c and c.actions[a]
+    local e = act and effects[act.effect]
+    if not (out.lit and frame and frame:IsVisible() and e) then return out end
+    local holder = API.Attach(frame)
+    local target = layers[holder] and layers[holder][id]
+    local drawn = target or holder
+    if e.shown then
+        local obj = e.shown(drawn, optsFor(act, spec, k))
+        if not obj then return out end
+        drawn = obj
+    end
+    local alpha = drawn:GetAlpha()
+    if target then
+        local la = target:GetAlpha()
+        if issecretvalue(la) then alpha = Conditions.SECRET
+        elseif not issecretvalue(alpha) then alpha = alpha * la end
+    end
+    if issecretvalue(alpha) then alpha = Conditions.SECRET end
+    out.shown = drawn:IsVisible() == true
+    out.alpha = alpha
+    return out
+end
+
 -- A scratch frame a client condition drives when sampled.
 local scratch
 
@@ -746,37 +905,80 @@ local USABLE_EVENTS = {
 }
 
 local function usableDetail(k)
-    local usable, noPower = Bridge.UsableState(k)
-    return { usable = usable, noPower = noPower }
+    local usable, noPower, onCooldown = Bridge.UsableState(k)
+    return { usable = usable, noPower = noPower, onCooldown = onCooldown }
 end
 
--- Can't be cast for a reason other than power, as Daylight UI's own Not usable.
+-- A piece the castable words read: a cooldown, or a spell button (Grammar.Kind).
+local function castable(kind) return kind.cooldown == true or kind.button == true end
+
+local WASH_GRAY = { effect = "wash", opts = { id = "gray", color = "OFF" } }
+local GLOW = { effect = "glow" }
+
+-- Can't be cast now, for any reason: on cooldown, short of power, or not usable.
 Conditions.Register({
-    key = "cantCast", moment = "unusable",
-    actions = { gray = { effect = "wash", opts = { id = "gray", color = "OFF" } } },
-    fits = function(kind) return kind.cooldown == true end,
+    key = "cantCast", moment = "blocked",
+    actions = { gray = WASH_GRAY, glow = GLOW },
+    fits = castable,
+    read = function(k)
+        local usable, _, onCooldown = Bridge.UsableState(k)
+        if usable == false or onCooldown == true then return true end
+        if usable == nil or onCooldown == nil then return nil end
+        return false
+    end,
+    detail = usableDetail,
+    events = { game = USABLE_EVENTS.game, daylight = { "changed", "ready", "started" } },
+    secrecy = "plain", layer = "cooldown", excludes = {},
+    words = { moment = "When I can't cast it", clause = "I can't cast it" },
+    recipes = { { key = "canCast", action = "gray", after = "dimCooling" } },
+})
+
+-- Can't be cast for a reason other than power or a cooldown (a stance, no target,
+-- the wrong weapon), as Daylight UI's own Not usable.
+Conditions.Register({
+    key = "notUsable", moment = "unusable",
+    actions = { gray = WASH_GRAY, glow = GLOW },
+    fits = castable,
     read = function(k)
         local usable, noPower = Bridge.UsableState(k)
         if usable == nil or noPower == nil then return nil end
         return usable == false and noPower == false
     end,
     detail = usableDetail,
-    events = USABLE_EVENTS, secrecy = "plain",
-    recipes = { { key = "canCast", action = "gray", after = "dimCooling" } },
+    events = USABLE_EVENTS, secrecy = "plain", layer = "cooldown", excludes = { "noMana" },
+    words = { moment = "When it's not usable", clause = "it's not usable",
+              never = { noMana = "not usable never counts %s" } },
 })
 
 -- Only short of power (mana, rage, energy).
 Conditions.Register({
     key = "noMana", moment = "short",
-    actions = { blue = { effect = "wash", opts = { id = "blue", color = "mana" } } },
-    fits = function(kind) return kind.cooldown == true end,
+    actions = { blue = { effect = "wash", opts = { id = "blue", color = "mana" } }, glow = GLOW },
+    fits = castable,
     read = function(k)
         local _, noPower = Bridge.UsableState(k)
         return noPower
     end,
     detail = usableDetail,
-    events = USABLE_EVENTS, secrecy = "plain", priority = 1,
+    events = USABLE_EVENTS, secrecy = "plain", layer = "cooldown", excludes = { "notUsable" }, priority = 1,
+    words = { moment = "When I don't have enough %s", clause = "I don't have enough %s" },
     recipes = { { key = "manaCheck", action = "blue", after = "canCast" } },
+})
+
+-- Its buff isn't up, as Daylight UI's own item says. Only after "and": on a piece
+-- that shows its buff and its cooldown, it keeps a line to the cooldown icon.
+Conditions.Register({
+    key = "noBuff", moment = "noBuff", clauseOnly = true, noSound = true,
+    actions = { gray = WASH_GRAY },
+    fits = function(kind) return kind.buff == true end,
+    read = function(k)
+        local up = Bridge.BuffState(k)
+        if up == nil then return nil end
+        return not up
+    end,
+    events = { daylight = { "buffUp", "buffDown", "changed" } },
+    secrecy = "plain", layer = "any", excludes = {},
+    words = { moment = "While its buff isn't active", clause = "its buff isn't active" },
 })
 
 -- ---------------------------------------------------------------------

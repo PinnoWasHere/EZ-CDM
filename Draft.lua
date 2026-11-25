@@ -174,9 +174,11 @@ local PROBLEM_WORDS = {
     needs = Grammar.WORDING.needs:format(Grammar.Describe({ moment = "missing", action = "show" })),
     order = "has a part the game hides in a fight before another part; that part must come last",
     secret = "can't do this on a part the game hides in a fight",
+    never = "has two parts that can never both be true",
 }
 -- Problems a write can't go past: the line would be dropped.
-local BLOCKING = { blank = true, pair = true, kind = true, value = true, needs = true, order = true, secret = true }
+local BLOCKING = { blank = true, pair = true, kind = true, value = true, needs = true, order = true, secret = true,
+                   never = true }
 
 local function problemWords(name, rules, p)
     local what

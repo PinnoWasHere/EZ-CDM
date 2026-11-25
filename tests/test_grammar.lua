@@ -185,10 +185,11 @@ end)
 T.test("grammar: gray and color go with cooldown only, and sounds only where Daylight UI has one", function()
     local _, _, G = world()
     for _, m in ipairs(G.MOMENTS) do
-        T.eq(G.MAP[m].gray ~= nil, m == "cooldown" or m == "unusable", m .. " gray")
+        T.eq(G.MAP[m].gray ~= nil, m == "cooldown" or m == "unusable" or m == "blocked" or m == "noBuff", m .. " gray")
         T.eq(G.MAP[m].color ~= nil, m == "cooldown", m .. " color")
     end
-    T.eq(G.MAP.unusable.gray.cond, "cantCast", "can't cast gray is EZ-CDM's condition")
+    T.eq(G.MAP.blocked.gray.cond, "cantCast", "can't cast gray is EZ-CDM's condition")
+    T.eq(G.MAP.unusable.gray.cond, "notUsable", "not usable gray too")
     T.eq(G.MAP.short.blue.cond, "noMana", "short blue too")
     T.deq(G.MAP.ends, { sound = { field = "buffEndSound", sound = true } }, "ends only takes sound")
     T.eq(G.MAP.up.hide.field, "hideActive")
@@ -224,10 +225,18 @@ local CASES = {
     { L("short", "show"), {} },
     { L("short", "fade"), { onShort = "fade" } },
     { L("short", "hide"), { onShort = "hide" } },
-    { L("unusable", "gray"), { ["ez:cantCast:gray"] = true } },
+    { L("unusable", "gray"), { ["ez:notUsable:gray"] = true } },
+    { L("blocked", "gray"), { ["ez:cantCast:gray"] = true } },
+    { L("blocked", "glow"), { ["ez:cantCast:glow"] = true } },
+    { L("blocked", "glow", COLOR), { ["ez:cantCast:glow"] = { value = COLOR } } },
     { L("short", "blue"), { ["ez:noMana:blue"] = true } },
+    { L("unusable", "glow"), { ["ez:notUsable:glow"] = true } },
+    { L("short", "glow", COLOR), { ["ez:noMana:glow"] = { value = COLOR } } },
+    -- "Its buff isn't active" is a clause only; as a moment it fits no piece.
+    { L("noBuff", "gray"), { ["ez:noBuff:gray"] = true } },
     -- A plain condition's sound line keeps its sound key (Conditions.Spec).
-    { L("unusable", "sound", SOUND), { ["ez:cantCast:sound"] = { value = SOUND } } },
+    { L("unusable", "sound", SOUND), { ["ez:notUsable:sound"] = { value = SOUND } } },
+    { L("blocked", "sound", SOUND), { ["ez:cantCast:sound"] = { value = SOUND } } },
     { L("short", "sound", SOUND), { ["ez:noMana:sound"] = { value = SOUND } } },
     { L("usable", "glow"), { usableGlow = true } },
     { L("usable", "glow", COLOR), { usableGlow = true, usableGlowColor = COLOR } },
@@ -456,7 +465,8 @@ local function pieceWorld(hidden)
 end
 
 local COOLDOWN_WORDS = "always(show) ready(show,fade,hide,glow,sound) cooldown(show,fade,hide,gray,color,nosweep,nogcd) "
-    .. "almost(numbers) unusable(show,fade,hide,gray,sound) short(show,fade,hide,sound,blue) usable(glow,sound)"
+    .. "almost(numbers) blocked(glow,gray,sound) unusable(show,fade,hide,glow,gray,sound) short(show,fade,hide,glow,sound,blue) "
+    .. "usable(glow,sound)"
 
 T.test("grammar kind: an icon cooldown takes the cooldown words, gray included", function()
     local _, ns, G, _, k = pieceWorld()
@@ -811,7 +821,8 @@ T.test("grammar words: Describe says each line in US English", function()
         { L("cooldown", "fade"), "While it's cooling down, make it see-through." },
         { L("cooldown", "gray"), "While it's cooling down, turn it gray." },
         { L("cooldown", "color"), "While it's cooling down, keep its color." },
-        { L("unusable", "hide"), "When I can't cast it, hide it." },
+        { L("unusable", "hide"), "When it's not usable, hide it." },
+        { L("blocked", "gray"), "When I can't cast it, turn it gray." },
         { L("short", "hide"), "When I don't have enough rage, hide it." },
         { L("usable", "glow"), "When it becomes castable, glow." },
         { L("up", "hide"), "While it's active, hide it." },
@@ -838,7 +849,8 @@ end)
 
 -- The spec's "Player wording" table, as the player reads it.
 local PLAYER_MOMENTS = {
-    ready = "When it's ready", cooldown = "While it's cooling down", unusable = "When I can't cast it",
+    ready = "When it's ready", cooldown = "While it's cooling down", unusable = "When it's not usable",
+    blocked = "When I can't cast it",
     short = "When I don't have enough rage", usable = "When it becomes castable", up = "While it's active",
     ends = "When it wears off", missing = "While it's not active", recast = "When it's about to fall off",
 }
@@ -1623,7 +1635,7 @@ T.test("grammar vs card: the shaman's element pieces", function()
             T.eq(ns.Bridge.Shows(el, set.pieces[el]), "both", el .. ": Totem and buff")
             agrees(G, AB, el, el .. (hidden and ", buff rows hidden" or ""))
             if not hidden then
-                T.eq(#G.Words(G.Kind(el)), 11, el .. ": all 11 moments, as the card shows them")
+                T.eq(#G.Words(G.Kind(el)), 12, el .. ": all 11 of the card's moments, and EZ-CDM's can't cast")
             end
         end
         noErrors()
@@ -1942,7 +1954,7 @@ end)
 -- short of power
 -- ---------------------------------------------------------------------
 
-T.test("grammar wash: can't cast gray and short of power blue are EZ-CDM's own fields", function()
+T.test("grammar wash: not usable gray and short of power blue are EZ-CDM's own fields", function()
     local _, _, G, _, k = pieceWorld()
     local kind = G.Kind(k.icon)
     T.truthy(G.Fits(kind, "unusable", "gray"))
@@ -1951,16 +1963,17 @@ T.test("grammar wash: can't cast gray and short of power blue are EZ-CDM's own f
     T.falsy(G.Fits(G.Kind(k.buff), "unusable", "gray"), "a buff alone has no castable state")
     local f, p = G.Compile({ lines = { L("unusable", "gray"), L("short", "blue"), L("cooldown", "gray") } }, kind)
     T.eq(codes(p), "")
-    T.deq(f, withChain({ ["ez:cantCast:gray"] = true, ["ez:noMana:blue"] = true, desat = "grey" }),
+    T.deq(f, withChain({ ["ez:notUsable:gray"] = true, ["ez:noMana:blue"] = true, desat = "grey" }),
         "gray on the cooldown stays Daylight UI's")
     local back = G.Decompile(f, kind)
     T.deq(back.lines, { L("cooldown", "gray"), L("unusable", "gray"), L("short", "blue") }, "canonical order")
-    for _, field in ipairs({ "ez:cantCast:gray", "ez:noMana:blue" }) do
+    for _, field in ipairs({ "ez:notUsable:gray", "ez:cantCast:gray", "ez:noMana:blue" }) do
         local found = false
         for _, e in ipairs(G.EZ_FIELDS) do found = found or e == field end
         T.truthy(found, field .. " is EZ-CDM's own")
     end
-    T.eq(G.Describe(L("unusable", "gray")), "When I can't cast it, turn it gray.")
+    T.eq(G.Describe(L("unusable", "gray")), "When it's not usable, turn it gray.")
+    T.eq(G.Describe(L("blocked", "gray")), "When I can't cast it, turn it gray.")
     T.eq(G.Describe(L("short", "blue")), "When I don't have enough " .. G.PowerName() .. ", tint it blue.")
     T.falsy(G.IsDefault(L("unusable", "gray"), kind), "never Daylight UI's default")
     noErrors()
@@ -1971,7 +1984,7 @@ T.test("grammar wash: a recipe replaces neither the show rule nor the cooldown g
     local rules = rulesOf({ L("unusable", "hide"), L("cooldown", "gray") })
     G.ApplyRecipe(rules, "canCast")
     G.ApplyRecipe(rules, "manaCheck")
-    T.deq(rules.lines, { L("unusable", "hide"), L("cooldown", "gray"), L("unusable", "gray"), L("short", "blue") })
+    T.deq(rules.lines, { L("unusable", "hide"), L("cooldown", "gray"), L("blocked", "gray"), L("short", "blue") })
     G.ApplyRecipe(rules, "canCast")
     T.eq(#rules.lines, 4, "a second apply adds nothing")
     noErrors()

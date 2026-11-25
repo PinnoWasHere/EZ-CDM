@@ -80,6 +80,7 @@ local openNext     -- a word id whose strip opens on the next draw
 local drawn = {}   -- the word ids the body shows now; a strip lives only while its word does
 local stripFor     -- the word id the strip was last drawn for, so its scroll is kept across picks
 local badNumber    -- the number word whose last typed number was out of range
+local focusedFor   -- the number word whose box took the keyboard as it opened
 
 local function pad() return Bridge.Gap() or 0 end
 
@@ -328,7 +329,7 @@ local function words(s, pieces, opts)
     b.line, b.group, b.form, b.note, b.notice, b.refusal, b.adds, b.fade, b.shared, b.choices, b.hint, b.default,
         b.groupHead, b.shows, b.style, b.ezGlow, b.ezReload = nil, nil, nil, nil, nil, nil, nil, nil, nil,
         nil, nil, nil, nil, nil, nil, nil, nil
-    b.ezRingOther, b.fallOff, b.copy = nil, nil, nil
+    b.ezRingOther, b.fallOff, b.copy, b.hidden, b.never = nil, nil, nil, nil, nil
     b.onRemove = opts.onRemove
     b.remove:SetShown(opts.onRemove ~= nil)
     return b
@@ -375,6 +376,7 @@ local function overControl()
             if s.bar:IsMouseEnabled() and s.bar:IsMouseOver() then return true end
             if s.scroll:IsMouseOver() then
                 for _, b in ipairs(s.pieces) do
+                    if b:IsShown() and b.box and b.box:IsMouseOver() then return true end
                     if b:IsShown() and b.remove and b.remove:IsShown() and b.remove:IsMouseOver() then return true end
                     for _, t in ipairs(b.tokens or {}) do
                         if t.piece and t.piece.kind and t:IsShown() and t:IsMouseOver() then return true end
@@ -388,9 +390,18 @@ local function overControl()
         and picker:IsMouseOver() or false
 end
 
+-- The number box while it has the keyboard, or nil.
+local function typing()
+    local s = parts.stripStack
+    for _, b in ipairs(s and s.pieces or {}) do
+        if b:IsShown() and b.box and b.box:HasFocus() then return b.box end
+    end
+end
+
 -- A mouse press anywhere decides: over one of EZ-CDM's frames it lifts them,
 -- anywhere else it drops them, so a click on Daylight UI's card brings it back.
--- A press on empty space, inside the drawer or out, closes the open strip.
+-- A press on empty space, inside the drawer or out, closes the open strip; a
+-- number typed in its box is written first.
 function Drawer.Press()
     local inside = false
     for _, f in pairs(frames()) do
@@ -398,6 +409,8 @@ function Drawer.Press()
     end
     if inside then Drawer.Lift() else Drawer.Drop() end
     if slot and not overControl() then
+        local box = typing()
+        if box then box:ClearFocus() end
         slot = nil
         Drawer.Refresh()
     end
@@ -729,9 +742,24 @@ local function makeNumber(parent)
     b.box:SetWidth(b.box:GetHeight() * 3)
     b.range = API.Text(b, "small", "LEFT")
     b.range:SetPoint("TOPLEFT", b.box, "BOTTOMLEFT", 0, -pad())
-    -- Enter and a click away both take the box's focus, and that commits it.
+    -- Enter and a press away both take the box's focus, and that commits it.
+    -- Escape takes it too, and writes nothing. A redraw hides the box, which takes
+    -- its focus as well; what was typed comes back with the box (numberStrip).
     b.box:HookScript("OnEditFocusLost", function(self)
+        if b.escaped then
+            b.escaped = nil
+            return
+        end
+        if not self:IsVisible() then
+            b.resume = self:GetText()
+            return
+        end
         if b.onCommit then b.onCommit(tonumber(self:GetText() or "")) end
+    end)
+    b.box:SetScript("OnEscapePressed", function(self)
+        b.escaped = true
+        self:ClearFocus()
+        if b.onEscape then b.onEscape() end
     end)
     return b
 end
@@ -747,8 +775,15 @@ local function numberStrip(s, def)
     local p = def.range
     local _, textH = measure(WORDING.range, "small")
     local b = s:Piece("number", makeNumber, inputHeight() + pad() + textH, pad())
-    b.onCommit = nil
-    b.box:SetText(tostring(def.current or p.default))
+    b.onCommit, b.onEscape = nil, nil
+    -- A redraw while the player types keeps what is typed, and the focus.
+    if b.resume ~= nil and focusedFor == def.id then
+        b.box:SetText(b.resume)
+        b.box:SetFocus()
+    elseif not (b.box:HasFocus() and focusedFor == def.id) then
+        b.box:SetText(tostring(def.current or p.default))
+    end
+    b.resume = nil
     b.range:SetText(WORDING.range:format(p.min, p.max))
     paint(b.range, badNumber == def.id and "BAD" or "LABEL")
     b.onCommit = function(n)
@@ -764,6 +799,17 @@ local function numberStrip(s, def)
         def.picked = n
         def.onPick(n)
     end
+    b.onEscape = function()
+        if slot ~= def then return end
+        slot, badNumber = nil, nil
+        Drawer.Refresh()
+    end
+    -- It opens with the keyboard, its number picked, ready to type over.
+    if focusedFor ~= def.id then
+        focusedFor = def.id
+        b.box:SetFocus()
+        b.box:HighlightText()
+    end
     return b
 end
 
@@ -773,7 +819,7 @@ local function fillStrip()
     if slot then
         words(s, { { text = slot.heading, size = "small", color = "LABEL" } })
         if slot.kind == "group" then sharedNote(s) end
-        if slot.kind == "number" then numberStrip(s, slot) end
+        if slot.kind == "number" then numberStrip(s, slot) else focusedFor = nil end
         local pieces = {}
         for _, k in ipairs(slot.keys) do
             pieces[#pieces + 1] = { kind = "chip", text = slot.values[k] or tostring(k), key = k,
@@ -789,7 +835,13 @@ local function fillStrip()
                 onClick = function() ns.Settings.Set("more", not more()) end }
         end
         if #pieces > 0 then words(s, pieces).choices = true end
+        -- Parts the line can't take with what it holds, and why.
+        for _, r in ipairs(slot.refused or {}) do
+            words(s, { { text = WORDING.neverPart:format(Grammar.ClauseWords(r.cond), r.why), size = "small",
+                color = "LABEL" } }).never = r.cond
+        end
     else
+        focusedFor = nil
         words(s, { { text = Drawer.HINT, size = "small", color = "LABEL" } }).hint = true
     end
     s:End()
@@ -821,8 +873,7 @@ local function wordsFor(kind)
     for _, a in ipairs(Grammar.ACTIONS) do
         if seen[a] then any[#any + 1] = a end
     end
-    local other = #Grammar.Words(kind, { drawer = true, more = not view.more })
-    return moments, actions, any, other ~= #moments
+    return moments, actions, any, ns.Conditions.AnyAdvanced()
 end
 
 -- A clause's or a moment's name on a chip ("my target is below N% health").
@@ -848,8 +899,11 @@ local function clauseChoices(kind, line, j)
     for _, k in ipairs(Grammar.Clauses(kind, probe, view)) do
         if not later[k] and k ~= keys[1] then keys[#keys + 1] = k end
     end
-    local other = #Grammar.Clauses(kind, probe, { drawer = true, more = not view.more })
-    return keys, other ~= #Grammar.Clauses(kind, probe, view)
+    local refused = {}
+    for _, r in ipairs(Grammar.ClauseRefusals(kind, probe, view)) do
+        if not later[r.cond] then refused[#refused + 1] = r end
+    end
+    return keys, ns.Conditions.AnyAdvanced() and Grammar.TakesClauses(probe), refused
 end
 
 -- Puts cond in as clause j; a client one ends the line, so the clauses after it go.
@@ -1004,7 +1058,9 @@ local function sentence(s, kind, rules, i, line)
     local id = "line:" .. i .. ":"
     local ck = Grammar.LineCondition(line)
     local C = ns.Conditions
-    local phrase, joint = Grammar.MomentWords(line.moment, ck and Grammar.NUMBER_MARK)
+    -- The moment's condition takes its number before an action is picked.
+    local mk = ck or Grammar.MomentCondition(line.moment)
+    local phrase, joint = Grammar.MomentWords(line.moment, mk and C.Get(mk).param and Grammar.NUMBER_MARK)
     local pieces = {}
     local momentDef = {
         kind = "moment", keys = moments, values = momentNames(), current = line.moment, more = hasMore,
@@ -1019,7 +1075,7 @@ local function sentence(s, kind, rules, i, line)
                 if Grammar.RingOnly(kind, m) then l.style = nil end
             end)
         end }
-    local nWord = ck and C.Get(ck).param and numberWord(id .. "n", ck, line.n,
+    local nWord = mk and C.Get(mk).param and numberWord(id .. "n", mk, line.n,
         function(r, x) r.lines[i].n = x end, off)
     for _, p in ipairs(withNumber(phrase, nWord, function(text)
         return word(text, id .. "moment", momentDef, line.moment ~= nil, off)
@@ -1027,9 +1083,10 @@ local function sentence(s, kind, rules, i, line)
     -- "and" clauses, each its own word with its number, then the and … blank.
     local clauses = ck and type(line.clauses) == "table" and line.clauses or {}
     for j, cl in ipairs(clauses) do
-        local keys, moreWords = clauseChoices(kind, line, j)
+        local keys, moreWords, refused = clauseChoices(kind, line, j)
         keys[#keys + 1] = Drawer.DROP
         local def = { kind = "clause", keys = keys, values = clauseNames(), current = cl.cond, more = moreWords,
+            refused = refused,
             onPick = function(k)
                 edit(function(r)
                     if k == Drawer.DROP then dropClause(r.lines[i], j) else setClause(r.lines[i], j, k) end
@@ -1044,11 +1101,12 @@ local function sentence(s, kind, rules, i, line)
         end)) do pieces[#pieces + 1] = p end
     end
     if finished and ck then
-        local keys, moreWords = clauseChoices(kind, line, #clauses + 1)
-        if #keys > 0 or moreWords then
+        local keys, moreWords, refused = clauseChoices(kind, line, #clauses + 1)
+        if #keys > 0 or moreWords or #refused > 0 then
             pieces[#pieces + 1] = { text = " ", aside = true }
             local chip = word(WORDING.addClause, id .. "and", { kind = "and", keys = keys, values = clauseNames(),
-                more = moreWords, onPick = function(k) edit(function(r) setClause(r.lines[i], #clauses + 1, k) end) end },
+                more = moreWords, refused = refused,
+                onPick = function(k) edit(function(r) setClause(r.lines[i], #clauses + 1, k) end) end },
                 false)
             chip.aside = true
             pieces[#pieces + 1] = chip
@@ -1474,9 +1532,32 @@ local function spellBody(s, key)
     local kind = Grammar.Kind(key)
     local rules, first, last = current()
     showsLine(s, kind, rules)
-    local fallOffNoted = false
+    local fallOffNoted, buttonNoted = false, false
     for i, line in ipairs(rules.lines) do
         sentence(s, kind, rules, i, line)
+        -- A line its piece can't show, why, and the fixes. A spell button's note shows once.
+        local hidden = Grammar.HiddenNote(kind, line)
+        if hidden and not (hidden.code == "button" and buttonNoted) then
+            buttonNoted = buttonNoted or hidden.code == "button"
+            local bits = { { text = hidden.text, size = "small", color = "LABEL" } }
+            for _, fix in ipairs(hidden.fixes) do
+                bits[#bits + 1] = { text = " ", size = "small" }
+                if fix == "shows" then
+                    bits[#bits + 1] = { kind = "add", text = WORDING.fixShows, onClick = function()
+                        edit(function(r) r.shows = "cooldown" end)
+                    end }
+                else
+                    bits[#bits + 1] = { kind = "add", text = WORDING.fixClause, onClick = function()
+                        edit(function(r)
+                            local l = r.lines[i]
+                            l.clauses = l.clauses or {}
+                            l.clauses[#l.clauses + 1] = { cond = "noBuff" }
+                        end)
+                    end }
+                end
+            end
+            words(s, bits).hidden = i
+        end
         -- What the fall-off moment can't know, once, under its first line.
         if line.moment == "recast" and not fallOffNoted then
             fallOffNoted = true

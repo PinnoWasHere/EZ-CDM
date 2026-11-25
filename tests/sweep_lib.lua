@@ -882,10 +882,12 @@ end
 
 -- The class groups, one test file each (each fits the run's per-file CPU budget).
 SW.GROUPS = {
-    a = { "DRUID", "HUNTER" },
-    b = { "PALADIN", "PRIEST", "MAGE" },
+    a = { "DRUID" },
+    b = { "PALADIN", "PRIEST" },
     c = { "SHAMAN", "WARLOCK" },
     d = { "ROGUE", "WARRIOR" },
+    e = { "MAGE" },
+    f = { "HUNTER" },
 }
 
 SW.CHECKS = {

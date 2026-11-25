@@ -1,8 +1,8 @@
 local stub = require("stub")   -- T (test helpers) is a global set by tests/run.lua
 local CW = require("cdmworld")
 
--- EZ-CDM/Conditions.lua and Overlay.lua: the condition registry's first two,
--- "When I can't cast it, turn it gray" (cantCast) and "When I don't have enough
+-- EZ-CDM/Conditions.lua and Overlay.lua: the condition registry's castable washes,
+-- "When it's not usable, turn it gray" (notUsable) and "When I don't have enough
 -- rage, tint it blue" (noMana), drawn by the wash effect on Daylight UI's API.Attach
 -- holder of a piece, driven by Daylight UI's plain state (API.CooldownState usable,
 -- noPower). A warrior's Thunder Clap, drawn by the game's own cooldown icon.
@@ -65,8 +65,8 @@ local function alphaOf(ns, key, which)
     return t:GetAlpha()
 end
 
--- What the wash shows: "unusable" (cantCast's gray), "short" (noMana's blue), or nil.
-local SHOWN = { ["cantCast:gray"] = "unusable", ["noMana:blue"] = "short" }
+-- What the wash shows: "unusable" (notUsable's gray), "short" (noMana's blue), or nil.
+local SHOWN = { ["notUsable:gray"] = "unusable", ["noMana:blue"] = "short" }
 local function lit(ns, key)
     local t = ns.Conditions.Lit(key)
     return t and SHOWN[t.wash] or nil
@@ -84,12 +84,12 @@ T.test("conditions: the .toc loads the registry, then its effects, before Gramma
     T.truthy(at["Overlay.lua"] < at["Grammar.lua"] and at["Grammar.lua"] < at["Draft.lua"], "before Grammar and Draft")
 end)
 
-T.test("overlay gray: can't cast washes the icon gray, castable again takes it off", function()
+T.test("overlay gray: not usable washes the icon gray, castable again takes it off", function()
     local DUI, ns, _, key = world({ L("unusable", "gray") })
     T.isnil(lit(ns, key), "castable: no wash")
     usable(false, false)
     gameSaysUsable()
-    T.eq(lit(ns, key), "unusable", "can't cast: the gray wash")
+    T.eq(lit(ns, key), "unusable", "not usable: the gray wash")
     local alpha = ns.Bridge.WashAlpha()
     T.eq(alpha, 0.45, "Daylight UI's wash strength (Skin.FLASH_ALPHA)")
     T.near(alphaOf(ns, key, "gray"), alpha, 1e-6, "at the wash strength")
@@ -106,7 +106,7 @@ T.test("overlay gray: can't cast washes the icon gray, castable again takes it o
     noErrors()
 end)
 
-T.test("overlay gray: short of power alone is not can't cast, as Daylight UI's Not usable", function()
+T.test("overlay gray: short of power alone is not not-usable, as Daylight UI's Not usable", function()
     local _, ns, _, key = world({ L("unusable", "gray") })
     usable(false, true)
     gameSaysUsable()
@@ -195,10 +195,10 @@ T.test("conditions rule: lives in EZCDMDB by profile and piece, never in Dayligh
     local ok, report = Draft.Write(key, { lines = { L("unusable", "gray"), L("short", "blue") } })
     T.truthy(ok)
     local profile = ns.Bridge.ProfileOf(1)
-    T.deq(EZCDMDB.conditions[profile][key], { cantCast = { gray = true }, noMana = { blue = true } },
+    T.deq(EZCDMDB.conditions[profile][key], { notUsable = { gray = true }, noMana = { blue = true } },
         "saved by profile and piece")
     local p = AB.CdmData.Get(1).pieces[key]
-    T.isnil(p["ez:cantCast:gray"], "never in Daylight UI's layout")
+    T.isnil(p["ez:notUsable:gray"], "never in Daylight UI's layout")
     T.isnil(p["ez:noMana:blue"], "never in Daylight UI's layout")
     local kinds = {}
     for _, c in ipairs(report.changed) do kinds[#kinds + 1] = c.kind .. ":" .. c.field end
@@ -215,7 +215,7 @@ end)
 T.test("conditions rule: refused in combat", function()
     local _, ns, _, key = world()
     stub.EnterCombat()
-    local ok, why = ns.Conditions.SetRule(1, key, { cantCast = { gray = true } })
+    local ok, why = ns.Conditions.SetRule(1, key, { notUsable = { gray = true } })
     T.falsy(ok); T.eq(why, "combat")
     T.isnil(ns.Conditions.Rule(key))
     stub.LeaveCombat()
@@ -264,7 +264,7 @@ T.test("conditions: Listen hears each effect on and off once, with the condition
     usable(true, false); gameSaysUsable()
     ns.Conditions.Listen(nil)
     usable(false, false); gameSaysUsable()
-    T.eq(table.concat(heard, " | "), "wash cantCast:gray on false/false | wash cantCast:gray off true/false",
+    T.eq(table.concat(heard, " | "), "wash notUsable:gray on false/false | wash notUsable:gray off true/false",
         "once per change, nothing after Listen(nil)")
     noErrors()
 end)
@@ -305,7 +305,7 @@ T.test("conditions registry: each has fits, read, events, secrecy, words, an eff
             T.deq(G.RecipeLines(r.key), { { moment = c.moment, action = r.action } }, r.key .. " lines")
         end
     end
-    T.eq(table.concat(keys, " "), "cantCast noMana", "the first two, in order")
+    T.eq(table.concat(keys, " "), "cantCast notUsable noMana noBuff", "the shipped ones, in order")
     noErrors()
 end)
 
@@ -314,7 +314,7 @@ T.test("conditions registry: a bad or taken condition is refused; a new one is o
     local C, G = ns.Conditions, ns.Grammar
     local base = { moment = "ready", actions = { gray = { effect = "wash", opts = { id = "gray", color = "OFF" } } },
         fits = function() return true end, read = function() return true end,
-        events = { daylight = { "changed" } }, secrecy = "plain" }
+        events = { daylight = { "changed" } }, secrecy = "plain", layer = "any" }
     local function with(t)
         local c = {}
         for k, v in pairs(base) do c[k] = v end
@@ -339,7 +339,7 @@ end)
 T.test("conditions: an outOfCombat condition reads unknown in a fight; a unit event registers", function()
     local _, ns, _, key = world()
     local C = ns.Conditions
-    T.truthy(C.Register({ key = "calm", moment = "ready", secrecy = "outOfCombat",
+    T.truthy(C.Register({ key = "calm", moment = "ready", layer = "any", secrecy = "outOfCombat",
         actions = { gray = { effect = "wash", opts = { id = "gray", color = "OFF" } } },
         fits = function() return true end, read = function() return true end,
         events = { game = { { "UNIT_POWER_FREQUENT", "player" } } } }))

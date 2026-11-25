@@ -30,13 +30,13 @@ local function wash() return { gray = { effect = "wash", opts = { id = "gray", c
 --   calm    outOfCombat: never offered in the drawer
 local function register(C)
     local any = function() return true end
-    assert(C.Register({ key = "boss", moment = "boss", actions = wash(), fits = any, secrecy = "plain",
+    assert(C.Register({ key = "boss", moment = "boss", layer = "any", excludes = {}, actions = wash(), fits = any, secrecy = "plain",
         read = function() return state.boss end, events = { game = { "PLAYER_TARGET_CHANGED" } },
         words = { moment = "When my target is a boss", clause = "my target is a boss" } }))
-    assert(C.Register({ key = "near", moment = "near", actions = wash(), fits = any, secrecy = "plain",
+    assert(C.Register({ key = "near", moment = "near", layer = "any", excludes = {}, actions = wash(), fits = any, secrecy = "plain",
         read = function() return state.near end, events = { game = { "PLAYER_TARGET_CHANGED" } },
         words = { moment = "When my target is near", clause = "my target is near" } }))
-    assert(C.Register({ key = "low", moment = "low", actions = wash(), fits = any, secrecy = "client",
+    assert(C.Register({ key = "low", moment = "low", layer = "any", excludes = {}, actions = wash(), fits = any, secrecy = "client",
         param = { min = 1, max = 99, default = 20, unit = "%" },
         drive = function(_, layer, opts)
             state.drives = state.drives + 1
@@ -46,7 +46,7 @@ local function register(C)
         end,
         events = { game = { { "UNIT_HEALTH", "target" } } },
         words = { moment = "When my target is below #% health", clause = "my target is below #% health" } }))
-    assert(C.Register({ key = "soon", moment = "soon", actions = wash(), fits = any, secrecy = "client",
+    assert(C.Register({ key = "soon", moment = "soon", layer = "any", excludes = {}, actions = wash(), fits = any, secrecy = "client",
         advanced = true, ticker = true,
         drive = function(_, layer)
             state.ticks = state.ticks + 1
@@ -54,7 +54,7 @@ local function register(C)
         end,
         events = { game = { "SPELL_UPDATE_COOLDOWN" } },
         words = { moment = "When it's nearly ready", clause = "it's nearly ready" } }))
-    assert(C.Register({ key = "calm", moment = "calm", actions = wash(), fits = any, secrecy = "outOfCombat",
+    assert(C.Register({ key = "calm", moment = "calm", layer = "any", excludes = {}, actions = wash(), fits = any, secrecy = "outOfCombat",
         read = function() return true end, events = { game = { "PLAYER_REGEN_ENABLED" } },
         words = { moment = "When I'm calm", clause = "I'm calm" } }))
 end
@@ -219,11 +219,11 @@ T.test("engine grammar: the drawer's words hide combat-dead and advanced conditi
     T.falsy(more.calm, "still no out-of-combat one")
     T.truthy(plainView.boss and plainView.low and plainView.ready, "the rest stay")
     local function keys(l, opts) return table.concat(G.Clauses(kind, l, opts), " ") end
-    T.eq(keys(line("boss", "gray"), { drawer = true }), "cantCast noMana near low", "the others, in registry order")
-    T.eq(keys(line("boss", "gray"), { drawer = true, more = true }), "cantCast noMana near low soon")
+    T.eq(keys(line("boss", "gray"), { drawer = true }), "cantCast notUsable noMana noBuff near low", "the others, in registry order")
+    T.eq(keys(line("boss", "gray"), { drawer = true, more = true }), "cantCast notUsable noMana noBuff near low soon")
     T.eq(keys(line("boss", "gray", { clauses = { { cond = "low" } } }), { drawer = true }), "", "nothing after a client part")
     T.eq(keys(line("low", "gray"), { drawer = true }), "", "nor after a client moment")
-    T.eq(keys(line("boss", "sound", { value = "none" }), { drawer = true }), "cantCast noMana near",
+    T.eq(keys(line("boss", "sound", { value = "none" }), { drawer = true }), "cantCast notUsable noMana noBuff near",
         "a sound line takes plain parts only")
     T.eq(keys(line("ready", "glow"), { drawer = true }), "", "Daylight UI's moments take none")
     noErrors()
@@ -463,7 +463,7 @@ T.test("engine drawer: the and … chip adds a clause; a clause word changes or 
     T.truthy(add, "an and … chip on the line")
     T.eq(add.piece.kind, "chip", "a blank, Daylight UI's chip")
     add:Click()
-    T.eq(table.concat(strip(Drawer).keys, " "), "cantCast noMana near low " .. Drawer.MORE,
+    T.eq(table.concat(strip(Drawer).keys, " "), "cantCast notUsable noMana noBuff near low " .. Drawer.MORE,
         "the parts the line can take, and more… for the advanced one")
     strip(Drawer).chip.near:Click()
     T.deq(ns.Conditions.Rule(key), { boss = { gray = { clauses = { { cond = "near" } } } } }, "written at once")

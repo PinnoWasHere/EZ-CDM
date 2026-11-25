@@ -307,6 +307,31 @@ end
 --   w.Advance(s)                 time passes; timers and a pass run
 --   w.Reload(opts)               a /reload with this session's saved variables
 --   w.Row(id)                    the catalogue row of a spell, or nil
+-- What fires each game event a condition hears, and each Daylight UI watch moment,
+-- in a world from W.Build. Every registered condition's events need one here
+-- (test_w1fixes coverage).
+W.EVENT_DRIVERS = {
+    SPELL_UPDATE_USABLE = function(w) w.Usable(true, false) end,
+    SPELL_UPDATE_COOLDOWN = function(w)
+        local id = w.c.rows[1] and w.c.rows[1].spell
+        w.Cooldown(id, 8)
+        w.Ready(id)
+    end,
+    PLAYER_TARGET_CHANGED = function(w) w.NewTarget() end,
+    UNIT_HEALTH = function(w) w.Unit("player", {}) end,
+    UNIT_POWER_UPDATE = function(w) w.Unit("player", {}) end,
+    UNIT_FLAGS = function(w) w.Unit("target", {}) end,
+}
+W.HANDLER_DRIVERS = {
+    changed = function(w) w.Usable(true, false) end,
+    ready = function(w) local id = w.c.rows[1].spell; w.Cooldown(id, 8); w.Ready(id) end,
+    started = function(w) w.Cooldown(w.c.rows[1].spell, 8) end,
+    usable = function(w) w.Usable(false, false); w.Usable(true, false) end,
+    buffUp = function(w, id) w.BuffUp(id) end,
+    buffDown = function(w, id) w.BuffDown(id) end,
+    proc = function(w, id) w.Proc(id) end,
+}
+
 function W.Build(class, opts)
     opts = opts or {}
     local c = type(class) == "table" and class or assert(W.Class(class), tostring(class))

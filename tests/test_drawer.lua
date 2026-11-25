@@ -722,7 +722,7 @@ T.test("drawer writes: a pick writes the right fields live, and Daylight UI's ca
     addLink(Drawer, "line"):Click()
     pick(Drawer, "unusable")
     T.eq(#log, 0, "half a line writes nothing")
-    T.eq(sentences(Drawer)[3].said, "When I can't cast it, choose what happens.")
+    T.eq(sentences(Drawer)[3].said, "When it's not usable, choose what happens.")
     wordOf(Drawer, 3, "action"):Click()
     pick(Drawer, "hide")
     T.eq(table.concat(log, ","), "onUnusable")
@@ -793,7 +793,7 @@ T.test("drawer default lines: a line Daylight UI does anyway stays, marked, and 
     pick(Drawer, "unusable")
     wordOf(Drawer, 4, "action"):Click()
     pick(Drawer, "show")
-    T.eq(sentences(Drawer)[4].said, "When I can't cast it, show it.")
+    T.eq(sentences(Drawer)[4].said, "When it's not usable, show it.")
     T.eq(#blocksWith(Drawer, "default"), 2)
     T.eq(#log, 0, "still nothing written")
     -- Another write keeps them.
@@ -801,7 +801,7 @@ T.test("drawer default lines: a line Daylight UI does anyway stays, marked, and 
     pick(Drawer, "hide")
     T.eq(table.concat(log, ","), "onCd")
     T.eq(said(Drawer), "When it's ready, glow with the spell's style in gold.\nWhile it's cooling down, hide it.\nAlways show it."
-        .. "\nWhen I can't cast it, show it.", "they stay through a write")
+        .. "\nWhen it's not usable, show it.", "they stay through a write")
     -- A default line changed to something else writes, and reads back from the layout.
     for i = #log, 1, -1 do log[i] = nil end
     wordOf(Drawer, 4, "action"):Click()
@@ -1987,7 +1987,7 @@ T.test("drawer strip stays: it follows a line the grammar moves, and a blank fil
     wordOf(Drawer, 3, "action"):Click()
     pick(Drawer, "hide")
     T.eq(pieceOf(k.clap).onUnusable, "hide", "written once both were filled")
-    local now = sentenceStarting(Drawer, "When I can't cast it")
+    local now = sentenceStarting(Drawer, "When it's not usable")
     T.eq(Drawer.Slot().id, "line:" .. now .. ":action", "the strip stays on that line's action, wherever it went")
     T.truthy(strip(Drawer).chip.hide.on)
     noErrors()

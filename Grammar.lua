@@ -21,7 +21,10 @@ ns.Grammar = Grammar
 -- Debug handle for an in-game check.
 EZCDM_Grammar = Grammar
 
-Grammar.MOMENTS = { "always", "ready", "cooldown", "almost", "unusable", "short", "usable", "up", "ends", "missing", "recast" }
+-- "blocked" is EZ-CDM's "When I can't cast it" (Conditions.lua), placed beside the
+-- castable words.
+Grammar.MOMENTS = { "always", "ready", "cooldown", "almost", "blocked", "unusable", "short", "usable", "up", "ends",
+                    "missing", "recast" }
 Grammar.ACTIONS = { "show", "fade", "hide", "glow", "gray", "color", "sound", "nosweep", "nogcd", "tint", "flash", "numbers" }
 -- What it shows, in the card's order (CdmCard.lua:630-636). Daylight UI's own piece
 -- saves "aura" for "buff" (CdmCard.lua:350-360).
@@ -73,6 +76,7 @@ end
 --   style          a glow line: its own style (line.style) is EZ-CDM's, by moment
 --                  (ezStyles, Effects)
 --   cond           an EZ-CDM condition's line (Conditions.Register, InstallCondition)
+--   glow           an EZ-CDM glow line: the line's value is its color, its style its own
 local MAP = {
     always = { show = { all = SHOW_RULES, value = "show" } },
     ready = showRule("onReady"),
@@ -107,6 +111,8 @@ local MAP = {
         sound = { field = "ezSound", sound = true, lead = true },
     },
 }
+-- EZ-CDM's own moment; its lines come with its condition (InstallCondition).
+MAP.blocked = {}
 MAP.ready.glow = { field = "readyGlow", value = true, color = "readyGlowColor", style = true }
 MAP.ready.sound = { field = "readySound", sound = true }
 -- desat tracks cooldown state only (CdmEffects.lua:1133-1142), so gray goes with
@@ -367,6 +373,9 @@ end
 --                    Shadowform); nil when any id is timed or unknown
 --   buffEvents       Daylight UI's buff moments time its fall-off: one came for it,
 --                    or its state reads up or down (Effects.Covered)
+--   button           a spell with no cooldown and no buff (Bridge.SpellButton): no
+--                    cooldown or buff words, only the castable ones and EZ-CDM's
+--   buttonHidden     a spell button Daylight UI shows as a buff, so never on show
 -- Form rows show for cooldowns of a class with forms (CdmCard.lua:817).
 -- Totems take no case of their own. Bridge.Shows (CdmOwn.Track) says "totem" for a
 -- totem with no buff and "both" for a Shaman element piece (CdmOwn.lua:108-130), and
@@ -401,6 +410,9 @@ function Grammar.Kind(key, piece, shows)
         cooldown = not aura
     end
     local hasBuff = now ~= "totem" and (now ~= nil or not cooldown)
+    -- A spell with neither a cooldown nor a buff: its castable words only.
+    local button = Bridge.SpellButton(key) == true
+    if button then cooldown, hasBuff = false, false end
     local trackRow
     if not Bridge.IsTotem(key) then
         if not custom and known ~= nil then trackRow = "game"
@@ -408,6 +420,9 @@ function Grammar.Kind(key, piece, shows)
     end
     local kind = {
         key = key,
+        button = button,
+        -- Daylight UI shows it only while a buff is up, which a spell button never has.
+        buttonHidden = button and aura == true or nil,
         shape = type(piece) == "table" and piece.shape == "bar" and "bar" or "icon",
         custom = custom,
         shows = now,
@@ -468,8 +483,9 @@ function Grammar.Fits(kind, moment, action)
     local told = kind.tracked
     if entry.cond then
         return Conditions.Fits(entry.cond, action, kind)
-    elseif moment == "always" or moment == "ready" or moment == "unusable" or moment == "short"
-        or moment == "usable" then
+    elseif moment == "always" or moment == "unusable" or moment == "short" or moment == "usable" then
+        return kind.cooldown or kind.button == true
+    elseif moment == "ready" then
         return kind.cooldown
     elseif moment == "cooldown" then
         -- Gray out and the sweep are icon rows (CdmCard.lua:506-510, 657).
@@ -525,7 +541,8 @@ end
 
 -- Whether the drawer offers an EZ-CDM condition: never one that is unknown in a
 -- fight, and an advanced one only with more.
-local function offered(c, opts)
+local function offered(c, opts, asClause)
+    if c.clauseOnly and not asClause then return false end
     if not (opts and opts.drawer) then return true end
     if c.secrecy == "outOfCombat" then return false end
     return not c.advanced or opts.more == true
@@ -558,25 +575,95 @@ end
 -- EZ-CDM line whose parts are all plain so far, each condition once, fitting the
 -- piece. A client one only where the line's effect is alpha-safe, and never on a
 -- sound. opts as Grammar.Words.
-function Grammar.Clauses(kind, line, opts)
-    local out = {}
+-- The parts a line holds, in order, or nil when it can take no more (an unknown
+-- part, or a client one).
+local function partsSoFar(line)
     local ck = Grammar.LineCondition(line)
-    if not ck then return out end
-    local used = { [ck] = true }
-    if Conditions.Get(ck).secrecy == "client" then return out end
+    if not ck or Conditions.Get(ck).secrecy == "client" then return nil end
+    local parts = { ck }
     for _, cl in ipairs(type(line.clauses) == "table" and line.clauses or {}) do
         local c = type(cl) == "table" and Conditions.Get(cl.cond)
-        if not c or c.secrecy == "client" then return out end
-        used[cl.cond] = true
+        if not c or c.secrecy == "client" then return nil end
+        parts[#parts + 1] = cl.cond
     end
-    local safe = Conditions.ClientSafe(ck, line.action)
+    return parts
+end
+
+-- The first part of parts that key can never be true with, or nil.
+local function clashWith(key, parts)
+    for _, p in ipairs(parts) do
+        if Conditions.Excludes(key, p) then return p end
+    end
+end
+
+-- Each condition the line could take next, and the part it clashes with (nil for
+-- none).
+local function nextParts(kind, line, opts)
+    local out = {}
+    local parts = partsSoFar(line)
+    if not parts then return out end
+    local used = {}
+    for _, p in ipairs(parts) do used[p] = true end
+    local safe = Conditions.ClientSafe(parts[1], line.action)
     for _, c in ipairs(Conditions.List()) do
-        if not used[c.key] and offered(c, opts) and Conditions.FitsKind(c.key, kind)
+        if not used[c.key] and offered(c, opts, true) and Conditions.FitsKind(c.key, kind)
             and (c.secrecy ~= "client" or safe) then
-            out[#out + 1] = c.key
+            out[#out + 1] = { cond = c.key, clash = clashWith(c.key, parts) }
         end
     end
     return out
+end
+
+-- Whether a line can take another "and" part at all: an EZ-CDM line with no client
+-- part yet.
+function Grammar.TakesClauses(line) return partsSoFar(line) ~= nil end
+
+function Grammar.Clauses(kind, line, opts)
+    local out = {}
+    for _, p in ipairs(nextParts(kind, line, opts)) do
+        if not p.clash then out[#out + 1] = p.cond end
+    end
+    return out
+end
+
+-- The conditions Clauses leaves out because they can never be true with a part the
+-- line holds: { { cond, why } }, why as Grammar.NeverWords.
+function Grammar.ClauseRefusals(kind, line, opts)
+    local out = {}
+    for _, p in ipairs(nextParts(kind, line, opts)) do
+        if p.clash then out[#out + 1] = { cond = p.cond, why = Grammar.NeverWords(p.clash, p.cond) } end
+    end
+    return out
+end
+
+-- The EZ-CDM condition whose moment this is, or nil.
+function Grammar.MomentCondition(moment)
+    for _, e in pairs(MAP[moment] or {}) do
+        if e.cond then return e.cond end
+    end
+end
+
+-- A note on a line its piece can't show: { code, text, fixes }, or nil. fixes name
+-- one-click repairs: "shows" (What it shows: its cooldown), "clause" (and its buff
+-- isn't active).
+--   button   a spell button Daylight UI shows only while a buff is up
+--   buff     a cooldown line on a piece that shows its buff in its place
+function Grammar.HiddenNote(kind, line)
+    local W = Grammar.WORDING
+    if type(kind) ~= "table" or type(line) ~= "table" then return nil end
+    if kind.buttonHidden then
+        return { code = "button", text = W.hiddenButton, fixes = kind.trackRow and { "shows" } or {} }
+    end
+    local ck = Grammar.LineCondition(line)
+    if not ck or kind.shows ~= "both" then return nil end
+    if Conditions.LineLayer(ck, { clauses = line.clauses }) ~= "cooldown" then return nil end
+    for _, cl in ipairs(type(line.clauses) == "table" and line.clauses or {}) do
+        if type(cl) == "table" and cl.cond == "noBuff" then return nil end
+    end
+    local fixes = {}
+    if kind.trackRow then fixes[#fixes + 1] = "shows" end
+    if Conditions.Get("noBuff") and Conditions.FitsKind("noBuff", kind) then fixes[#fixes + 1] = "clause" end
+    return { code = "buff", text = W.hiddenByBuff, fixes = fixes }
 end
 
 -- ---------------------------------------------------------------------
@@ -667,6 +754,10 @@ local function installWords(c)
     if not W then return end
     if type(words.moment) == "string" and W.moments[c.moment] == nil then W.moments[c.moment] = words.moment end
     if type(words.clause) == "string" and W.clauses[c.key] == nil then W.clauses[c.key] = words.clause end
+    for other, why in pairs(type(words.never) == "table" and words.never or {}) do
+        W.never[c.key] = W.never[c.key] or {}
+        if W.never[c.key][other] == nil then W.never[c.key][other] = why end
+    end
 end
 
 -- A condition's lines: its moment (a new one joins the end), each action as a
@@ -684,7 +775,9 @@ function Grammar.InstallCondition(c)
     table.sort(actions)
     for _, a in ipairs(actions) do
         local field = Conditions.Field(c.key, a)
-        MAP[c.moment][a] = { field = field, value = true, cond = c.key, sound = c.actions[a].effect == "sound" or nil }
+        local effect = c.actions[a].effect
+        MAP[c.moment][a] = { field = field, value = true, cond = c.key, sound = effect == "sound" or nil,
+                             glow = effect == "glow" or nil }
         if not indexOf(Grammar.ACTIONS, a) then Grammar.ACTIONS[#Grammar.ACTIONS + 1] = a end
         if not indexOf(Grammar.EZ_FIELDS, field) then Grammar.EZ_FIELDS[#Grammar.EZ_FIELDS + 1] = field end
     end
@@ -788,7 +881,8 @@ end
 -- An EZ-CDM line's spec (Conditions.Spec) and its problem code, or nil and the code:
 -- "pair" an unknown clause, "twice" a condition twice, "kind" a clause the piece
 -- doesn't take, "value" a bad number, "order" a client part not last or twice,
--- "secret" a client part under an effect that isn't alpha-safe.
+-- "secret" a client part under an effect that isn't alpha-safe, "never" two parts
+-- that can never both be true (Conditions.Excludes).
 local function condSpec(line, entry, kind)
     local ck = entry.cond
     if line.n ~= nil and not Conditions.NumberFits(ck, line.n) then return nil, "value" end
@@ -804,6 +898,11 @@ local function condSpec(line, entry, kind)
         if cl.n ~= nil and not Conditions.NumberFits(cl.cond, cl.n) then return nil, "value" end
         parts[#parts + 1] = c
     end
+    for i = 1, #parts do
+        for j = i + 1, #parts do
+            if Conditions.Excludes(parts[i].key, parts[j].key) then return nil, "never" end
+        end
+    end
     for i, c in ipairs(parts) do
         if c.secrecy == "client" then
             client = client + 1
@@ -811,8 +910,8 @@ local function condSpec(line, entry, kind)
             if not Conditions.ClientSafe(ck, line.action) then return nil, "secret" end
         end
     end
-    local spec = Conditions.Spec(ck, line.action,
-        { n = line.n, value = entry.sound and line.value or nil, clauses = clauses })
+    local spec = Conditions.Spec(ck, line.action, { n = line.n, value = (entry.sound or entry.glow) and line.value or nil,
+        style = entry.glow and line.style or nil, clauses = clauses })
     return spec
 end
 
@@ -827,6 +926,7 @@ end
 --   "twice"   an earlier line set the same thing; the later line wins
 --   "hidden"  a glow that a hide line keeps from showing
 --   "needs"   "flash it" with no "show it" while it's not active (CdmCard.lua:709)
+--   "never"   an EZ-CDM line with two parts that can never both be true
 -- A bad glow style is { style = key, code = "value" }.
 -- flags:
 --   keepBuffOnly   "missing show" needs the piece kept Buff only: the card sets track
@@ -866,7 +966,7 @@ function Grammar.Compile(rules, kind)
             problem({ line = i, code = "kind" })
         elseif entry.all then
             always = entry
-        elseif entry.color and line.value ~= nil and not isRGB(line.value) then
+        elseif (entry.color or entry.glow) and line.value ~= nil and not isRGB(line.value) then
             problem({ line = i, code = "value" })
         elseif entry.paint and line.value ~= nil and not isColor(line.value) then
             problem({ line = i, code = "value" })
@@ -877,7 +977,7 @@ function Grammar.Compile(rules, kind)
             problem({ line = i, code = "value" })
         elseif entry.lead and line.at ~= nil and not isLead(line.at) then
             problem({ line = i, code = "value" })
-        elseif line.style ~= nil and not (entry.style and styleKnown(line.style)) then
+        elseif line.style ~= nil and not ((entry.style or entry.glow) and styleKnown(line.style)) then
             problem({ line = i, code = "value" })
         elseif line.style ~= nil and Grammar.RingOnly(kind, line.moment) then
             problem({ line = i, code = "kind" })
@@ -1009,6 +1109,7 @@ function Grammar.Decompile(fields, kind)
                         if type(v) == "table" then
                             line.n = v.n
                             if entry.sound then line.value = v.value end
+                            if entry.glow then line.value, line.style = v.value, v.style end
                             if type(v.clauses) == "table" then
                                 line.clauses = {}
                                 for j, cl in ipairs(v.clauses) do line.clauses[j] = { cond = cl.cond, n = cl.n } end
@@ -1098,7 +1199,7 @@ Grammar.WORDING = {
         ready = "When it's ready",
         cooldown = "While it's cooling down",
         almost = "When it's almost ready",
-        unusable = "When I can't cast it",
+        unusable = "When it's not usable",
         short = "When I don't have enough %s",
         usable = "When it becomes castable",
         up = "While it's active",
@@ -1127,10 +1228,19 @@ Grammar.WORDING = {
     amount = "when see-through, show it at %s",
     -- Each EZ-CDM condition as an "and" clause, after "and"; %s is the power name
     -- and # the condition's number.
-    clauses = {
-        cantCast = "I can't cast it",
-        noMana = "I don't have enough %s",
-    },
+    clauses = {},
+    -- Why two conditions can never both be true: never[a][b], from the registry's
+    -- words.never; %s is the power name. As words: neverBoth (%s is the why); in a
+    -- clause strip, neverPart (the clause's words, then those words).
+    never = {},
+    neverBoth = "can't both be true: %s",
+    neverPart = "Not \"%s\": %s.",
+    layerClash = "can't both be true: one is about its cooldown, the other about its buff",
+    -- Under a line its piece can't show (Grammar.HiddenNote), and the one-click fixes.
+    hiddenByBuff = "Hidden while its buff shows.",
+    hiddenButton = "Hidden: Daylight shows this spell only while a buff is up, and it has none.",
+    fixShows = "Show its cooldown",
+    fixClause = "Add \"and its buff isn't active\"",
     andWord = "and",
     -- The "and …" blank, a clause's strip chip that takes it out, and the strip's
     -- chip for advanced words (Settings "more").
@@ -1326,6 +1436,15 @@ function Grammar.ClauseWords(key, n)
     local phrase = WORDING.clauses[key]
     if not phrase then return tostring(key) end
     return fill(phrase, n)
+end
+
+-- Why conditions a and b can never both be true, as words: their own reason, or
+-- the layer clash; nil when they can.
+function Grammar.NeverWords(a, b)
+    if not Conditions.Excludes(a, b) then return nil end
+    local why = (WORDING.never[a] or {})[b] or (WORDING.never[b] or {})[a]
+    if not why then return WORDING.layerClash end
+    return WORDING.neverBoth:format(fill(why))
 end
 
 -- A group word's words: on (true, or a "where" value) or off.

@@ -23,7 +23,7 @@ EVERY_SHIPPED = ["test_load", "test_hygiene", "test_guards", "test_lag"]
 # The .toc decides what loads and what ships.
 TOC_TESTS = ["test_load", "test_hygiene", "test_guards"]
 # The every-class sweep: Grammar, Draft, Effects and the Bridge they read, for each class.
-SWEEP = ["test_sweep_a", "test_sweep_b", "test_sweep_c", "test_sweep_d"]
+SWEEP = ["test_sweep_a", "test_sweep_b", "test_sweep_c", "test_sweep_d", "test_sweep_e", "test_sweep_f"]
 # A shipped file's own tests and the tests of the files built on it. Drawer reads
 # Draft; Draft reads Grammar and Effects; all of them read Bridge. Grammar reads the
 # aura links and Effects. Start reads Grammar's words, and shares the editor's hooks

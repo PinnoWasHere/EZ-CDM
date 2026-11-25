@@ -114,6 +114,10 @@ Bridge.NEEDS = {
     "ActionBars.CdmCustom.Fact",
     -- Grammar: a buff another class puts on you is never your proc
     "ActionBars.CdmCustom.IsGroup",
+    -- Grammar: a spell with no cooldown and no buff (a spell button)
+    "ActionBars.CdmCustom.Family",
+    "ActionBars.CdmCustom.Learned",
+    "ActionBars.CdmOwn.HasCooldown",
     -- Effects: a pass once the fall-off clock stops on a buff's drop
     "ActionBars.CdmRows.Refresh",
     -- Overlay: the washes' blue and strength
@@ -335,6 +339,22 @@ function Bridge.SpellIDs(key) return call("ActionBars.CdmAuras.SpellIDs", key) e
 -- Whether a piece is another class's buff on you: the tray's Group buffs
 -- (CdmCustom.IsGroup). The player never casts it, so it is no proc of theirs.
 function Bridge.IsGroup(key) return call("ActionBars.CdmCustom.IsGroup", key) == true end
+
+-- Whether a placed spell has neither a cooldown nor a buff, as a heal: a spell of
+-- Daylight UI's own (CdmCustom) that you know, with no real cooldown
+-- (CdmOwn.HasCooldown), and either on none of its class lists, which hold every
+-- class spell with a cooldown or a duration (an added spell's family says onYou),
+-- or one its spell data says only hits. Never an item, weapon, totem, pet or group.
+function Bridge.SpellButton(key)
+    if not Bridge.IsCustom(key) or Bridge.IsTotem(key) then return false end
+    local f = call("ActionBars.CdmCustom.Family", key)
+    if type(f) ~= "table" or f.item or f.weapon or f.group or f.pet or f.element or f.merged then return false end
+    local sid = call("ActionBars.CdmCustom.Learned", key)
+    if type(sid) ~= "number" or call("ActionBars.CdmOwn.HasCooldown", sid) then return false end
+    local fact = call("ActionBars.CdmCustom.Fact", sid)
+    if type(fact) == "table" then return fact.noaura == true and fact.on == nil end
+    return f.onYou == true
+end
 -- Whether a piece's spell is a totem. A totem picks what it shows from its own rows,
 -- not the card's What it shows (CdmCard.lua:251-265).
 function Bridge.IsTotem(key)
@@ -882,18 +902,19 @@ function Bridge.BuffState(key)
     return up, state.drawnBy
 end
 
--- What a shown piece reads now (API.CooldownState): usable (castable now) and
--- noPower (only short of power), each true, false, or nil where the game won't say.
--- Both nil while the piece isn't on show.
+-- What a shown piece reads now (API.CooldownState): usable (castable now), noPower
+-- (only short of power) and onCooldown (a real cooldown, never the global one), each
+-- true, false, or nil where the game won't say. All nil while the piece isn't on show.
 function Bridge.UsableState(key)
     local API = _G.DaylightUI and _G.DaylightUI.API
     if key == nil or not (Bridge.ApiFits() and type(API.CooldownState) == "function") then return nil end
     local state = API.CooldownState(tostring(key))
     if type(state) ~= "table" then return nil end
-    local usable, noPower = state.usable, state.noPower
+    local usable, noPower, onCooldown = state.usable, state.noPower, state.onCooldown
     if type(usable) ~= "boolean" then usable = nil end
     if type(noPower) ~= "boolean" then noPower = nil end
-    return usable, noPower
+    if type(onCooldown) ~= "boolean" then onCooldown = nil end
+    return usable, noPower, onCooldown
 end
 
 -- ---------------------------------------------------------------------

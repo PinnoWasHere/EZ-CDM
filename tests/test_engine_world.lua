@@ -23,10 +23,10 @@ local function build()
     local C = w.ns.Conditions
     local any = function() return true end
     local function wash() return { gray = { effect = "wash", opts = { id = "gray", color = "OFF" } } } end
-    assert(C.Register({ key = "boss", moment = "boss", secrecy = "plain", actions = wash(), fits = any,
+    assert(C.Register({ key = "boss", moment = "boss", layer = "any", excludes = {}, secrecy = "plain", actions = wash(), fits = any,
         read = function() return UnitIsBossMob("target") end, events = { game = { "PLAYER_TARGET_CHANGED" } },
         words = { moment = "When my target is a boss", clause = "my target is a boss" } }))
-    assert(C.Register({ key = "low", moment = "low", secrecy = "client", actions = wash(), fits = any, ticker = true,
+    assert(C.Register({ key = "low", moment = "low", layer = "any", excludes = {}, secrecy = "client", actions = wash(), fits = any, ticker = true,
         param = { min = 1, max = 99, default = 20 },
         drive = function(_, layer) layer:SetAlpha(UnitHealthPercent("target", true, nil)) end,
         events = { game = { { "UNIT_HEALTH", "target" } } },
