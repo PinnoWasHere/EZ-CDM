@@ -453,7 +453,7 @@ function Conditions.Listen(fn) listener = fn end
 
 local USABLE_EVENTS = {
     -- The game's usability signals. Daylight UI re-reads usable and noPower on the
-    -- next frame (CdmEffects.lua:1523-1526); its watch moments never fire on them.
+    -- next frame (CdmEffects.lua:1558-1561); its watch moments never fire on them.
     game = { "SPELL_UPDATE_USABLE", "SPELL_UPDATE_COOLDOWN" },
     daylight = { "changed" },
 }

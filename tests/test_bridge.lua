@@ -46,7 +46,7 @@ end
 
 local function noErrors() T.eq(#stub.errors, 0, tostring(stub.errors[1])) end
 
-T.test("bridge: every NEEDS entry resolves on Daylight UI 2.2.6", function()
+T.test("bridge: every NEEDS entry resolves on Daylight UI 2.2.7", function()
     local _, _, B = world()
     T.truthy(#B.NEEDS > 0, "NEEDS lists the internals")
     T.eq(table.concat(B.Missing(), ", "), "", "nothing missing")

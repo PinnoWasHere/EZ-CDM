@@ -536,7 +536,7 @@ function Bridge.SpellTexture(key) return call("ActionBars.CdmEditor.SpellTexture
 -- The game's color picker as Daylight UI opens it, starting at { r, g, b }.
 -- onChange({ r, g, b }) runs on each pick (once on release for a drag), and with
 -- the start color on Cancel. alpha adds the opacity bar, and colors come as
--- { r, g, b, a }, as the card's colors with alpha (CdmCard.lua:697).
+-- { r, g, b, a }, as the card's colors with alpha (CdmCard.lua:699).
 function Bridge.PickColor(start, onChange, alpha)
     return call("DaylightUI.Widgets.OpenColorPicker", start, onChange, alpha == true)
 end

@@ -28,7 +28,7 @@ Grammar.ACTIONS = { "show", "fade", "hide", "glow", "gray", "color", "sound", "n
 Grammar.SHOWS = { "both", "cooldown", "buff" }
 -- Group words in their canonical order: true turns one on, and where takes
 -- "instance" or "world". false and "any" are Daylight UI's defaults. keep is the
--- group's Slide over turned off (chain collapse = false, CdmCard.lua:718-719).
+-- group's Slide over turned off (chain collapse = false, CdmCard.lua:720-721).
 Grammar.GROUP = { "combat", "target", "group", "mounted", "where", "keep" }
 Grammar.WHERE = { "instance", "world" }
 -- Each group word's chain field, where it isn't the word itself, and the chain
@@ -98,7 +98,7 @@ local MAP = {
         show = { field = "missing", value = true, slot = "buffDown" },
         hide = { field = "hideMissing", value = true, slot = "buffDown" },
         glow = { field = "missingGlow", value = true, color = "missingGlowColor", style = true },
-        -- The empty bar pulses (CdmCard.lua:707-709). It needs "show it" here too.
+        -- The empty bar pulses (CdmCard.lua:709-711). It needs "show it" here too.
         flash = { field = "inactiveFlash", value = true },
     },
     -- The glow is Daylight UI's; the lead and the sound are EZ-CDM's (Effects).
@@ -109,7 +109,7 @@ local MAP = {
 }
 MAP.ready.glow = { field = "readyGlow", value = true, color = "readyGlowColor", style = true }
 MAP.ready.sound = { field = "readySound", sound = true }
--- desat tracks cooldown state only (CdmEffects.lua:1099-1108), so gray goes with
+-- desat tracks cooldown state only (CdmEffects.lua:1133-1142), so gray goes with
 -- cooldown alone.
 MAP.cooldown.gray = { field = "desat", value = "grey" }
 MAP.cooldown.color = { field = "desat", value = "color" }
@@ -350,7 +350,7 @@ end
 --   trackRow         What it shows: "game" (gameSpell, CdmCard.lua:262-265) or "own"
 --                    (canTrack, :337-340); nil for a totem, which has rows of its own
 --   highlight        the buff's sweep is on (activeGlow, CdmCard.lua:695)
---   missingShown     Buff missing is set to Show (the Flash row, CdmCard.lua:707)
+--   missingShown     Buff missing is set to Show (the Flash row, CdmCard.lua:709)
 --   ezGlow           EZ-CDM draws its up glow inside the client's button (Effects),
 --                    which needs no told state
 --   proc             your own proc that EZ-CDM draws (ezGlow): put up by a talent
@@ -367,7 +367,7 @@ end
 --                    Shadowform); nil when any id is timed or unknown
 --   buffEvents       Daylight UI's buff moments time its fall-off: one came for it,
 --                    or its state reads up or down (Effects.Covered)
--- Form rows show for cooldowns of a class with forms (CdmCard.lua:815).
+-- Form rows show for cooldowns of a class with forms (CdmCard.lua:817).
 -- Totems take no case of their own. Bridge.Shows (CdmOwn.Track) says "totem" for a
 -- totem with no buff and "both" for a Shaman element piece (CdmOwn.lua:108-130), and
 -- the card reads that same answer. test_grammar checks Words against the card's rows.
@@ -495,10 +495,10 @@ function Grammar.Fits(kind, moment, action)
         return kind.showsBuff and told
     elseif moment == "missing" then
         -- The card shows this glow on a Buff only piece once something shows while the
-        -- buff is down (CdmCard.lua:285-294, 702). A missing glow keeps the icon itself,
+        -- buff is down (CdmCard.lua:285-294, 704). A missing glow keeps the icon itself,
         -- so it's offered there too; Hide (Buff missing) makes it a "hidden" problem.
         if action == "glow" then return kind.buff and told end
-        -- Flash is a bar row, once Buff missing shows (CdmCard.lua:707-709).
+        -- Flash is a bar row, once Buff missing shows (CdmCard.lua:709-711).
         if action == "flash" then return kind.shape == "bar" and kind.buffOnly and kind.missingShown end
         return kind.buffOnly
     elseif moment == "recast" then
@@ -739,7 +739,7 @@ end
 --   "value"   a bad color, sound, fade amount or group value
 --   "twice"   an earlier line set the same thing; the later line wins
 --   "hidden"  a glow that a hide line keeps from showing
---   "needs"   "flash it" with no "show it" while it's not active (CdmCard.lua:707)
+--   "needs"   "flash it" with no "show it" while it's not active (CdmCard.lua:709)
 -- A bad glow style is { style = key, code = "value" }.
 -- flags:
 --   keepBuffOnly   "missing show" needs the piece kept Buff only: the card sets track

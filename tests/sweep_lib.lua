@@ -158,7 +158,7 @@ local ALWAYS_ROWS = { "onReady", "onCd", "onUnusable", "onShort" }
 
 -- The departures test_grammar names.
 SW.DEPARTURES = {
-    missing = "missing glow (CdmCard.lua:285-294, 702)",
+    missing = "missing glow (CdmCard.lua:285-294, 704)",
     recast = "recast glow on a spell you never cast (CdmCard.lua:422-424)",
     untimed = "recast glow on an aura that never falls off (CdmCard.lua:422-424)",
     untimedEnds = "wears-off sound on an aura that is only on or off",

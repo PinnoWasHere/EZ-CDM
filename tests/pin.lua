@@ -2,8 +2,8 @@
 -- checkout at this tag (tests/ez_harness.lua). CI clones the tag; locally, point
 -- DUI_ROOT at a checkout or clone it into .daylight/DaylightUI.
 return {
-    tag = "v2.2.6",
-    version = "2.2.6",
-    commit = "d5f9b1d",
+    tag = "v2.2.7",
+    version = "2.2.7",
+    commit = "08dc459",
     repo = "https://github.com/dayightt/DaylightUI",
 }

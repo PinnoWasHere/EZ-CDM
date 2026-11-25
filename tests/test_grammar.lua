@@ -121,7 +121,7 @@ local function validSpell(spec, v, B)
     return false
 end
 
-T.test("grammar: every field and value it can write is valid on Daylight UI 2.2.6", function()
+T.test("grammar: every field and value it can write is valid on Daylight UI 2.2.7", function()
     local _, ns, G, AB = world()
     local B = ns.Bridge
     local spell, bad = AB.CdmData.SPELL_FIELDS, {}
@@ -272,7 +272,7 @@ T.test("grammar compile: each sentence gives the expected fields", function()
         T.eq(codes(problems), "", what .. ": no problems")
         T.deq(fields, withChain(c[2]), what)
     end
-    -- Flash needs "show it" with it, as the card does (CdmCard.lua:707).
+    -- Flash needs "show it" with it, as the card does (CdmCard.lua:709).
     local fields, problems = G.Compile({ lines = { L("missing", "show"), L("missing", "flash") } })
     T.eq(codes(problems), "")
     T.deq(fields, withChain({ missing = true, inactiveFlash = true }), "missing flash")
@@ -493,7 +493,7 @@ T.test("grammar kind: a tracked buff takes the buff words and no cooldown words"
     local kind = G.Kind(k.buff)
     T.eq(ns.Bridge.Tracked(k.buff), true, "the game's item tells its state")
     T.truthy(kind.buffOnly, "Battle Shout shows only its buff")
-    T.isnil(kind.forms, "form rows are for cooldowns (CdmCard.lua:815)")
+    T.isnil(kind.forms, "form rows are for cooldowns (CdmCard.lua:817)")
     T.eq(wordsOf(G, kind), "up(show,hide,glow,sound,nosweep,tint) ends(sound) missing(show,hide,glow) recast(glow,sound)")
     local f, p = G.Compile({ lines = { L("ready", "glow"), L("missing", "glow") }, forms = { "Battle" } }, kind)
     T.eq(codes(p), "line 1: kind, form Battle: kind")
@@ -1059,7 +1059,7 @@ end
 -- 693), as after "missing show". The grammar offers it at once, since a missing
 -- glow keeps the icon itself (Data.PieceBlock). So it counts as offered when the
 -- card shows it with the piece saved as Buff missing: Show.
-local DEPARTURE = "missing glow (CdmCard.lua:285-294, 702)"
+local DEPARTURE = "missing glow (CdmCard.lua:285-294, 704)"
 -- The second departure. The card offers Glow to recast on any spell (CdmCard.lua:
 -- 413-415), but its clock starts only on a cast of one of the piece's own ids
 -- (CdmAuras.lua:1194-1211). The grammar leaves it out where every id is passive or
@@ -1856,7 +1856,7 @@ end)
 T.test("grammar recipes: shown only where every line fits the piece", function()
     local _, ns, G, _, k = pieceWorld()
     T.eq(recipeKeys(G, G.Kind(k.icon)), "readyAlert outOfWay dimCooling canCast manaCheck almostThere nowUsable missingReminder fightOnly",
-        "icon cooldown: its missing glow is the card's (CdmCard.lua:702)")
+        "icon cooldown: its missing glow is the card's (CdmCard.lua:704)")
     T.eq(recipeKeys(G, G.Kind(k.bar)), "readyAlert outOfWay dimCooling nowUsable missingReminder fightOnly",
         "a bar: no numbers, no washes")
     withSpellAnswers({}, { [SHOUT] = true }, function()
