@@ -268,6 +268,24 @@ function Bridge.ProcAlertsOn()
     return Bridge.ProcAlertsFit() and _G.DaylightUI.API.ProcAlerts() ~= nil
 end
 
+-- Whether Daylight UI's Proc Alerts lists a piece: its spell, or any id the piece holds,
+-- is one of the list's spellIDs (API.ProcAlerts, API 1.16). A proc the player switched
+-- off one by one doesn't count. False while Proc Alerts is off or too old to say.
+function Bridge.ProcAlertListed(key)
+    if not Bridge.ProcAlertsFit() then return false end
+    local list = _G.DaylightUI.API.ProcAlerts()
+    if type(list) ~= "table" then return false end
+    local ids = Bridge.SpellIDs(key)
+    local spell = Bridge.SpellOf(key)
+    for _, e in ipairs(list) do
+        local id = e.spellID
+        if type(id) == "number" and e.enabled ~= false and (id == spell or (type(ids) == "table" and ids[id])) then
+            return true
+        end
+    end
+    return false
+end
+
 -- True when the API fits, every internal is there and the Cooldown Manager is on.
 function Bridge.Ready()
     return Bridge.ApiFits() and #Bridge.Missing() == 0 and Bridge.CdmOn()

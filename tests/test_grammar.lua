@@ -1977,16 +1977,69 @@ T.test("grammar recipes: a holder proc gets no Refresh warning", function()
     withSpellAnswers({ [STORMBUFF] = true }, {}, function()
         local kind = G.Kind(storm)
         T.truthy(kind.proc, "a proc EZ-CDM draws")
-        -- No Proc pop either: Improved Stormstrike's buff is its mana buff, and its proc is
-        -- Stormstrike's cooldown reset (kind.resetOf), which Proc Alerts flares.
-        T.eq(recipeKeys(G, kind), "fightOnly", "no fall-off recipe on it")
-        stub.spells[17364] = { name = "Stormstrike" }
-        T.eq(kind.resetOf, 17364, "the spell its proc resets")
-        T.eq(G.ResetNote(kind), "This talent's proc is Stormstrike's cooldown reset, which Daylight UI's Proc Alerts flares.")
-        T.isnil(G.ResetNote({}), "no note on another piece")
-        for _, m in ipairs(G.MOMENTS) do T.falsy(m == "reset", "no moment for the reset") end
+        T.truthy(recipeKeys(G, kind):find("procPop", 1, true), "Proc Pop stays while Proc Alerts lists nothing")
+        T.eq(recipeKeys(G, kind), "procPop fightOnly", "no fall-off recipe on it")
     end)
     noErrors()
+end)
+
+-- Daylight UI's Proc Alerts list, set for a test: nil is Proc Alerts off.
+local function procList(DUI, list)
+    DUI.API.ProcAlerts = function() return list end
+end
+
+T.test("grammar: Proc Alerts listing a piece's spell gives its note and drops Proc pop", function()
+    local DUI, ns, G, _, storm = heldProc()
+    withSpellAnswers({ [STORMBUFF] = true }, {}, function()
+        procList(DUI, { { key = "stormstrike", spellID = STORMBUFF, enabled = true, drawnBy = "game" } })
+        local kind = G.Kind(storm)
+        T.truthy(kind.procAlert, "listed")
+        T.eq(G.ProcAlertNote(kind), "This talent's proc shows in Daylight UI's Proc Alerts.")
+        T.eq(recipeKeys(G, kind), "fightOnly", "no Proc pop")
+        -- The list names an id the piece holds, not its spell.
+        local keepIds = ns.Bridge.SpellIDs
+        ns.Bridge.SpellIDs = function() return { [777] = true } end
+        procList(DUI, { { key = "x", spellID = 777, enabled = true } })
+        local held = G.Kind(storm).procAlert
+        ns.Bridge.SpellIDs = keepIds
+        T.truthy(held, "an id the piece holds counts")
+        -- A proc the player switched off one by one is not listed.
+        procList(DUI, { { key = "x", spellID = STORMBUFF, enabled = false } })
+        T.falsy(G.Kind(storm).procAlert, "disabled")
+        T.isnil(G.ProcAlertNote(G.Kind(storm)))
+    end)
+    noErrors()
+end)
+
+T.test("grammar: no note and Proc pop stays with Proc Alerts off, too old, or not listing the piece", function()
+    local DUI, _, G, _, storm = heldProc()
+    withSpellAnswers({ [STORMBUFF] = true }, {}, function()
+        procList(DUI, nil)
+        local kind = G.Kind(storm)
+        T.falsy(kind.procAlert, "Proc Alerts off")
+        T.isnil(G.ProcAlertNote(kind))
+        T.truthy(recipeKeys(G, kind):find("procPop", 1, true), "Proc pop kept")
+        procList(DUI, { { key = "other", spellID = 99999, enabled = true } })
+        T.falsy(G.Kind(storm).procAlert, "a piece not listed is unchanged")
+        procList(DUI, { { key = "x", spellID = STORMBUFF, enabled = true } })
+        DUI.API.minor = 15
+        kind = G.Kind(storm)
+        T.falsy(kind.procAlert, "API 1.15")
+        T.isnil(G.ProcAlertNote(kind))
+        T.truthy(recipeKeys(G, kind):find("procPop", 1, true), "Proc pop kept on 1.15")
+        T.isnil(G.ProcAlertNote({}), "no note on another piece")
+    end)
+    noErrors()
+end)
+
+T.test("grammar: no Grammar or Drawer code holds a proc spell id", function()
+    for _, name in ipairs({ "Grammar.lua", "Drawer.lua" }) do
+        local dir = stub.PLUGIN_TOC:match("^(.*/)") or ""
+        local f = assert(io.open(dir .. name, "rb"))
+        local src = f:read("*a"); f:close()
+        T.falsy(src:find("1223031", 1, true), name .. " holds 1223031")
+        T.falsy(src:find("17364", 1, true), name .. " holds 17364")
+    end
 end)
 
 T.test("grammar recipes: an untimed aura gets no Refresh warning or Ended ping", function()
