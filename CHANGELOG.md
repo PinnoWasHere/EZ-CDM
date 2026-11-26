@@ -23,7 +23,7 @@ newer.
 - Can't cast: "When I can't cast it" now means any reason: a cooldown, too little power, or not usable. Your lines from 0.3.0 now read "When it's not usable" and work as before
 - Glow styles: Comet and Shine are no longer offered. Comet glows become Circling, and Shine glows become Ring
 - Glows: EZ-CDM's glows are as big as the Cooldown Manager's own, Ring is Daylight UI's proc ring, Circling is brighter, and Breathing is quicker, with a soft halo behind the icon
-- Glows and looks show on whichever side a spell shows, its buff or its cooldown
+- Glows, pulses, borders, halos and words show on whichever side a spell shows, its buff or its cooldown
 - Gray: A spell with an EZ-CDM gray line has one gray, drawn by EZ-CDM. Daylight UI's Gray out waits, and comes back when the last gray line goes
 - Drawer: Words come from the game's own spell data. A spell with no buff offers no buff words, a debuff says "debuff", a totem speaks of its totem, and power words name the spell's own power, only on spells that cost some
 - Drawer: Two conditions that can never both be true are not offered together, and the drawer says why
