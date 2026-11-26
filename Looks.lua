@@ -1,4 +1,4 @@
-local _, ns = ...
+local addonName, ns = ...
 
 -- EZ-CDM's looks: actions every condition's lines may end in (Conditions.RegisterLook),
 -- each drawn with Daylight UI's own builders, art and measures on the piece's
@@ -8,15 +8,16 @@ local _, ns = ...
 -- motion off in Daylight UI keeps them away, as it keeps its own:
 --   flash    the wash texture (Skin.FLASH_ALPHA, the auto attack wash) in the line's
 --            color, played by Motion.Flash
---   pop      Daylight UI's ready ping (Ping.Light) on a copy of the icon: the copy
---            and its light bumped from Ping.SCALE over NORMAL, the light flashed
---            from Ping.FLASH_ALPHA over SLOW
---   shake    the same copy, masks and all, moved side to side on Motion.Tween, as
---            Talents.Shake moves a talent tile (Book/Talents.lua:412): SHAKE_PX,
---            SHAKE_SWINGS, SLOW
 --   sparkle  API.GlowAround's twinkle for one lap (Widgets.GLOW_LAP)
 --   screen   Daylight UI's vignette art (portrait-vignette.png, as InstallerScreen.lua
 --            lays it) over the whole screen in the color, in with API.Fade FAST, out SLOW
+--
+-- Once, and gone as the line turns off (hides). Plain lines only:
+--   flare    Daylight UI's Proc Alerts flare around the character (API 1.16,
+--            me.AddProcAlert / ShowProcAlert / HideProcAlert), one alert per line,
+--            in the line's design, animation and sound. Daylight UI draws it, so
+--            its own motion switch and Proc Alerts' settings rule it. Offered only
+--            on a Daylight UI with Proc Alerts' calls
 --
 -- Held while the line is on. They are alpha only, so a client part may drive them:
 --   pulse    the wash texture breathing on Daylight UI's own pulse driver
@@ -46,9 +47,6 @@ EZCDM_Looks = Looks
 
 local API = _G.DaylightUI and _G.DaylightUI.API
 
--- Talents.Shake's sway: px at the start, half swings over its time.
-Looks.SHAKE_PX = 3
-Looks.SHAKE_SWINGS = 5
 -- The glow style the sparkle plays once.
 Looks.SPARKLE_STYLE = "twinkle"
 -- The vignette Daylight UI lays over the screen (InstallerScreen.lua).
@@ -109,6 +107,7 @@ local function wash(f, r, g, b)
 end
 
 local function icons(kind) return kind.shape == "icon" end
+local function motionNote() return not Bridge.MotionOn() and "motionOff" or nil end
 local function any() return true end
 
 -- ---------------------------------------------------------------------
@@ -121,63 +120,6 @@ local function flash(target, on, opts)
     local t = wash(f, colorOf(opts))
     Bridge.Flash(t, speed("SLOW"))
     note(opts.key, "flash", t)
-end
-
--- A copy of the piece's icon shown on target for dur seconds, then hidden.
-local function copyFor(target, name, opts, dur)
-    local c = Overlay.IconCopy(target, name, opts.key)
-    if not c then return nil end
-    c.gen = (c.gen or 0) + 1
-    local gen = c.gen
-    c.frame:SetAlpha(1)
-    C_Timer.After(dur, function()
-        if c.gen == gen then c.frame:SetAlpha(0) end
-    end)
-    return c
-end
-
--- Ping.Light bumps the icon and its lit copy, then flashes the light. The copy
--- stands in for the icon, which EZ-CDM never moves; it goes once it is back at
--- rest over the icon, and the light fades on.
-local function pop(target, on, opts)
-    if not on or not Bridge.MotionOn() then return end
-    local c = copyFor(target, "pop", opts, speed("SLOW"))
-    if not (c and c.light) then return end
-    local gen = c.gen
-    c.tex:SetAlpha(1)
-    C_Timer.After(speed("NORMAL") or 0, function()
-        if c.gen == gen then c.tex:SetAlpha(0) end
-    end)
-    local scale = Bridge.PingScale()
-    c.light:SetVertexColor(1, 1, 1, Bridge.PingFlashAlpha() or 0)
-    Bridge.Bump(c.tex, scale, speed("NORMAL"))
-    Bridge.Bump(c.light, scale, speed("NORMAL"))
-    Bridge.Flash(c.light, speed("SLOW"))
-    note(opts.key, "pop", c.frame)
-end
-
-local function shake(target, on, opts)
-    if not on or not Bridge.MotionOn() then return end
-    local c = copyFor(target, "shake", opts, speed("SLOW"))
-    if not c then return end
-    -- What the copy lies over: the icon, or its own frame where it stands in.
-    local icon = c.over or c.frame
-    -- The copy's masks move with it, so the whole tile sways rather than its picture
-    -- sliding inside a crop that stays put.
-    local function lay(r, over, dx)
-        r:ClearAllPoints()
-        r:SetPoint("TOPLEFT", over, "TOPLEFT", dx, 0)
-        r:SetPoint("BOTTOMRIGHT", over, "BOTTOMRIGHT", dx, 0)
-    end
-    local function at(dx)
-        lay(c.tex, icon, dx)
-        for _, m in ipairs(c.masks) do lay(m, m.over, dx) end
-    end
-    c.shakeKey = c.shakeKey or {}
-    Bridge.Tween(c.shakeKey, 0, 1, speed("SLOW"), function(p)
-        at(math.sin(p * math.pi * Looks.SHAKE_SWINGS) * Looks.SHAKE_PX * (1 - p))
-    end, function() at(0) end)
-    note(opts.key, "shake", c.frame)
 end
 
 local function sparkle(target, on, opts)
@@ -219,6 +161,85 @@ local function screen(_, on, opts)
         if f.gen == gen then API.Fade(f, 0, "SLOW") end
     end)
     note(opts.key, "screen", f)
+end
+
+-- ---------------------------------------------------------------------
+-- Once, gone as the line turns off: the flare
+-- ---------------------------------------------------------------------
+
+-- Proc Alerts' designs and animations (API.md, Proc Alerts), in its own order, and
+-- the ones AddProcAlert takes with none picked.
+Looks.FLARE_DESIGNS = { "wings", "talons", "pillars", "shards", "flames", "bolt", "comet", "crown", "sigil",
+                        "sun", "ring", "wave" }
+Looks.FLARE_ANIMS = { "breathe", "pulse", "impact", "flash", "still" }
+Looks.FLARE_DESIGN, Looks.FLARE_ANIM = "sun", "pulse"
+
+local function setOf(list)
+    local out = {}
+    for _, v in ipairs(list) do out[v] = true end
+    return out
+end
+local DESIGNS, ANIMS = setOf(Looks.FLARE_DESIGNS), setOf(Looks.FLARE_ANIMS)
+
+-- A flare line's value as saved: { design, anim, sound }, each left out at Proc
+-- Alerts' own. sound is a key of Daylight UI's alert list (Sound.AlertChoices),
+-- "none" included, as Proc Alerts' own Sound row saves it. nil for none or a bad one.
+local function cleanFlare(v)
+    if type(v) ~= "table" then return nil end
+    local out = {}
+    if v.design ~= nil then
+        if not DESIGNS[v.design] then return nil end
+        out.design = v.design
+    end
+    if v.anim ~= nil then
+        if not ANIMS[v.anim] then return nil end
+        out.anim = v.anim
+    end
+    if v.sound ~= nil then
+        local ok = type(v.sound) == "string" and v.sound ~= "" and not v.sound:find("|", 1, true)
+            and not v.sound:find("^head:")
+        if not ok then return nil end
+        out.sound = v.sound
+    end
+    return next(out) and out or nil
+end
+
+local me
+local function plugin()
+    me = me or API.For(addonName)
+    return me
+end
+
+-- A line's alert key, the same for as long as the line exists. Daylight UI shows
+-- it to others as "EZ-CDM:<key>".
+local function alertKey(opts) return tostring(opts.key) .. ":" .. tostring(opts.line) end
+function Looks.FlareKey(key, line) return alertKey({ key = key, line = line }) end
+
+-- Holder -> line id -> alert key: the flares up for its lines.
+local flares = setmetatable({}, weak)
+
+local function hideFlare(target, id)
+    local set = flares[target]
+    local k = set and set[id]
+    if not k then return end
+    set[id] = nil
+    plugin().HideProcAlert(k)
+end
+
+-- Proc Alerts' sound plays as the flare lands, once. Daylight UI never hides it, so
+-- it goes as the line turns off. The alert is added again at each show, so a look
+-- picked since, and Proc Alerts turned on since, both take.
+local function flare(target, on, opts)
+    if not on then return hideFlare(target, opts.line) end
+    local v = type(opts.value) == "table" and opts.value or {}
+    local k = alertKey(opts)
+    local spec = { name = Bridge.SpellName(tonumber(opts.key) or opts.key), design = v.design or Looks.FLARE_DESIGN,
+                   anim = v.anim or Looks.FLARE_ANIM, sound = v.sound }
+    if not plugin().AddProcAlert(k, spec) then return end
+    if not plugin().ShowProcAlert(k, { left = opts.left, dur = opts.dur }) then return end
+    flares[target] = flares[target] or {}
+    flares[target][opts.line] = k
+    note(opts.key, "flare", k)
 end
 
 -- ---------------------------------------------------------------------
@@ -346,21 +367,9 @@ function Looks.Edge() return edge end
 -- In the drawer's order: { action, effect fields }.
 Looks.LIST = {
     { action = "flash", effect = { key = "flash", edge = true, value = "color", fits = icons, draw = flash,
-        clear = clearFrame("flash") } },
-    { action = "pop", effect = { key = "pop", edge = true, fits = icons, draw = pop,
-        clear = function(target)
-            local c = Overlay.CopyOn(target, "pop")
-            if c then
-                c.frame:SetAlpha(0)
-                if c.light then c.light:Hide() end
-            end
-        end } },
-    { action = "shake", effect = { key = "shake", edge = true, fits = icons, draw = shake,
-        clear = function(target)
-            local c = Overlay.CopyOn(target, "shake")
-            if c then c.frame:SetAlpha(0) end
-        end } },
+        clear = clearFrame("flash"), offNote = motionNote } },
     { action = "sparkle", effect = { key = "sparkle", edge = true, value = "color", fits = any, draw = sparkle,
+        offNote = motionNote,
         clear = function(target)
             local f = frameIf(target, "sparkle")
             if f then
@@ -369,7 +378,18 @@ Looks.LIST = {
             end
         end } },
     { action = "screen", effect = { key = "screen", edge = true, value = "color", fits = any, draw = screen,
-        clear = function() end } },
+        clear = function() end, offNote = motionNote } },
+    { action = "flare", needs = Bridge.ProcAlertsFit, value = { "flare", cleanFlare },
+      effect = { key = "flare", edge = true, hides = true, value = "flare", fits = any, draw = flare,
+        clear = function(target, id)
+            if id then return hideFlare(target, id) end
+            for line in pairs(flares[target] or {}) do hideFlare(target, line) end
+        end,
+        shown = function(_, opts)
+            local up = API.ProcState(addonName .. ":" .. alertKey(opts))
+            return up and API.GetFrame("procs") or nil
+        end,
+        offNote = function() return not Bridge.ProcAlertsOn() and "procAlertsOff" or nil end } },
     { action = "pulse", effect = { key = "pulse", client = true, anyFace = true, value = "color", fits = icons, draw = pulse,
         clear = clearFrame("pulse", function(f) if f.wash then Bridge.Pulse(f, f.wash, false) end end),
         shown = shownFrame("pulse") } },
@@ -392,6 +412,9 @@ Looks.LIST = {
 
 if type(API) == "table" then
     for _, l in ipairs(Looks.LIST) do
-        if Conditions.RegisterEffect(l.effect) then Conditions.RegisterLook(l.action, l.effect.key) end
+        if not l.needs or l.needs() then
+            if l.value then Conditions.RegisterValue(l.value[1], l.value[2]) end
+            if Conditions.RegisterEffect(l.effect) then Conditions.RegisterLook(l.action, l.effect.key) end
+        end
     end
 end

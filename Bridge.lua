@@ -133,10 +133,6 @@ Bridge.NEEDS = {
     -- Looks: Daylight UI's motion, pulse, glow laps, halo, shell border, icon picker
     "DaylightUI.Motion.On",
     "DaylightUI.Motion.Flash",
-    "DaylightUI.Motion.Bump",
-    "ActionBars.Ping.SCALE",
-    "ActionBars.Ping.FLASH_ALPHA",
-    "DaylightUI.Motion.Tween",
     "ActionBars.CdmEffects.Flash",
     "DaylightUI.Widgets.GLOW_LAP",
     "DaylightUI.Style.AURA_HALO",
@@ -256,6 +252,20 @@ end
 function Bridge.GlowResets()
     local major, minor = Bridge.ApiVersion()
     return major == 1 and minor >= 15
+end
+
+-- Whether Daylight UI has Proc Alerts' calls: API 1.16 (Daylight UI 2.3.0) brings
+-- them. The flare look is offered only then.
+function Bridge.ProcAlertsFit()
+    local major, minor = Bridge.ApiVersion()
+    local API = _G.DaylightUI and _G.DaylightUI.API
+    return major == 1 and minor >= 16 and type(API.ProcAlerts) == "function" and type(API.For) == "function"
+end
+
+-- Whether the player has Proc Alerts on: its list answers nil while the module or
+-- its "Show proc alerts" is off (API.md, Proc Alerts).
+function Bridge.ProcAlertsOn()
+    return Bridge.ProcAlertsFit() and _G.DaylightUI.API.ProcAlerts() ~= nil
 end
 
 -- True when the API fits, every internal is there and the Cooldown Manager is on.
@@ -398,6 +408,16 @@ end
 function Bridge.TotemUp(sid)
     if sid == nil or call("ActionBars.CdmCustom.Totem", sid) == nil then return nil end
     return call("ActionBars.CdmCustom.TotemUp", sid) ~= nil
+end
+
+-- The standing totem's seconds left and whole length (its GetTotemDuration object),
+-- or nil. In a fight the object's answers are secret, and they come back as they are.
+function Bridge.TotemTime(sid)
+    if sid == nil or call("ActionBars.CdmCustom.Totem", sid) == nil then return nil end
+    local d = call("ActionBars.CdmCustom.TotemUp", sid)
+    if d == nil or issecretvalue(d) or type(d.GetRemainingDuration) ~= "function"
+        or type(d.GetTotalDuration) ~= "function" then return nil end
+    return d:GetRemainingDuration(), d:GetTotalDuration()
 end
 
 -- A look key's value for a placed piece as the card reads it (CdmCard.lua:228-234):
@@ -998,19 +1018,6 @@ function Bridge.MotionOn() return call("DaylightUI.Motion.On") ~= false end
 
 -- Daylight UI's flash: a texture at full alpha fading to nothing (Motion.Flash).
 function Bridge.Flash(tex, dur) return call("DaylightUI.Motion.Flash", tex, dur) end
-
--- Daylight UI's nudge: a region scaled from `from` back to 1 (Motion.Bump).
-function Bridge.Bump(region, from, dur) return call("DaylightUI.Motion.Bump", region, from, dur) end
-
--- Daylight UI's ready ping (Ping.Light): the scale an icon pops from, and its lit
--- copy's starting brightness.
-function Bridge.PingScale() return Bridge.Resolve("ActionBars.Ping.SCALE") end
-function Bridge.PingFlashAlpha() return Bridge.Resolve("ActionBars.Ping.FLASH_ALPHA") end
-
--- Daylight UI's shared number tween (Motion.Tween): step(v) from `from` to `to`.
-function Bridge.Tween(key, from, to, dur, step, done)
-    return call("DaylightUI.Motion.Tween", key, from, to, dur, step, done)
-end
 
 -- Daylight UI's pulse on its own shared driver, the empty bar's "flash it"
 -- (CdmEffects.Flash): part's alpha breathes while holder is shown.

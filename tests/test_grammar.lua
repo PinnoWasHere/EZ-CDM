@@ -532,7 +532,7 @@ local function pieceWorld(hidden)
 end
 
 -- The looks (Looks.lua) an icon takes on a plain line and on a client one.
-local LOOKS = "flash,pop,shake,sparkle,screen,pulse,border,halo,text,swap"
+local LOOKS = "flash,sparkle,screen,flare,pulse,border,halo,text,swap"
 local CLIENT_LOOKS = "pulse,border,halo,text,swap"
 local COOLDOWN_WORDS = "always(show) ready(show,fade,hide,glow,sound) cooldown(show,fade,hide,gray,color,nosweep,nogcd) "
     .. "almost(numbers) blocked(glow,gray,sound," .. LOOKS .. ") unusable(show,fade,hide,glow,gray,sound," .. LOOKS
@@ -565,7 +565,7 @@ T.test("grammar kind: a bar loses gray and keep color, which are icon rows", fun
     T.falsy(G.Fits(kind, "unusable", "gray"), "the washes cover an icon")
     T.falsy(G.Fits(kind, "short", "blue"))
     -- A bar takes the looks that don't cover an icon.
-    local barLooks = "sparkle,screen,border,text"
+    local barLooks = "sparkle,screen,flare,border,text"
     T.eq(wordsOf(G, kind), "always(show) ready(show,fade,hide,glow,sound) cooldown(show,fade,hide) "
         .. "blocked(glow,sound," .. barLooks .. ") unusable(show,fade,hide,glow,sound," .. barLooks
         .. ") short(show,fade,hide,glow,sound," .. barLooks .. ") usable(glow,sound)"
@@ -980,6 +980,7 @@ T.test("grammar wording: placeholders and strip headings", function()
         seconds = "Choose how many seconds:", recipe = "Choose a recipe:",
         clause = "Choose another condition:", number = "Type a number:",
         text = "Type a few words:", icon = "Choose an icon:",
+        design = "Choose a flare:", anim = "Choose how it moves:", flareSound = "Choose a sound:",
     })
     -- No phrase starts with a separate When or While: each moment is one phrase.
     for m, phrase in pairs(G.WORDING.moments) do

@@ -1595,10 +1595,18 @@ Grammar.WORDING = {
         nosweep = "hide the sweep", nogcd = "hide the global cooldown sweep", tint = "color the sweep",
         flash = "flash it", numbers = "color the numbers",
         -- EZ-CDM's looks (Looks.lua).
-        pop = "pop it", shake = "shake it", sparkle = "sparkle", screen = "flash the screen's edge",
+        sparkle = "sparkle", screen = "flash the screen's edge",
         pulse = "pulse it", border = "color its border", halo = "light a halo behind it",
-        text = "show words on it", swap = "swap its icon",
+        text = "show words on it", swap = "swap its icon", flare = "flare around me",
     },
+    -- A flare line's picks, in brackets after its action: Daylight UI's Proc Alerts
+    -- names for its designs and animations (DaylightUI_Procs/Data.lua), and the sound
+    -- it plays with none picked.
+    flareDesigns = { wings = "Wings", talons = "Talons", pillars = "Pillars", shards = "Shards", flames = "Flames",
+        bolt = "Lightning", comet = "Comets", crown = "Crown", sigil = "Sigil", sun = "Sunrise", ring = "Rune ring",
+        wave = "Shockwave" },
+    flareAnims = { breathe = "Breathe", pulse = "Pulse", impact = "Impact", flash = "Flash", still = "Still" },
+    flareSound = "Proc Alerts' sound",
     -- A text look's words in a line ("show \"Kick!\" on it"), and its blank.
     textShown = "show \"%s\" on it",
     chooseText = "type…",
@@ -1668,9 +1676,12 @@ Grammar.WORDING = {
         seconds = "Choose how many seconds:", recipe = "Choose a recipe:",
         clause = "Choose another condition:", number = "Type a number:",
         text = "Type a few words:", icon = "Choose an icon:",
+        design = "Choose a flare:", anim = "Choose how it moves:", flareSound = "Choose a sound:",
     },
     -- Under a one-shot look's line while Daylight UI's motion is off.
     motionOff = "Daylight UI's motion is off, so this doesn't show.",
+    -- Under a flare line while Daylight UI's Proc Alerts is off.
+    procAlertsOff = "Daylight UI's Proc Alerts is off, so this doesn't show.",
     -- Under the words' box: how many letters they may have (%d).
     textRange = "Up to %d letters.",
     -- Daylight UI's icon picker's title.
@@ -1936,6 +1947,13 @@ local function soundName(key)
     return type(name) == "string" and name or tostring(key)
 end
 
+-- A flare line's design, animation and sound: its own, else Proc Alerts' (sound nil).
+function Grammar.FlarePicks(v)
+    local L = ns.Looks
+    v = type(v) == "table" and v or {}
+    return v.design or L.FLARE_DESIGN, v.anim or L.FLARE_ANIM, v.sound
+end
+
 -- A glow style key's name, the card's label, or the key.
 local function styleName(key)
     for _, st in ipairs(Bridge.GlowStyles() or {}) do
@@ -1961,6 +1979,11 @@ local function actionWords(line)
     if valued == "color" and line.value then return Grammar.ActionWords(line.moment, a) .. " in " .. WORDING.picked end
     if valued == "text" and type(line.value) == "string" then return WORDING.textShown:format(line.value) end
     if valued == "icon" and line.value ~= nil then return Grammar.ActionWords(line.moment, a) .. " for " .. WORDING.iconPicked end
+    if valued == "flare" then
+        local d, anim, sound = Grammar.FlarePicks(line.value)
+        return string.format("%s (%s, %s, %s)", Grammar.ActionWords(line.moment, a), WORDING.flareDesigns[d] or d,
+            WORDING.flareAnims[anim] or anim, sound and soundName(sound) or WORDING.flareSound)
+    end
     if a == "numbers" then
         local out = WORDING.actions.numbers
         if line.value then out = out .. " in " .. WORDING.picked end

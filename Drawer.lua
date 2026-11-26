@@ -44,6 +44,8 @@ Drawer.COLOR_WORDS = { accent = "accent", pick = "pick…" }
 -- the chip that takes a clause out.
 Drawer.MORE = "\1more"
 Drawer.DROP = "\1drop"
+-- A flare's sound word for Proc Alerts' own sound.
+Drawer.FLARE_SOUND = "\1procs"
 
 -- Why a pick didn't write, in plain words.
 Drawer.REFUSED = {
@@ -916,7 +918,9 @@ local function fillStrip()
             pieces[#pieces + 1] = { kind = "chip", text = slot.values[k] or tostring(k), key = k,
                 on = slot.current ~= nil and k == slot.current,
                 onClick = function()
-                    if slot and slot.kind == "sound" then Bridge.PreviewAlert(k) end
+                    if slot and (slot.kind == "sound" or (slot.kind == "flareSound" and k ~= Drawer.FLARE_SOUND)) then
+                        Bridge.PreviewAlert(k)
+                    end
                     drop(k)
                 end }
         end
@@ -1256,6 +1260,40 @@ local function sentence(s, kind, rules, i, line)
                     current = line.value,
                     onPick = function(icon) edit(function(r) r.lines[i].value = icon end) end })
             end, writes = false }, line.value ~= nil, off)
+    elseif valued == "flare" then
+        -- " (Sunrise, Pulse, Proc Alerts' sound)": each pick a word of its own. A pick
+        -- back at Proc Alerts' own is left out of the value.
+        local design, anim, sound = Grammar.FlarePicks(line.value)
+        local function pick(field, k, own)
+            edit(function(r)
+                local v = {}
+                for f, x in pairs(type(r.lines[i].value) == "table" and r.lines[i].value or {}) do v[f] = x end
+                if k == own then v[field] = nil else v[field] = k end
+                r.lines[i].value = next(v) and v or nil
+            end)
+        end
+        local L = ns.Looks
+        local sv, sk = sounds()
+        local soundKeys, soundValues = { Drawer.FLARE_SOUND }, { [Drawer.FLARE_SOUND] = WORDING.flareSound }
+        for _, k in ipairs(sk) do
+            soundKeys[#soundKeys + 1] = k
+            soundValues[k] = sv[k]
+        end
+        local soundNow = sound or Drawer.FLARE_SOUND
+        pieces[#pieces + 1] = { text = " (" }
+        pieces[#pieces + 1] = word(WORDING.flareDesigns[design] or design, id .. "design", {
+            kind = "design", keys = L.FLARE_DESIGNS, values = WORDING.flareDesigns, current = design,
+            onPick = function(k) pick("design", k, L.FLARE_DESIGN) end }, true, off)
+        pieces[#pieces + 1] = { text = ", " }
+        pieces[#pieces + 1] = word(WORDING.flareAnims[anim] or anim, id .. "anim", {
+            kind = "anim", keys = L.FLARE_ANIMS, values = WORDING.flareAnims, current = anim,
+            onPick = function(k) pick("anim", k, L.FLARE_ANIM) end }, true, off)
+        pieces[#pieces + 1] = { text = ", " }
+        local said = soundValues[soundNow]
+        pieces[#pieces + 1] = word(type(said) == "string" and said or tostring(soundNow), id .. "flareSound", {
+            kind = "flareSound", keys = soundKeys, values = soundValues, current = soundNow,
+            onPick = function(k) pick("sound", k, Drawer.FLARE_SOUND) end }, true, off)
+        pieces[#pieces + 1] = { text = ")" }
     elseif line.action == "glow" or line.action == "tint" or valued == "color" then
         -- A glow's own style, unless it is EZ-CDM's combat ring.
         if line.action == "glow" and line.moment ~= nil and not Grammar.RingOnly(kind, line.moment) then
@@ -1322,12 +1360,14 @@ local function sentence(s, kind, rules, i, line)
     pieces[#pieces + 1] = { text = "." }
     local b = words(s, pieces, { onRemove = function() edit(function(r) table.remove(r.lines, i) end) end })
     b.line = i
-    -- A one-shot look moves, and Daylight UI's motion off keeps it away.
-    if finished and ck and not Bridge.MotionOn() then
-        local e = ns.Conditions.Effect(ns.Conditions.Get(ck).actions[line.action].effect)
-        if e and e.edge and e.key ~= "sound" then
-            words(s, { { text = WORDING.motionOff, size = "small", color = "LABEL" } }).motionOff = i
-        end
+    -- A look Daylight UI keeps away now: a one-shot look while its motion is off, a
+    -- flare while Proc Alerts is off.
+    local act = finished and ck and ns.Conditions.Get(ck).actions[line.action]
+    local e = act and ns.Conditions.Effect(act.effect)
+    local why = e and e.offNote and e.offNote()
+    if why then
+        local n = words(s, { { text = WORDING[why], size = "small", color = "LABEL" } })
+        n[why] = i
     end
     return b
 end

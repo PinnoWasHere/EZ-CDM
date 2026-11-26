@@ -13,7 +13,7 @@ local EXECUTE = 5308
 local ESSENTIAL = 0
 local GOLD = { 1, 0.8, 0.2 }
 
-local ONCE = { "flash", "pop", "shake", "sparkle", "screen" }
+local ONCE = { "flash", "sparkle", "screen" }
 local HELD = { "pulse", "border", "halo", "text", "swap" }
 
 local function noErrors()
@@ -85,13 +85,13 @@ T.test("looks: the .toc loads Looks.lua after Overlay.lua and before Grammar", f
     T.truthy(at["Looks.lua"] < at["Grammar.lua"], "before Grammar takes the actions")
 end)
 
-T.test("looks: ten looks, five once and plain only, five held and alpha-safe", function()
+T.test("looks: nine looks, four once and plain only, five held and alpha-safe", function()
     local _, ns = world()
     local C = ns.Conditions
     local got = {}
     for _, l in ipairs(C.Looks()) do got[#got + 1] = l.action end
-    T.eq(table.concat(got, ","), "flash,pop,shake,sparkle,screen,pulse,border,halo,text,swap", "the drawer's order")
-    for _, a in ipairs(ONCE) do
+    T.eq(table.concat(got, ","), "flash,sparkle,screen,flare,pulse,border,halo,text,swap", "the drawer's order")
+    for _, a in ipairs({ "flash", "sparkle", "screen", "flare" }) do
         local e = C.Effect(a)
         T.truthy(e and e.edge, a .. " fires once")
         T.falsy(e and e.client, a .. " moves, so no client line takes it")
@@ -143,6 +143,41 @@ T.test("looks: a look's value is cleaned as saved: a color, a few words, an icon
     T.eq(C.CleanValue("icon", 136048), 136048)
     T.isnil(C.CleanValue("icon", -1))
     T.isnil(C.CleanValue("icon", "|T"), "no escape")
+    noErrors()
+end)
+
+-- ---------------------------------------------------------------------
+-- Saved rules from before pop and shake went (Conditions.VERSION 3)
+-- ---------------------------------------------------------------------
+
+-- The saved rules, made if need be, with version v and rules for keys.
+local function saved(ns, v, rules)
+    ns.Conditions.Rule("none")
+    local profile = ns.Bridge.ProfileOf()
+    EZCDMDB.conditionsVersion = v
+    EZCDMDB.conditions[profile] = rules
+    return EZCDMDB.conditions[profile]
+end
+
+T.test("looks migrate: saved pop and shake lines go; the rest of the rule stays as it was", function()
+    local _, ns, _, key = world()
+    local rules = saved(ns, 2, {
+        [key] = { notUsable = { pop = true, flash = { value = GOLD } }, cantCast = { shake = true, border = true } },
+        ["other"] = { noMana = { pop = true, shake = true } },
+    })
+    T.deq(ns.Conditions.Rule(key), { notUsable = { flash = { value = GOLD } }, cantCast = { border = true } },
+        "a version 2 cantCast stays cantCast")
+    T.eq(EZCDMDB.conditionsVersion, ns.Conditions.VERSION)
+    T.deq(rules[key], { notUsable = { flash = { value = GOLD } }, cantCast = { border = true } }, "dropped as saved")
+    T.isnil(rules.other, "a rule of pop and shake only goes whole")
+    noErrors()
+end)
+
+T.test("looks migrate: a version 1 rule moves cantCast to notUsable and drops pop too", function()
+    local _, ns, _, key = world()
+    local rules = saved(ns, 1, { [key] = { cantCast = { pop = true, glow = true } } })
+    T.deq(ns.Conditions.Rule(key), { notUsable = { glow = true } })
+    T.deq(rules[key], { notUsable = { glow = true } })
     noErrors()
 end)
 
@@ -234,69 +269,10 @@ T.test("looks flash: Daylight UI's wash, flashed once as the line turns on, in i
 end)
 
 T.test("looks once: motion off in Daylight UI keeps every one-shot look away", function()
-    local _, ns, _, key = world({ L("unusable", "flash"), L("unusable", "pop"), L("unusable", "shake"),
+    local _, ns, _, key = world({ L("unusable", "flash"),
         L("unusable", "sparkle"), L("unusable", "screen") }, false)
     block()
     for _, a in ipairs(ONCE) do T.isnil(ns.Looks.Fired(key, a), a .. ": nothing with motion off") end
-    noErrors()
-end)
-
-T.test("looks pop: Daylight UI's ready ping on a copy of the icon, at the ping's own scale and times", function()
-    local DUI, ns, AB, key = world({ L("unusable", "pop") })
-    local M = DUI.Motion
-    local bumps, flashes = {}, {}
-    local keepBump, keepFlash = M.Bump, M.Flash
-    M.Bump = function(region, from, dur) bumps[#bumps + 1] = { region = region, from = from, dur = dur }; return keepBump(region, from, dur) end
-    M.Flash = function(tex, dur) flashes[#flashes + 1] = { tex = tex, dur = dur }; return keepFlash(tex, dur) end
-    block()
-    M.Bump, M.Flash = keepBump, keepFlash
-    T.truthy(ns.Looks.Fired(key, "pop"), "fired")
-    local c = ns.Overlay.CopyOn(holderOf(DUI, ns, key), "pop")
-    T.truthy(c, "a copy on the holder")
-    T.eq(c.tex:IsDesaturated(), false, "in color, unlike the gray")
-    T.falsy(c.shade:IsShown(), "no shade")
-    -- Ping.Light (DaylightUI_ActionBars/Ping.lua:156): the icon and its lit copy
-    -- bumped from Ping.SCALE over NORMAL, the light flashed over SLOW.
-    T.eq(#bumps, 2, "two bumps, as the ping's")
-    T.eq(bumps[1].region, c.tex, "the copy, standing in for the icon")
-    T.eq(bumps[2].region, c.light, "its light")
-    for _, b in ipairs(bumps) do
-        T.eq(b.from, AB.Ping.SCALE, "from the ping's scale")
-        T.eq(b.dur, M.NORMAL, "over NORMAL")
-    end
-    T.eq(#flashes, 1)
-    T.eq(flashes[1].tex, c.light, "the light flashes")
-    T.eq(flashes[1].dur, M.SLOW, "over SLOW")
-    T.eq(c.light:GetBlendMode(), "ADD", "the icon's own picture added on top, as Ping.Setup's")
-    T.eq(select(4, c.light:GetVertexColor()), AB.Ping.FLASH_ALPHA, "at the ping's brightness")
-    T.eq(c.light:GetTexture(), c.tex:GetTexture(), "the same picture")
-    stub.RunTimers()
-    T.eq(c.frame:GetAlpha(), 0, "gone after the flash")
-    noErrors()
-end)
-
-T.test("looks shake: the copy and its crop sway together on Motion.Tween and come back to rest", function()
-    local DUI, ns, _, key = world({ L("unusable", "shake") })
-    -- A shaped icon: the copy takes the icon's mask.
-    local icon = ns.Bridge.PieceIcon(ns.Conditions.FrameOf(key))
-    local mask = icon:GetParent():CreateMaskTexture()
-    mask:SetAllPoints(icon)
-    icon:AddMaskTexture(mask)
-    block()
-    T.truthy(ns.Looks.Fired(key, "shake"), "fired")
-    local c = ns.Overlay.CopyOn(holderOf(DUI, ns, key), "shake")
-    T.truthy(c, "a copy on the holder")
-    T.eq(#c.masks, 1, "the icon's mask copied")
-    stub.RunOnUpdate(DUI.Motion.Driver(), 0.05)
-    local _, _, _, x = c.tex:GetPoint(1)
-    local _, _, _, mx = c.masks[1]:GetPoint(1)
-    T.truthy(x ~= 0, "mid-sway")
-    T.eq(mx, x, "the crop moves with the picture")
-    finishTweens(DUI)
-    _, _, _, x = c.tex:GetPoint(1)
-    _, _, _, mx = c.masks[1]:GetPoint(1)
-    T.eq(x, 0, "at rest where the icon is")
-    T.eq(mx, 0, "its crop too")
     noErrors()
 end)
 
@@ -401,7 +377,7 @@ end)
 
 T.test("looks cost: no look runs an OnUpdate of its own", function()
     local DUI, ns, _, key = world({ L("unusable", "pulse"), L("unusable", "flash"), L("unusable", "sparkle"),
-        L("unusable", "shake"), L("blocked", "border"), L("blocked", "text", "Hi") })
+        L("blocked", "border"), L("blocked", "text", "Hi") })
     block()
     local holder = holderOf(DUI, ns, key)
     for _, name in ipairs({ "pulse", "flash", "border", "text" }) do
@@ -459,7 +435,7 @@ T.test("looks drawer: the action strip offers the looks in order", function()
     local Drawer = editor(ns, AB, key)
     wordOf(Drawer, 1, "action"):Click()
     local keys = " " .. table.concat(strip(Drawer).keys, " ") .. " "
-    T.truthy(keys:find(" flash pop shake sparkle screen pulse border halo text swap ", 1, true), keys)
+    T.truthy(keys:find(" flash sparkle screen flare pulse border halo text swap ", 1, true), keys)
     strip(Drawer).chip.halo:Click()
     T.deq(ns.Conditions.Rule(key), { notUsable = { halo = true } }, "written at once")
     T.eq(sentences(Drawer)[1].said, "When it's not usable, light a halo behind it in the accent color.")

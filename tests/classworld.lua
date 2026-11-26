@@ -149,11 +149,12 @@ end
 --   opts.known    { [id] = true or false }: the game's IsPlayerSpell for these ids,
 --                 over the stand-in below (a bug report's answers)
 --   opts.passive  { [id] = true }: more ids IsSpellPassive says yes to
+--   opts.procs    loads Daylight UI's Proc Alerts too
 function W.World(c, opts)
     opts = opts or {}
     local fam = W.Families()
     stub.neverSecretAuras = {}
-    local DUI, ns = stub.LoadPlugin({ actionbars = true, login = false, before = function()
+    local DUI, ns = stub.LoadPlugin({ actionbars = true, login = false, procs = opts.procs, before = function()
         -- No form and out of stealth until w.Form; no spell checks range until w.HasRange.
         _G.GetShapeshiftFormInfo = function() return nil end
         _G.IsStealthed = function() return false end

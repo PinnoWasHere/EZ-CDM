@@ -43,21 +43,27 @@ local addonName, ns = ...
 --              handler names } }: what may change it
 --   priority   optional: on one effect, the higher lit condition wins (default 0)
 --   recipes    optional: { { key, action, after = recipe key } }, ready-made lines
+--   time(k, n) optional: while true, its seconds left and its whole length, both
+--              plain, or nil when the game won't say (a hides effect shows them)
 --
 -- An effect (Conditions.RegisterEffect):
 --   key, fits(kind) optional, draw(target, on, opts), clear(target)
 --   shown(target, opts)  optional: what it drew on target, for Conditions.Visible
 --   client     draws only alpha-safe looks, so a line with a client part may use it
 --   edge       fires once as its line turns on (a sound, a flash)
+--   hides      with edge: draw(target, false, opts) as its line turns off, and
+--              clear(target, line id) when its line goes. opts.left and opts.dur
+--              are the line's first part's time, when it has one
 --   stack      each line has a slot of its own instead of one priority winner
 --   value      optional: what a line's value holds for it, "color" ({ r, g, b }),
---              "text" (a few plain words) or "icon" (a file id or name)
+--              "text" (a few plain words), "icon" (a file id or name), or a kind
+--              added by Conditions.RegisterValue
 --   anyFace    decorates the whole piece on its holder, so on a piece that shows its
 --              buff and its cooldown in turn it shows on either face. Without it a line
 --              about one icon draws only while that icon shows
 --
 -- A look (Conditions.RegisterLook) is an action every condition's lines may end in,
--- drawn by one effect: "flash it", "pop it" (Looks.lua). Each registered condition
+-- drawn by one effect: "flash it", "sparkle" (Looks.lua). Each registered condition
 -- takes every look, unless it is clauseOnly. Fits keeps the ones its piece or its
 -- client part can't draw.
 --
@@ -94,13 +100,17 @@ Conditions.DAYLIGHT = { ready = true, started = true, usable = true, proc = true
 Conditions.SECRECY = { plain = true, outOfCombat = true, client = true }
 Conditions.LAYERS = { cooldown = true, buff = true, any = true }
 -- The saved rules' form. 2: "cantCast" is any reason; the old one is "notUsable".
-Conditions.VERSION = 2
+-- 3: the pop and shake looks are gone.
+Conditions.VERSION = 3
+-- Looks a saved rule may still hold from before they went (VERSION 3).
+Conditions.GONE = { pop = true, shake = true }
 -- The shared ticker's beat, in seconds.
 Conditions.TICK = 0.2
 -- What the dev suite logs for a value the game keeps secret.
 Conditions.SECRET = "<secret>"
 -- What a line's value may hold for an effect (the effect's value field).
-Conditions.VALUES = { color = true, text = true, icon = true }
+-- Kind -> clean(v): the value as saved, or nil when it isn't one.
+Conditions.VALUES = {}
 -- The most letters a text look's words may have.
 Conditions.TEXT_MAX = 12
 
@@ -234,19 +244,30 @@ local function cleanText(v)
     return v
 end
 
+Conditions.VALUES.color = function(v)
+    if type(v) == "table" and type(v[1]) == "number" and type(v[2]) == "number" and type(v[3]) == "number" then
+        return { v[1], v[2], v[3] }
+    end
+end
+Conditions.VALUES.text = cleanText
+Conditions.VALUES.icon = function(v)
+    if type(v) == "number" and v > 0 and v % 1 == 0 then return v end
+    if type(v) == "string" and v ~= "" and not v:find("|", 1, true) then return v end
+end
+
+-- Adds a value kind: clean(v) gives the value as saved, or nil. False for a kind
+-- already taken.
+function Conditions.RegisterValue(kind, clean)
+    if type(kind) ~= "string" or type(clean) ~= "function" or Conditions.VALUES[kind] then return false end
+    Conditions.VALUES[kind] = clean
+    return true
+end
+
 -- A value as saved for a value kind, or nil when it isn't one.
 function Conditions.CleanValue(kind, v)
-    if kind == "color" then
-        if type(v) == "table" and type(v[1]) == "number" and type(v[2]) == "number" and type(v[3]) == "number" then
-            return { v[1], v[2], v[3] }
-        end
-    elseif kind == "text" then
-        return cleanText(v)
-    elseif kind == "icon" then
-        if type(v) == "number" and v > 0 and v % 1 == 0 then return v end
-        if type(v) == "string" and v ~= "" and not v:find("|", 1, true) then return v end
-    end
-    return nil
+    local clean = Conditions.VALUES[kind]
+    if not clean then return nil end
+    return clean(v)
 end
 
 -- Whether a condition reads on a piece of kind (any piece when kind is nil).
@@ -351,7 +372,7 @@ end
 -- Rules saved before VERSION 2 meant Daylight UI's Not usable by "cantCast". They
 -- move to "notUsable", which keeps what the player sees; "cantCast" now counts a
 -- cooldown and short power too.
-local function migrate(all)
+local function toNotUsable(all)
     for _, pieces in pairs(all) do
         for _, rule in pairs(type(pieces) == "table" and pieces or {}) do
             if type(rule) == "table" then
@@ -370,11 +391,37 @@ local function migrate(all)
     end
 end
 
+-- Rules saved before VERSION 3 may end lines in pop or shake. Those lines go, and
+-- a condition, rule or profile left with no line goes with them. They don't become
+-- another look: no other look nudges the icon, and a flare or a flash is bigger
+-- than what the player picked.
+local function dropGone(all)
+    for profile, pieces in pairs(all) do
+        if type(pieces) == "table" then
+            for key, rule in pairs(pieces) do
+                if type(rule) == "table" then
+                    for ck, acts in pairs(rule) do
+                        if type(acts) == "table" then
+                            for a in pairs(Conditions.GONE) do acts[a] = nil end
+                            if next(acts) == nil then rule[ck] = nil end
+                        end
+                    end
+                    if next(rule) == nil then pieces[key] = nil end
+                end
+            end
+            if next(pieces) == nil then all[profile] = nil end
+        end
+    end
+end
+
 local function store()
     if type(EZCDMDB) ~= "table" then EZCDMDB = {} end
     if type(EZCDMDB.conditions) ~= "table" then EZCDMDB.conditions = {} end
-    if EZCDMDB.conditionsVersion ~= Conditions.VERSION then
-        migrate(EZCDMDB.conditions)
+    local was = EZCDMDB.conditionsVersion
+    if was ~= Conditions.VERSION then
+        local v = type(was) == "number" and was or 1
+        if v < 2 then toNotUsable(EZCDMDB.conditions) end
+        if v < 3 then dropGone(EZCDMDB.conditions) end
         EZCDMDB.conditionsVersion = Conditions.VERSION
     end
     return EZCDMDB.conditions
@@ -586,15 +633,16 @@ local styleOf = {}
 
 -- What an effect draws for a line: the action's opts with the piece's key, the
 -- line's sound or color, number and glow style (the piece's own when it has none).
-local function optsFor(act, spec, k)
-    local out = { key = k }
+local function optsFor(act, spec, k, id)
+    local out = { key = k, line = id }
     for f, v in pairs(act.opts or {}) do out[f] = v end
     if type(spec) == "table" then out.value, out.n, out.style = spec.value, spec.n, spec.style end
     if act.effect == "glow" and out.style == nil and k then out.style = styleOf[k] end
     return out
 end
 
-local function off(holder, r)
+-- wasOn: the line was lit until now.
+local function off(holder, r, wasOn)
     local e = effects[r.ek]
     if r.client then
         local f = layers[holder] and layers[holder][r.id]
@@ -602,8 +650,22 @@ local function off(holder, r)
             e.draw(f, false, r.opts)
             f:Hide()
         end
-    elseif not e.edge then
+    elseif not e.edge or (e.hides and wasOn) then
         e.draw(holder, false, r.opts)
+    end
+end
+
+-- A lit line's time from its first part that tells one: left, dur, or nil.
+local function timeOf(k, parts)
+    for _, p in ipairs(parts or {}) do
+        if p.c.time then
+            local left, dur = p.c.time(k, numberOf(p))
+            if not issecretvalue(left) and not issecretvalue(dur) and type(left) == "number"
+                and type(dur) == "number" and dur > 0 then
+                return math.max(0, math.min(left, dur)), dur
+            end
+            return nil
+        end
     end
 end
 
@@ -619,7 +681,7 @@ local function refresh(k)
         for a, spec in pairs(acts) do
             local act = c.actions[a]
             local e = effects[act.effect]
-            local _, plain, client = partsOf(ck, spec)
+            local parts, plain, client = partsOf(ck, spec)
             local lit = holder ~= nil and plain ~= nil and layerShows(k, Conditions.LineLayer(ck, spec), e)
             for _, p in ipairs(lit and plain or {}) do
                 if readOf(p.c, k, numberOf(p)) ~= true then
@@ -630,7 +692,8 @@ local function refresh(k)
             local id = ck .. ":" .. a
             local own = client ~= nil or (e ~= nil and (e.stack or e.edge))
             local slot = own and (act.effect .. "|" .. id) or act.effect
-            local rec = { c = c, action = a, id = id, ek = act.effect, client = client, opts = optsFor(act, spec, k) }
+            local rec = { c = c, action = a, id = id, ek = act.effect, client = client, parts = parts,
+                          opts = optsFor(act, spec, k, id) }
             asked[slot] = asked[slot] or {}
             asked[slot][#asked[slot] + 1] = rec
             local w = want[slot]
@@ -647,7 +710,7 @@ local function refresh(k)
         local e = effects[all[1].ek]
         if e and holder then
             for _, r in ipairs(all) do
-                if r ~= w then off(holder, r) end
+                if r ~= w then off(holder, r, was[slot] == r.id) end
             end
             if w and w.client then
                 local f = layerFor(holder, w.id)
@@ -658,6 +721,7 @@ local function refresh(k)
                 if w.client.c.ticker then ticks[w.id] = { c = w.client.c, holder = holder, layer = f, n = n } end
                 drawn[holder] = true
             elseif w and (not e.edge or was[slot] ~= w.id) then
+                if e.hides then w.opts.left, w.opts.dur = timeOf(k, w.parts) end
                 e.draw(holder, true, w.opts)
                 drawn[holder] = true
             end
@@ -676,6 +740,8 @@ local function refresh(k)
                 f:Hide()
             elseif not id then
                 effects[ek].clear(holder)
+            elseif effects[ek].hides then
+                effects[ek].clear(holder, id)
             end
         end
     end
@@ -982,12 +1048,12 @@ function Conditions.Visible(key, id)
     local holder = frame and API.Attach(frame)
     local target = holder and layers[holder] and layers[holder][id]
     if holder and e and e.check and not InCombatLockdown() then
-        out.gray = e.check(target or holder, optsFor(act, spec, k))
+        out.gray = e.check(target or holder, optsFor(act, spec, k, id))
     end
     if not (out.lit and frame and frame:IsVisible() and e) then return out end
     local drawn = target or holder
     if e.shown then
-        local obj = e.shown(drawn, optsFor(act, spec, k))
+        local obj = e.shown(drawn, optsFor(act, spec, k, id))
         if not obj then return out end
         drawn = obj
     end
@@ -1399,6 +1465,7 @@ Conditions.Register({
     key = "totemUp", moment = "totemUp", actions = glowOnly(),
     fits = function(kind) return kind.totem == true end,
     read = function(k) return Bridge.TotemUp(spellOf(k)) end,
+    time = function(k) return Bridge.TotemTime(spellOf(k)) end,
     detail = function(k) return { spell = spellOf(k), up = Bridge.TotemUp(spellOf(k)) } end,
     events = { game = { "PLAYER_TOTEM_UPDATE", { "UNIT_SPELLCAST_SUCCEEDED", "player" } },
                daylight = { "changed", "ready", "started" } },
@@ -1468,10 +1535,18 @@ local function chargesNow(k)
         if secretTable(a) then return nil, id end
         if type(a) == "table" then
             if secret(a.applications) then return nil, id end
-            return a.applications, id
+            return a.applications, id, a
         end
     end
     return 0
+end
+
+-- The charged aura's seconds left and whole length, or nil for one with no timer.
+local function chargesTime(k)
+    local left, _, a = chargesNow(k)
+    if not (left and a) or secret(a.expirationTime) or secret(a.duration) then return nil end
+    if type(a.duration) ~= "number" or a.duration <= 0 or type(a.expirationTime) ~= "number" then return nil end
+    return a.expirationTime - GetTime(), a.duration
 end
 
 -- Its aura is up with n charges or fewer left (Lightning Shield's 3, used up by hits).
@@ -1486,6 +1561,7 @@ Conditions.Register({
         if left == nil then return nil end
         return left > 0 and left <= (n or 1)
     end,
+    time = chargesTime,
     detail = function(k)
         local left, id = chargesNow(k)
         local secrecy = id and C_Secrets.GetSpellAuraSecrecy(id)

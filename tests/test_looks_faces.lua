@@ -6,7 +6,6 @@ local W = require("classworld")
 -- Daylight UI reports one piece frame whichever face it shows, and API.Attach's holder
 -- sits over both faces. So a look that decorates the piece shows whenever its line is
 -- true, while a look that only means something on the cooldown icon waits for it.
--- Also pop and shake, timed and sized by Daylight UI's own ready ping and talent shake.
 
 local FLAME = 8050
 local PINK = { 1, 0, 0.86 }
@@ -106,7 +105,7 @@ T.test("faces: the drawer notes only the lines that still wait for the cooldown 
     for _, a in ipairs({ "halo", "pulse", "border", "text" }) do
         T.isnil(G.HiddenNote(kind, L("blocked", a)), a .. ": no note, it shows on either face")
     end
-    for _, a in ipairs({ "gray", "swap", "pop" }) do
+    for _, a in ipairs({ "gray", "swap", "flash" }) do
         local note = G.HiddenNote(kind, L("blocked", a))
         T.eq(note and note.text, "Hidden while its debuff shows.", a .. ": still waits")
     end

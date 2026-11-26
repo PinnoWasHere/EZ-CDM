@@ -13,7 +13,7 @@ local SW = require("sweep_lib")
 
 local LS = {}
 
-local totals = { pieces = 0, lines = 0, once = 0, held = 0, client = 0, covered = 0, bars = 0 }
+local totals = { pieces = 0, lines = 0, once = 0, held = 0, client = 0, covered = 0, bars = 0, flares = 0 }
 LS.totals = totals
 
 -- Each look line a piece is offered: { moment, action, cond, client }.
@@ -98,6 +98,11 @@ local function check(ns, key, name, class, bad)
         elseif e.edge then
             totals.once = totals.once + 1
             if not Looks.Fired(key, e.key) then bad[#bad + 1] = tag .. ": " .. l.moment .. " " .. l.action .. " never fired" end
+            if e.hides then
+                -- A flare must be up in Daylight UI's Proc Alerts, as EZ-CDM's own.
+                totals.flares = totals.flares + 1
+                if not (v.lit and v.shown) then bad[#bad + 1] = tag .. ": " .. id .. " isn't up in Proc Alerts" end
+            end
         else
             totals.held = totals.held + 1
             if l.client then totals.client = totals.client + 1 end
@@ -126,7 +131,7 @@ function LS.Tests(classes, bars)
         local class = run.class
         T.test("sweep looks: " .. class .. "'s tray" .. (run.bars and " as bars" or "")
             .. " draws every look it offers, and only those", function()
-            local DUI, ns, AB = SW.World(SW.Class(class), { hidden = true })
+            local DUI, ns, AB = SW.World(SW.Class(class), { hidden = true, procs = true })
             DUI.DB.General().motion = true
             local placed = SW.PlaceTray(AB, run.bars == true)
             local bad = {}
@@ -136,11 +141,12 @@ function LS.Tests(classes, bars)
         end)
     end
     T.test("sweep looks: the sweep drew looks once, held and on client lines", function()
-        print(string.format("looks sweep: %d pieces (%d bars), %d lines; %d once, %d held (%d client), %d covered",
-            totals.pieces, totals.bars, totals.lines, totals.once, totals.held, totals.client, totals.covered))
+        print(string.format("looks sweep: %d pieces (%d bars), %d lines; %d once (%d flares), %d held (%d client), %d covered",
+            totals.pieces, totals.bars, totals.lines, totals.once, totals.flares, totals.held, totals.client, totals.covered))
         if bars then T.truthy(totals.bars >= 20, "bars: " .. totals.bars) end
         T.truthy(totals.pieces >= 40, "pieces: " .. totals.pieces)
         T.truthy(totals.once >= 40, "once: " .. totals.once)
+        T.truthy(totals.flares >= 40, "flares: " .. totals.flares)
         T.truthy(totals.held >= 40, "held: " .. totals.held)
         T.truthy(totals.client >= 5, "client: " .. totals.client)
     end)
