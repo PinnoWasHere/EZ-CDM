@@ -53,7 +53,10 @@ needs a newer Daylight UI.
 What EZ-CDM adds on top of Daylight UI:
 
 - "While it's active, glow" in combat, for buffs Daylight UI shows in its aura icons, such
-  as Improved Stormstrike. This glow is always a ring.
+  as Improved Stormstrike's 15-second mana buff. This glow is always a ring.
+- "When its cooldown resets": a glow, sound, flare or any other look the moment a talent
+  resets the spell's cooldown, such as Improved Stormstrike resetting Stormstrike on a dodge
+  or parry. It works with Daylight UI's Proc Alerts on or off.
 - A glow and a sound a set number of seconds (2 to 10) before your buff or debuff falls off.
 - A different glow style for each moment of the same spell.
 - A gray wash over the icon when you can't cast the spell, and a blue wash when you don't
@@ -66,8 +69,8 @@ What EZ-CDM adds on top of Daylight UI:
   asks for a `/reload` as you close the editor.
 - A glow goes back to your accent color only with Daylight UI 2.2.6 or newer. On an older
   Daylight UI it keeps the color you picked, and the drawer says so.
-- Procs whose timer the game hides in a fight (Improved Stormstrike, for example) get no
-  "about to fall off" moment. The drawer says so on those spells.
+- Buffs whose timer the game hides in a fight (Improved Stormstrike's mana buff, for
+  example) get no "about to fall off" moment. The drawer says so on those spells.
 - "About to fall off" counts from your own cast, or from when the buff lands where Daylight
   UI can see that. On some spells it can't tell in a fight that the aura fell off early.
   The drawer notes this under the line.

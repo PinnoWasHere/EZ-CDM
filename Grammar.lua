@@ -22,8 +22,8 @@ ns.Grammar = Grammar
 EZCDM_Grammar = Grammar
 
 -- "blocked" is EZ-CDM's "When I can't cast it" (Conditions.lua), placed beside the
--- castable words.
-Grammar.MOMENTS = { "always", "ready", "cooldown", "almost", "blocked", "unusable", "short", "usable", "up", "ends",
+-- castable words; "reset" is its "When its cooldown resets" (Resets.lua), after ready.
+Grammar.MOMENTS = { "always", "ready", "reset", "cooldown", "almost", "blocked", "unusable", "short", "usable", "up", "ends",
                     "missing", "recast" }
 Grammar.ACTIONS = { "show", "fade", "hide", "glow", "gray", "color", "sound", "nosweep", "nogcd", "tint", "flash", "numbers" }
 -- What it shows, in the card's order (CdmCard.lua:630-636). Daylight UI's own piece
@@ -606,6 +606,10 @@ end
 --   gcd              the global cooldown touches its spell (AuraLinks.spells "g")
 --   imbue            its spell puts a buff on a weapon (AuraLinks.imbues)
 --   totem            its spell is a timed totem (Bridge.IsTotem)
+--   resets           a talent of your class resets its spell's cooldown (Resets.Of,
+--                    AuraLinks.resets)
+--   resetOf          its spell is such a talent: the spell it resets (Resets.ForTalent).
+--                    Its buff isn't that proc, so no Proc pop, and the drawer names the spell
 -- Form rows show for cooldowns of a class with forms (CdmCard.lua:817).
 -- Totems take no case of their own. Bridge.Shows (CdmOwn.Track) says "totem" for a
 -- totem with no buff and "both" for a Shaman element piece (CdmOwn.lua:108-130), and
@@ -690,6 +694,8 @@ function Grammar.Kind(key, piece, shows)
         gcd = lettered(key, "g"),
         imbue = Grammar.Imbues(key) ~= nil or nil,
         totem = Bridge.IsTotem(key) or nil,
+        resets = ns.Resets and ns.Resets.Of(Bridge.SpellOf(key)) ~= nil or nil,
+        resetOf = ns.Resets and ns.Resets.ForTalent(Bridge.SpellOf(key)) or nil,
     }
     -- A harmful spell's aura is a debuff only where the tables don't list the spell at
     -- all; where they list it and can't tell, the words keep Daylight UI's "buff".
@@ -1068,7 +1074,8 @@ end
 function Grammar.Recipes(kind)
     local out = {}
     for _, r in ipairs(Grammar.RECIPES) do
-        local fits = true
+        -- A reset talent's buff is not its proc (kind.resetOf).
+        local fits = not (r.key == "procPop" and type(kind) == "table" and kind.resetOf)
         for _, l in ipairs(r.lines or {}) do
             fits = fits and Grammar.Fits(kind, l.moment, l.action)
         end
@@ -1682,6 +1689,8 @@ Grammar.WORDING = {
     motionOff = "Daylight UI's motion is off, so this doesn't show.",
     -- Under a flare line while Daylight UI's Proc Alerts is off.
     procAlertsOff = "Daylight UI's Proc Alerts is off, so this doesn't show.",
+    -- On a reset talent's piece (kind.resetOf); %s is the spell it resets.
+    resetElsewhere = "This talent's proc is %s's cooldown reset. Place %s and use \"When its cooldown resets\".",
     -- Under the words' box: how many letters they may have (%d).
     textRange = "Up to %d letters.",
     -- Daylight UI's icon picker's title.
@@ -1894,6 +1903,15 @@ function Grammar.NeverWords(a, b, kind)
         return forKind(plain and WORDING.layerClashPlain or WORDING.layerClash, kind)
     end
     return WORDING.neverBoth:format(fill(why, nil, kind))
+end
+
+-- The note on a reset talent's piece, naming the spell it resets; nil on any other.
+function Grammar.ResetNote(kind)
+    local sid = type(kind) == "table" and kind.resetOf
+    if not sid then return nil end
+    local name = plain(C_Spell.GetSpellName(sid))
+    if type(name) ~= "string" or name == "" then return nil end
+    return WORDING.resetElsewhere:format(name, name)
 end
 
 -- A one-click fix's words (Grammar.HiddenNote) for a piece.

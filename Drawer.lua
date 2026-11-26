@@ -1763,6 +1763,9 @@ local function spellBody(s, key)
     if kind.proc then
         words(s, { { text = WORDING.fallOff.hidden, size = "small", color = "LABEL" } }).fallOff = "hidden"
     end
+    -- A reset talent's buff isn't its proc: this names the spell whose reset is.
+    local resetNote = Grammar.ResetNote(kind)
+    if resetNote then words(s, { { text = resetNote, size = "small", color = "LABEL" } }).resetNote = true end
     fadeLine(s, rules)
     styleLine(s, rules, key)
     groupLines(s, rules)

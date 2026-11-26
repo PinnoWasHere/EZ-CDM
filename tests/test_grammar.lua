@@ -298,6 +298,8 @@ for _, k in ipairs({ "targetLow", "playerLow", "powerLow", "targetInterruptible"
 end
 CASES[#CASES + 1] = { { moment = "targetLow", action = "glow", n = 35 }, { ["ez:targetLow:glow"] = { n = 35 } } }
 CASES[#CASES + 1] = { L("targetInterruptible", "gray"), { ["ez:targetInterruptible:gray"] = true } }
+CASES[#CASES + 1] = { L("reset", "glow"), { ["ez:cooldownReset:glow"] = true } }
+CASES[#CASES + 1] = { L("reset", "sound", SOUND), { ["ez:cooldownReset:sound"] = { value = SOUND } } }
 
 local function withChain(t)
     local out = { chain = {} }
@@ -1977,7 +1979,9 @@ T.test("grammar recipes: a holder proc gets no Refresh warning", function()
     withSpellAnswers({ [STORMBUFF] = true }, {}, function()
         local kind = G.Kind(storm)
         T.truthy(kind.proc, "a proc EZ-CDM draws")
-        T.eq(recipeKeys(G, kind), "procPop fightOnly", "no fall-off recipe on it")
+        -- No Proc pop either: Improved Stormstrike's buff is its mana buff, and its proc is
+        -- Stormstrike's cooldown reset (kind.resetOf, Resets.lua).
+        T.eq(recipeKeys(G, kind), "fightOnly", "no fall-off recipe on it")
     end)
     noErrors()
 end)
