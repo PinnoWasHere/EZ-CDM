@@ -288,7 +288,8 @@ if type(API) == "table" then
     --           API.Glow on the piece's holder, CdmEffects.SetGlow on a line's layer
     --   lights  API.GlowAround sized by the Cooldown Manager's GLOW_SCALE (Circling's
     --           light at Bridge.CircleLight)
-    --   paced   Breathing, on Bridge.PacedGlow at Daylight UI's breath (Bridge.Breath)
+    --   paced   Breathing, on Bridge.PacedGlow at Daylight UI's breath (Bridge.Breath),
+    --           with Daylight UI's aura halo behind the piece breathing with the strip
     -- It decorates the whole piece, so it shows on either face. Alpha only, so a client
     -- part may drive it. Another line's off leaves a lit glow alone. A light glow put
     -- out goes a frame later, so a line that lights the same target in the same pass
@@ -361,7 +362,11 @@ if type(API) == "table" then
                 if frame then w, h = frame:GetWidth(), frame:GetHeight() end
                 local size, thick = Bridge.GlowShape(target, w, h, opts.style)
                 local o = { style = opts.style, r = c and c[1], g = c and c[2], b = c and c[3], size = size, thick = thick }
-                if how == "paced" then Bridge.PacedGlow(target, true, o, Bridge.Breath())
+                if how == "paced" then
+                    local hr, hg, hb
+                    if c then hr, hg, hb = c[1], c[2], c[3] else hr, hg, hb = API.Accent() end
+                    o.halo = { piece = frame, hr, hg, hb }
+                    Bridge.PacedGlow(target, true, o, Bridge.Breath())
                 else API.GlowAround(target, true, o) end
             end
             glowing[target] = { how = how, frame = frame, line = opts.line }

@@ -201,6 +201,100 @@ T.test("glow styles breathe: switching a lit glow to another style puts the Brea
 end)
 
 -- ---------------------------------------------------------------------
+-- Breathing: the aura halo breathes with the strip (owner, 2026-11-25)
+-- ---------------------------------------------------------------------
+
+local TAU = 2 * math.pi
+local function breathAt(at) return 0.5 - 0.5 * math.cos(at * TAU) end
+
+-- A Breathing line lit and settled: DUI, ns, AB, key, holder, host, halo.
+local function breathing(value)
+    local DUI, ns, AB, key = world({ { moment = "unusable", action = "glow", style = "breathe", value = value } })
+    local holder = holderOf(DUI, ns, key)
+    local seen, unspy = spyHosts(DUI, holder)
+    block()
+    finishTweens(DUI)
+    unspy()
+    local host = seen[1] and seen[1].host
+    return DUI, ns, AB, key, holder, host, ns.Bridge.PacedHalo(holder)
+end
+
+T.test("glow styles breathe halo: Daylight UI's aura halo behind the piece, in the line's colour", function()
+    local DUI, ns, _, key, _, _, halo = breathing(GOLD)
+    T.truthy(halo and halo.tex, "a halo on the Breathing glow")
+    T.truthy(halo:IsShown())
+    T.eq(halo.tex:GetTexture(), DUI.Style.AURA_HALO, "Style.AURA_HALO")
+    T.eq(halo.tex:GetBlendMode(), "ADD", "as the aura buttons' halo")
+    local piece = ns.Conditions.FrameOf(key)
+    T.truthy(halo:GetFrameLevel() < piece:GetFrameLevel(), "behind the piece, so the icon and its numbers stay clear")
+    local reach = piece:GetWidth() * DUI.Style.AURA_HALO_REACH
+    local p, _, _, x, y = halo.tex:GetPoint(1)
+    T.eq(p, "TOPLEFT")
+    T.near(x, -reach, 1e-6, "Style.PlaceAuraHalo's reach past the edge")
+    T.near(y, reach, 1e-6)
+    local r, g, b = halo.tex:GetVertexColor()
+    T.deq({ r, g, b }, GOLD, "the line's colour")
+    noErrors()
+end)
+
+T.test("glow styles breathe halo: the accent when the line has no colour", function()
+    local DUI, _, _, _, _, _, halo = breathing()
+    local r, g, b = halo.tex:GetVertexColor()
+    local ar, ag, ab = DUI.API.Accent()
+    T.deq({ r, g, b }, { ar, ag, ab })
+    noErrors()
+end)
+
+T.test("glow styles breathe halo: it breathes with the strip, full at the top, gone at the bottom", function()
+    local DUI, _, _, _, _, host, halo = breathing()
+    -- Daylight UI's tick draws the strip at glowAt + dt / its own lap; the halo takes
+    -- the same clock in the same frame.
+    local base, dt = DUI.Widgets.GLOW_LAP.breathe, 0.05
+    -- The stub lays no anchors, so the holder takes the 36 px icon's size by hand.
+    host.glowFrame:SetSize(36, 36)
+    local function drawAt(at)
+        host.glowAt = at - dt / base
+        stub.RunOnUpdate(host.glowDriver, dt)
+    end
+    drawAt(0.5)
+    T.near(halo.tex:GetAlpha(), 1, 1e-6, "full at the top")
+    local dot = 0
+    for _, t in ipairs(host.glowDots) do if t:IsShown() then dot = math.max(dot, t:GetAlpha()) end end
+    T.near(dot, 0.48, 1e-6, "the strip's lights at their top in the same frame")
+    drawAt(0.25)
+    T.near(halo.tex:GetAlpha(), breathAt(0.25), 1e-6, "on the breath's curve")
+    T.near(breathAt(0.25), 0.5, 1e-6)
+    drawAt(1)
+    T.near(halo.tex:GetAlpha(), 0, 1e-6, "gone at the bottom")
+    noErrors()
+end)
+
+T.test("glow styles breathe halo: it fades out with the glow and is gone as the line turns off", function()
+    local DUI, _, _, _, _, host, halo = breathing()
+    usable(true)
+    gameSaysUsable()
+    -- Half way out: the halo carries the glow's fade.
+    host.glowAt = 0.5
+    host.glowFade = 0.5
+    stub.RunOnUpdate(host.glowDriver, 0)
+    T.near(halo.tex:GetAlpha(), 0.5, 1e-6, "times the glow's fade")
+    finishTweens(DUI)
+    T.falsy(host.glowDriver:IsShown(), "the glow is out")
+    T.falsy(halo:IsShown(), "the halo with it")
+    noErrors()
+end)
+
+T.test("glow styles breathe halo: Breathing only; Circling and Twinkle keep their own look", function()
+    for _, style in ipairs({ "circle", "twinkle" }) do
+        local DUI, ns, _, key = world({ { moment = "unusable", action = "glow", style = style } })
+        block()
+        finishTweens(DUI)
+        T.eq(ns.Bridge.PacedHalo(holderOf(DUI, ns, key)), nil, style)
+        noErrors()
+    end
+end)
+
+-- ---------------------------------------------------------------------
 -- A lit glow is never restarted while its line stays on
 -- ---------------------------------------------------------------------
 

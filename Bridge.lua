@@ -1119,11 +1119,49 @@ function Bridge.Breath()
     return type(v) == "number" and v > 0 and v or Bridge.BREATH
 end
 
+-- Daylight UI's aura halo on f, behind piece, as an aura button's halo sits behind
+-- its button: Style.AURA_HALO in ADD, one level under the piece, placed by
+-- Style.PlaceAuraHalo for the piece's width. Returns the texture.
+function Bridge.HaloBehind(f, piece)
+    if not f.tex then
+        f.tex = f:CreateTexture(nil, "BACKGROUND", nil, -8)
+        f.tex:SetBlendMode("ADD")
+    end
+    f.tex:SetTexture(Bridge.HaloArt())
+    if type(piece) ~= "table" then return f.tex end
+    local secret = type(issecretvalue) == "function" and issecretvalue or function() return false end
+    local level = piece:GetFrameLevel()
+    if type(level) == "number" and not secret(level) then f:SetFrameLevel(math.max(0, level - 1)) end
+    local w = piece:GetWidth()
+    if type(w) == "number" and not secret(w) and w > 0 then
+        Bridge.PlaceHalo(f.tex, f, w)
+    elseif not f.tex:GetPoint(1) then
+        f.tex:SetAllPoints(f)
+    end
+    return f.tex
+end
+
+-- The halo's alpha: the breath's curve at the host's clock (0 at the bottom, 1 at
+-- the top, as Chat's breath runs), times the glow's fade in and out.
+local function breatheHalo(host)
+    local h = host.ezHalo
+    if not (h and h.tex and type(host.glowAt) == "number" and type(host.glowFade) == "number") then return end
+    h.tex:SetAlpha((0.5 - 0.5 * math.cos(host.glowAt * 2 * math.pi)) * host.glowFade)
+end
+
 -- A glow style round frame on a host EZ-CDM keeps, laid as API.GlowAround lays one
 -- (API.lua:1092-1109), one lap in lap seconds. Workaround: API.GlowAround takes no
 -- lap, and Widgets.GLOW_LAP is every glow's (docs/reference/dui-prs/glow-lap.md).
 -- The lap rides on the host's own clock (glowDriver, glowAt, glowStyle).
+--
+-- opts.halo = { piece = frame, r, g, b } lays Daylight UI's aura halo behind the
+-- piece, breathing with the strip (owner, 2026-11-25). It goes with the glow.
 local paced = setmetatable({}, { __mode = "k" })
+function Bridge.PacedHost(frame) return paced[frame] end
+function Bridge.PacedHalo(frame)
+    local host = paced[frame]
+    return host and host.ezHalo or nil
+end
 function Bridge.PacedGlow(frame, on, opts, lap)
     local glow = Bridge.Resolve("DaylightUI.Widgets.GlowAround")
     local px = Bridge.Resolve("DaylightUI.Pixel.Px")
@@ -1144,9 +1182,31 @@ function Bridge.PacedGlow(frame, on, opts, lap)
     })
     host.ezLap = num(lap)
     local d = host.glowDriver
+    local halo = type(opts.halo) == "table" and opts.halo or nil
+    if on ~= false and d then
+        if halo then
+            local h = host.ezHalo
+            if not h then
+                h = CreateFrame("Frame", nil, frame)
+                h:SetAllPoints(frame)
+                host.ezHalo = h
+            end
+            local tex = Bridge.HaloBehind(h, halo.piece)
+            tex:SetVertexColor(num(halo[1]) or 1, num(halo[2]) or 1, num(halo[3]) or 1)
+            breatheHalo(host)
+            h:SetShown(d:IsShown())
+        elseif host.ezHalo then
+            host.ezHalo:Hide()
+        end
+    end
     if d and not host.ezPaced then
         host.ezPaced = true
+        d:HookScript("OnHide", function()
+            if host.ezHalo then host.ezHalo:Hide() end
+        end)
         d:HookScript("OnUpdate", function(_, dt)
+            -- The halo takes the clock the strip was just drawn at.
+            breatheHalo(host)
             local laps = Bridge.Resolve("DaylightUI.Widgets.GLOW_LAP")
             local base = type(laps) == "table" and laps[host.glowStyle]
             if not (host.ezLap and type(base) == "number" and type(host.glowAt) == "number") then return end

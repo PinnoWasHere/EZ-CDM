@@ -54,7 +54,6 @@ Looks.SPARKLE_STYLE = "twinkle"
 Looks.VIGNETTE = "portrait-vignette.png" -- look-ok: Daylight UI's own media, read through API.Media
 
 local weak = { __mode = "k" }
-local function secret(v) return type(issecretvalue) == "function" and issecretvalue(v) end
 
 -- Piece key -> effect -> { at = GetTime(), n = how many so far, shown = what it
 -- drew }: the last one-shot.
@@ -290,24 +289,7 @@ local function halo(target, on, opts)
     local f = on and frameOn(target, "halo") or frameIf(target, "halo")
     if not f then return end
     if not on then return f:Hide() end
-    local piece = Conditions.FrameOf(opts.key)
-    if not f.tex then
-        f.tex = f:CreateTexture(nil, "BACKGROUND", nil, -8)
-        f.tex:SetBlendMode("ADD")
-    end
-    f.tex:SetTexture(Bridge.HaloArt())
-    f.tex:SetVertexColor(colorOf(opts))
-    if piece then
-        -- Behind the piece, as the aura buttons' halo sits behind its button.
-        local level = piece:GetFrameLevel()
-        if type(level) == "number" and not secret(level) then f:SetFrameLevel(math.max(0, level - 1)) end
-        local w = piece:GetWidth()
-        if type(w) == "number" and not secret(w) and w > 0 then
-            Bridge.PlaceHalo(f.tex, f, w)
-        elseif not f.tex:GetPoint(1) then
-            f.tex:SetAllPoints(f)
-        end
-    end
+    Bridge.HaloBehind(f, Conditions.FrameOf(opts.key)):SetVertexColor(colorOf(opts))
     f:Show()
 end
 
