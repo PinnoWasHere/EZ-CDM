@@ -100,10 +100,13 @@ Conditions.DAYLIGHT = { ready = true, started = true, usable = true, proc = true
 Conditions.SECRECY = { plain = true, outOfCombat = true, client = true }
 Conditions.LAYERS = { cooldown = true, buff = true, any = true }
 -- The saved rules' form. 2: "cantCast" is any reason; the old one is "notUsable".
--- 3: the pop and shake looks are gone.
-Conditions.VERSION = 3
+-- 3: the pop and shake looks are gone. 4: the "cooldownReset" moment is gone.
+Conditions.VERSION = 4
 -- Looks a saved rule may still hold from before they went (VERSION 3).
 Conditions.GONE = { pop = true, shake = true }
+-- Conditions a saved rule may still name from before they went (VERSION 4), as a
+-- moment or as an "and" clause.
+Conditions.GONE_CONDS = { cooldownReset = true }
 -- The shared ticker's beat, in seconds.
 Conditions.TICK = 0.2
 -- What the dev suite logs for a value the game keeps secret.
@@ -414,6 +417,35 @@ local function dropGone(all)
     end
 end
 
+-- Rules saved before VERSION 4 may use a condition that went, as its moment or in a
+-- line's clauses. That moment, and any line with such a clause, goes; a condition,
+-- rule or profile left with no line goes with it.
+local function dropGoneConds(all)
+    local gone = Conditions.GONE_CONDS
+    for profile, pieces in pairs(all) do
+        if type(pieces) == "table" then
+            for key, rule in pairs(pieces) do
+                if type(rule) == "table" then
+                    for ck, acts in pairs(rule) do
+                        if gone[ck] then
+                            rule[ck] = nil
+                        elseif type(acts) == "table" then
+                            for a, spec in pairs(acts) do
+                                for _, cl in ipairs(type(spec) == "table" and type(spec.clauses) == "table" and spec.clauses or {}) do
+                                    if type(cl) == "table" and gone[cl.cond] then acts[a] = nil break end
+                                end
+                            end
+                            if next(acts) == nil then rule[ck] = nil end
+                        end
+                    end
+                    if next(rule) == nil then pieces[key] = nil end
+                end
+            end
+            if next(pieces) == nil then all[profile] = nil end
+        end
+    end
+end
+
 local function store()
     if type(EZCDMDB) ~= "table" then EZCDMDB = {} end
     if type(EZCDMDB.conditions) ~= "table" then EZCDMDB.conditions = {} end
@@ -422,6 +454,7 @@ local function store()
         local v = type(was) == "number" and was or 1
         if v < 2 then toNotUsable(EZCDMDB.conditions) end
         if v < 3 then dropGone(EZCDMDB.conditions) end
+        if v < 4 then dropGoneConds(EZCDMDB.conditions) end
         EZCDMDB.conditionsVersion = Conditions.VERSION
     end
     return EZCDMDB.conditions

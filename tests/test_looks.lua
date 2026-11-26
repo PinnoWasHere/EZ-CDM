@@ -181,6 +181,28 @@ T.test("looks migrate: a version 1 rule moves cantCast to notUsable and drops po
     noErrors()
 end)
 
+T.test("looks migrate: the cooldownReset moment goes, and lines with it as a clause", function()
+    local _, ns, _, key = world()
+    local rules = saved(ns, 3, {
+        [key] = { cooldownReset = { glow = true, sound = true },
+                  notUsable = { glow = true, flash = { value = GOLD, clauses = { { cond = "cooldownReset" } } } } },
+        ["other"] = { cooldownReset = { glow = true } },
+    })
+    T.deq(ns.Conditions.Rule(key), { notUsable = { glow = true } })
+    T.eq(EZCDMDB.conditionsVersion, ns.Conditions.VERSION)
+    T.eq(ns.Conditions.VERSION, 4)
+    T.deq(rules[key], { notUsable = { glow = true } }, "dropped as saved")
+    T.isnil(rules.other, "a rule of that moment only goes whole")
+    noErrors()
+end)
+
+T.test("looks migrate: a version 4 rule is left as it is", function()
+    local _, ns, _, key = world()
+    saved(ns, 4, { [key] = { notUsable = { flash = { value = GOLD } } } })
+    T.deq(ns.Conditions.Rule(key), { notUsable = { flash = { value = GOLD } } })
+    noErrors()
+end)
+
 -- ---------------------------------------------------------------------
 -- Grammar: words, values, round trips
 -- ---------------------------------------------------------------------

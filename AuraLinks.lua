@@ -37,11 +37,6 @@
 -- and not here costs nothing (Charge, Battle Stance).
 -- classPowers: a class token -> the powers its player has (ChrClassesXPowerTypes), in
 -- PowerType order. A hunter's is mana alone: the focus its spells cost is its pet's.
--- resets: a spell whose cooldown a talent resets -> key (one per reset, shared by its
--- ranks), class, talent, cd (its usual cooldown in ms, SpellCooldowns) and hold (the
--- seconds a held look stays). Daylight UI's Proc Alerts list names them
--- (DaylightUI_Procs/Data.lua, mode "reset", hold its dur): the client has no reset
--- effect, the server scripts it (Improved Stormstrike resets Stormstrike on a dodge or parry).
 
 local _, ns = ...
 
@@ -6242,8 +6237,5 @@ ns.AuraLinks = {
         SHAMAN = { "mana" },
         WARLOCK = { "mana" },
         WARRIOR = { "rage", "combo points" },
-    },
-    resets = {
-        [17364] = { key = "stormstrike", class = "SHAMAN", talent = 1223031, cd = 8000, hold = 4 }, -- Stormstrike
     },
 }

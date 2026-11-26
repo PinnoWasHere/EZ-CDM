@@ -333,7 +333,7 @@ T.test("conditions registry: each has fits, read, events, secrecy, words, an eff
     T.eq(table.concat(keys, " "), "cantCast notUsable noMana noBuff hasTarget targetEnemy targetBoss outOfRange "
         .. "targetCasting onlyGcd formBear formCat formAquatic formTravel formMoonkin formStealth formBattle "
         .. "formDefensive formBerserker totemUp weaponBuffMissing chargesLeft targetLow playerLow powerLow targetInterruptible "
-        .. "inCombat noCombat inGroup inInstance cooldownReset",
+        .. "inCombat noCombat inGroup inInstance",
         "the shipped ones, in order")
     noErrors()
 end)

@@ -54,9 +54,6 @@ What EZ-CDM adds on top of Daylight UI:
 
 - "While it's active, glow" in combat, for buffs Daylight UI shows in its aura icons, such
   as Improved Stormstrike's 15-second mana buff. This glow is always a ring.
-- "When its cooldown resets": a glow, sound, flare or any other look the moment a talent
-  resets the spell's cooldown, such as Improved Stormstrike resetting Stormstrike on a dodge
-  or parry. It works with Daylight UI's Proc Alerts on or off.
 - A glow and a sound a set number of seconds (2 to 10) before your buff or debuff falls off.
 - A different glow style for each moment of the same spell.
 - A gray wash over the icon when you can't cast the spell, and a blue wash when you don't

@@ -18,7 +18,6 @@ Conditions.lua
 Overlay.lua
 Gray.lua
 Looks.lua
-Resets.lua
 AuraLinks.lua
 Grammar.lua
 Draft.lua

@@ -7,8 +7,6 @@ local SW = require("sweep_lib")
 --                     global cooldown's sweep, and no "its cooldown" or "cooling down"
 --                     in any word (a totem's time is its cooldown, so totems are out)
 --   a debuff          no "buff" in any word the piece reads in
--- An EZ-CDM condition's moment and clause words count only on a piece it fits: elsewhere
--- the piece never reads them ("When its cooldown resets" fits only a spell a talent resets).
 
 local function saysBuff(text) return tostring(text):find("%f[%a]buff%f[%A]") ~= nil end
 
@@ -34,19 +32,11 @@ end
 -- Every phrase a piece reads in under kind.
 local function phrases(G, C, kind)
     local out = {}
-    local fits, unfit = {}, {}
-    for _, c in ipairs(C.List()) do
-        if C.FitsKind(c.key, kind) then fits[c.moment] = true else unfit[c.moment] = true end
-    end
     for _, s in ipairs(G.SHOWS) do out[#out + 1] = G.ShowsPhrase(s, kind) end
     out[#out + 1] = G.FixText("shows", kind)
     out[#out + 1] = G.FixText("clause", kind)
-    for m in pairs(G.WORDING.moments) do
-        if fits[m] or not unfit[m] then out[#out + 1] = (G.MomentWords(m, nil, kind)) end
-    end
-    for _, c in ipairs(C.List()) do
-        if C.FitsKind(c.key, kind) then out[#out + 1] = G.ClauseWords(c.key, nil, kind) end
-    end
+    for m in pairs(G.WORDING.moments) do out[#out + 1] = (G.MomentWords(m, nil, kind)) end
+    for _, c in ipairs(C.List()) do out[#out + 1] = G.ClauseWords(c.key, nil, kind) end
     for _, w in ipairs(G.Words(kind)) do
         for _, a in ipairs(w.actions) do out[#out + 1] = G.Describe({ moment = w.moment, action = a }, kind) end
     end
