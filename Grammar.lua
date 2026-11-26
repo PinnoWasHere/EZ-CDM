@@ -1870,6 +1870,15 @@ Grammar.WORDING = {
     },
     -- What's New, newest first, from CHANGELOG.md.
     news = {
+        { version = "1.0.0", lines = {
+            "Join conditions with \"and\": \"When it's ready and I'm in combat, glow.\"",
+            "New conditions: target, range, health, power, forms, totems, weapon buffs.",
+            "Nine new looks, from a pulse or a halo to a flare around you.",
+            "Every condition but health and power can play a sound.",
+            "\"When I can't cast it\" now means any reason. Old lines read \"not usable\".",
+            "Comet and Shine glows become Circling and Ring. Glows are bigger and brighter.",
+            "Right-click a chosen word to clear it.",
+        } },
         { version = "0.3.0", lines = {
             "Settings have their own EZ-CDM page under Plugins in /dui.",
             "A short tour the first time /cdm opens. Replay Tour shows it again.",

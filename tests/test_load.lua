@@ -47,7 +47,7 @@ local function registered(DUI, allowDui)
     T.eq(p.addon, ADDON)
     T.eq(p.title, "EZ-CDM", "the title from the .toc, the plugin tag taken off")
     T.falsy(p.untagged, "the .toc title carries (DaylightUI Plugin)")
-    T.eq(p.version, "0.3.0", "the version from the .toc")
+    T.eq(p.version, "1.0.0", "the version from the .toc")
     T.eq(errors(allowDui), "", "no error reached the error handler")
 end
 

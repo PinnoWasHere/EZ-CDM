@@ -1,22 +1,36 @@
-# EZ-CDM
+# EZ-CDM 1.0.0
 
-## 0.3.0
+Join conditions with "and", react to your target, health, power, range, forms and totems, and
+end a line in one of nine new looks, from a pulse to a flare around your character.
 
-Needs Daylight UI 2.2.4 or newer, on WoW Forever.
+Needs Daylight UI 2.2.4 or newer, on WoW Forever. Flare around me needs Daylight UI 2.3.0 or
+newer.
 
-- Settings. EZ-CDM has its own section under Plugins in `/dui`, with Daylight UI's
-  Cooldown Manager icon. Its page holds Show Start Block, Drawer Starts (as left, open or
-  closed), Play Sounds, Replay Tour, Newer Version Notice and Show What's New. Each change
-  works at once, with no `/reload`.
-- A short tour the first time `/cdm` opens with EZ-CDM. It lights each part in turn on
-  Daylight UI's own tour card, with Back, Next and Skip tour. Replay Tour on the settings
-  page shows it again.
-- A sound chip in the drawer plays its sound as you pick it. Play Sounds off keeps it quiet.
-- The row of choices under a word stays open after a pick, so you can try a few. A click
-  on empty space closes it.
-- What's New. After an update, the changes show once in Daylight UI's own window. The
-  What's New button on the settings page shows them again any time.
-- Newer version notice. EZ-CDM tells other copies in your guild, your group and your
-  Battle.net friends' games which version it runs, in a hidden addon message. When one of
-  them runs a newer version, a window says so once a session. Nothing is sent in a fight
-  or while the game locks chat down.
+## New
+- Conditions: Add "and" to a line to join conditions, like "When it's ready and I'm in combat, glow"
+- Conditions: My target is out of range, I have a target, my target is an enemy, my target is a boss, and my target is casting (on your interrupts)
+- Conditions: My target is below 20% health, I'm below 30% health, and my mana (or rage, or energy) is below 30%. Click the number to type your own. These work in a fight, with a glow or a look that stays on while the line is true
+- Conditions: It's only on the global cooldown, I'm in a form, stance or stealth, my weapon buff is missing, and its charges are down to a number (on buffs the game never hides in a fight)
+- Conditions: In combat, out of combat, in a group and in an instance, behind "more…" in the drawer, or always shown with More Condition Choices on the settings page
+- Totems: "While my totem is up" and "When my totem is down" take glows, sounds and every look
+- Looks: Flash it, sparkle, flash the screen's edge, pulse it, color its border, light a halo behind it, show words on it, and swap its icon, each with its own color, words or icon
+- Looks: Flare around me lights Daylight UI's Proc Alerts flare around your character, in the design, animation and sound you pick, and it goes as the line turns off
+- Sounds: Every condition but the health and power ones can play a sound
+- Ready: "When it's ready" takes every look and "and". A ready glow or sound with "and" is drawn by EZ-CDM, and Daylight UI's own ready glow or sound for that spell waits until the line goes
+- Drawer: Right-click a chosen word to clear it
+
+## Changed
+- Can't cast: "When I can't cast it" now means any reason: a cooldown, too little power, or not usable. Your lines from 0.3.0 now read "When it's not usable" and work as before
+- Glow styles: Comet and Shine are no longer offered. Comet glows become Circling, and Shine glows become Ring
+- Glows: EZ-CDM's glows are as big as the Cooldown Manager's own, Ring is Daylight UI's proc ring, Circling is brighter, and Breathing is quicker, with a soft halo behind the icon
+- Glows and looks show on whichever side a spell shows, its buff or its cooldown
+- Gray: A spell with an EZ-CDM gray line has one gray, drawn by EZ-CDM. Daylight UI's Gray out waits, and comes back when the last gray line goes
+- Drawer: Words come from the game's own spell data. A spell with no buff offers no buff words, a debuff says "debuff", a totem speaks of its totem, and power words name the spell's own power, only on spells that cost some
+- Drawer: Two conditions that can never both be true are not offered together, and the drawer says why
+- Drawer: A line that is hidden while the buff shows says so, with one-click fixes
+- Drawer: A spell Daylight UI's Proc Alerts lists says its proc shows there, and offers no Proc pop recipe
+
+## Fixed
+- "My target is out of range" no longer lights with no target
+- A glow no longer dips out when a second glow line on the same spell turns off
+- A weapon buff that wears off can glow until it's back

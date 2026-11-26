@@ -1,10 +1,11 @@
 name: Release
 
-# ship.method nested: this workflow lives in the public addon repo, which holds no tests.
-# The full LuaJIT suite runs in the private project before the tag (skill release).
-# Packaging rules live in .pkgmeta. A v* tag uploads to CurseForge when the repo has the
-# CF_API_KEY secret and the toc has "## X-Curse-Project-ID:". Without either, the packager
-# builds the zip and skips the upload.
+# ship.method nested: this workflow lives in the public addon repo. The public suite runs
+# on pull requests (test.yml); the full public and private runs happen before the tag
+# (skill release). Packaging rules live in .pkgmeta. A v* tag uploads to CurseForge when
+# the repo has the CF_API_KEY secret and the toc has "## X-Curse-Project-ID:". Without
+# either, the packager builds the zip and skips the upload. GITHUB_OAUTH makes a GitHub
+# Release with the zip.
 
 on:
   push:
@@ -28,6 +29,7 @@ jobs:
           args: -n "{package-name}-{project-version}"
         env:
           CF_API_TOKEN: ${{ secrets.CF_API_KEY }}
+          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Keep the zip
         uses: actions/upload-artifact@v4

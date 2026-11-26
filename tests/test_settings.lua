@@ -280,7 +280,7 @@ T.test("news: each version since the last one read, newest first", function()
 end)
 
 T.test("news: only what's new since the version last read", function()
-    local _, ns = world({ drawer = false, newsSeen = "0.2.0" })
+    local _, ns = world({ drawer = false, newsSeen = "0.3.0" })
     local list = ns.Grammar.WORDING.news
     local text = stub.AskText()
     T.truthy(has(text, list[1].lines[1]), "this version's lines")
