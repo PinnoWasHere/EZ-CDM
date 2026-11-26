@@ -11,9 +11,9 @@ local _, ns = ...
 --          it. It sits at the icon's own frame level, so the swipe, the numbers
 --          and the border stay on top. It shows and goes at once, as the game's
 --          own gray does, and follows the icon as it swaps (SPELL_UPDATE_ICON).
--- The "glow" effect runs Daylight UI's glow (API.GlowAround) round the holder, or
--- round a line's layer, whose alpha a client part sets. Motion off keeps it away,
--- as Daylight UI's own glows.
+-- The "glow" effect runs Daylight UI's Cooldown Manager glow round the holder, or
+-- round a line's layer, whose alpha a client part sets: its ring, or a light style
+-- at its size. Motion off gives the ring, as Daylight UI's own glows.
 -- The "sound" effect plays a sound line once as it turns on.
 
 local Bridge, Conditions = ns.Bridge, ns.Conditions
@@ -283,22 +283,53 @@ if type(API) == "table" then
         check = grayCheck,
     })
     -- A glow round the icon in the line's color (the accent when none) and style (the
-    -- piece's when none). Alpha only, so a client part may drive it.
+    -- piece's when none), as Daylight UI's Cooldown Manager glows a piece:
+    --   ring    its ring (Ring, a style not loaded, or motion off: CdmEffects.GlowStyle),
+    --           API.Glow on the piece's holder, CdmEffects.SetGlow on a line's layer
+    --   lights  API.GlowAround sized by the Cooldown Manager's GLOW_SCALE
+    -- It decorates the whole piece, so it shows on either face. Alpha only, so a client
+    -- part may drive it.
     local glowing = setmetatable({}, { __mode = "k" })
+
+    local function glowOff(target)
+        local was = glowing[target]
+        if not was then return end
+        glowing[target] = nil
+        if was.how == "lights" then
+            API.GlowAround(target, false)
+        elseif was.how == "api" then
+            API.Glow(was.frame, false)
+        else
+            Bridge.RingGlow(target, false)
+        end
+    end
+
     Conditions.RegisterEffect({
         key = "glow",
         client = true,
+        anyFace = true,
         draw = function(target, on, opts)
-            local c = on and type(opts.value) == "table" and opts.value or nil
-            API.GlowAround(target, on, { style = opts.style, r = c and c[1], g = c and c[2], b = c and c[3] })
-            glowing[target] = on and true or nil
-        end,
-        clear = function(target)
-            if glowing[target] then
-                API.GlowAround(target, false)
-                glowing[target] = nil
+            if not on then return glowOff(target) end
+            local c = type(opts.value) == "table" and opts.value or nil
+            local frame = Conditions.FrameOf(opts.key)
+            local ring = Bridge.IsRing(opts.style)
+            local how = ring and (frame and API.Attach(frame) == target and "api" or "layer") or "lights"
+            local was = glowing[target]
+            if was and was.how ~= how then glowOff(target) end
+            if how == "api" then
+                API.Glow(frame, true, c and c[1], c and c[2], c and c[3])
+            elseif how == "layer" then
+                Bridge.RingGlow(target, true, c and { c[1], c[2], c[3] } or nil)
+            else
+                local w, h
+                if frame then w, h = frame:GetWidth(), frame:GetHeight() end
+                local size, thick = Bridge.GlowShape(target, w, h)
+                API.GlowAround(target, true, { style = opts.style, r = c and c[1], g = c and c[2], b = c and c[3],
+                    size = size, thick = thick })
             end
+            glowing[target] = { how = how, frame = frame }
         end,
+        clear = glowOff,
         shown = function(target) return glowing[target] and target or nil end,
     })
     -- A sound line: Daylight UI's alert (opts.value, a Sound.AlertChoices key),

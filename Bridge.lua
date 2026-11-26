@@ -140,6 +140,14 @@ Bridge.NEEDS = {
     "DaylightUI.Style.LightShell",
     "DaylightUI.Style.SetShellColors",
     "DaylightUI.Widgets.PickIcon",
+    -- Looks and the glow at Daylight UI's own visible strength: the Cooldown Manager's
+    -- ring and its glow size, the ready ping's flash, Daylight UI's text sizing
+    "ActionBars.CdmEffects.SetGlow",
+    "ActionBars.CdmEffects.GLOW_SCALE",
+    "DaylightUI.Pixel.Px",
+    "ActionBars.Ping.FLASH_ALPHA",
+    "ActionBars.Skin.COOLDOWN_SIZE",
+    "DaylightUI.Style.SetTextSize",
 }
 
 -- NEEDS entries that are tables kept by a lowercase name.
@@ -1056,6 +1064,49 @@ function Bridge.PlaceHalo(halo, frame, w) return call("DaylightUI.Style.PlaceAur
 -- A shell's border in the accent (Style.LightShell) or in a color (Style.SetShellColors).
 function Bridge.LightShell(s) return call("DaylightUI.Style.LightShell", s) end
 function Bridge.ShellColor(s, color) return call("DaylightUI.Style.SetShellColors", s, color, nil) end
+
+-- The light size and strip width the Cooldown Manager gives a glow on a piece w by h
+-- (CdmEffects.GLOW_SCALE of the short side, the strip never under 2 px, as
+-- styleGlow lays it). nil for a size that isn't a plain positive number.
+function Bridge.GlowShape(frame, w, h)
+    local sc = Bridge.Resolve("ActionBars.CdmEffects.GLOW_SCALE")
+    local px = Bridge.Resolve("DaylightUI.Pixel.Px")
+    if type(sc) ~= "table" or type(px) ~= "function" then return nil end
+    local secret = type(issecretvalue) == "function" and issecretvalue or function() return false end
+    if type(w) ~= "number" or type(h) ~= "number" or secret(w) or secret(h) then return nil end
+    local short = math.min(w, h)
+    if short <= 0 then return nil end
+    return short * sc.size, math.max(px(frame, 2), short * sc.thick)
+end
+
+-- Whether Daylight UI's Cooldown Manager draws a glow style as its ring: Ring itself,
+-- a style that isn't loaded, or motion off (CdmEffects.GlowStyle).
+local asStyle = {}
+function Bridge.IsRing(style)
+    if style == nil or style == "ring" then return true end
+    local opts = asStyle[style]
+    if not opts then
+        opts = { glowStyle = style }
+        asStyle[style] = opts
+    end
+    return call("ActionBars.CdmEffects.GlowStyle", opts) == "ring"
+end
+
+-- Daylight UI's ring glow on any frame (CdmEffects.SetGlow), in c = { r, g, b } or the
+-- accent. API.Glow lays it on a Daylight UI frame's holder; a line's layer is EZ-CDM's.
+function Bridge.RingGlow(frame, on, c) return call("ActionBars.CdmEffects.SetGlow", frame, on, c) end
+
+-- The ready ping's flash brightness (Ping.FLASH_ALPHA), Daylight UI's flash over an icon.
+function Bridge.FlashAlpha() return Bridge.Resolve("ActionBars.Ping.FLASH_ALPHA") end
+
+-- Sizes a font string to the Cooldown Manager's cooldown numbers (Skin.COOLDOWN_SIZE)
+-- with Daylight UI's own Style.SetTextSize. False when it isn't a number.
+function Bridge.CooldownTextSize(fs)
+    local size = Bridge.Resolve("ActionBars.Skin.COOLDOWN_SIZE")
+    if type(size) ~= "number" then return false end
+    call("DaylightUI.Style.SetTextSize", fs, size)
+    return true
+end
 
 -- Daylight UI's icon picker (Widgets.PickIcon): spec = { title, first, current, onPick }.
 function Bridge.PickIcon(spec) return call("DaylightUI.Widgets.PickIcon", spec) end

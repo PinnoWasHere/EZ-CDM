@@ -6,9 +6,10 @@ local addonName, ns = ...
 --
 -- Once, as the line turns on (edge). They move, so they are plain lines only, and
 -- motion off in Daylight UI keeps them away, as it keeps its own:
---   flash    the wash texture (Skin.FLASH_ALPHA, the auto attack wash) in the line's
---            color, played by Motion.Flash
---   sparkle  API.GlowAround's twinkle for one lap (Widgets.GLOW_LAP)
+--   flash    the wash texture in the line's color from the ready ping's brightness
+--            (Ping.FLASH_ALPHA), played by Motion.Flash
+--   sparkle  API.GlowAround's twinkle for one lap (Widgets.GLOW_LAP), at the
+--            Cooldown Manager's glow size (CdmEffects.GLOW_SCALE)
 --   screen   Daylight UI's vignette art (portrait-vignette.png, as InstallerScreen.lua
 --            lays it) over the whole screen in the color, in with API.Fade FAST, out SLOW
 --
@@ -26,8 +27,8 @@ local addonName, ns = ...
 --            Style.LightShell in the accent, Style.SetShellColors in a color
 --   halo     Style.AURA_HALO behind the piece, placed by Style.PlaceAuraHalo, the
 --            light behind an aura button
---   text     the line's words in API.Text "small", in the accent (the look sheet's
---            "Count, badge, tag" row)
+--   text     the line's words in API.Text, in the accent, at the Cooldown Manager's
+--            cooldown number size (Skin.COOLDOWN_SIZE)
 --   swap     a copy of the icon showing the picked icon in its place
 --
 -- Pulse, border, halo and text sit on the piece's holder, which lies over whichever
@@ -94,16 +95,23 @@ local function frameOn(target, name)
 end
 local function frameIf(target, name) return frames[target] and frames[target][name] or nil end
 
--- The wash texture on f, in r, g, b at Daylight UI's wash strength.
-local function wash(f, r, g, b)
+-- The wash texture on f, in r, g, b at alpha (Daylight UI's wash strength when nil).
+local function wash(f, r, g, b, alpha)
     local t = f.wash
     if not t then
         t = f:CreateTexture(nil, "OVERLAY")
         t:SetAllPoints(f)
         f.wash = t
     end
-    t:SetColorTexture(r, g, b, Bridge.WashAlpha() or 0)
+    t:SetColorTexture(r, g, b, alpha or Bridge.WashAlpha() or 0)
     return t
+end
+
+-- The piece's size, read off its own frame: the holder and a layer lie over it.
+local function sizeOf(key)
+    local piece = Conditions.FrameOf(key)
+    if not piece then return nil end
+    return piece:GetWidth(), piece:GetHeight()
 end
 
 local function icons(kind) return kind.shape == "icon" end
@@ -117,7 +125,8 @@ local function any() return true end
 local function flash(target, on, opts)
     if not on or not Bridge.MotionOn() then return end
     local f = frameOn(target, "flash")
-    local t = wash(f, colorOf(opts))
+    local r, g, b = colorOf(opts)
+    local t = wash(f, r, g, b, Bridge.FlashAlpha())
     Bridge.Flash(t, speed("SLOW"))
     note(opts.key, "flash", t)
 end
@@ -128,7 +137,8 @@ local function sparkle(target, on, opts)
     f.gen = (f.gen or 0) + 1
     local gen = f.gen
     local r, g, b = colorOf(opts)
-    API.GlowAround(f, true, { style = Looks.SPARKLE_STYLE, r = r, g = g, b = b })
+    local size, thick = Bridge.GlowShape(f, sizeOf(opts.key))
+    API.GlowAround(f, true, { style = Looks.SPARKLE_STYLE, r = r, g = g, b = b, size = size, thick = thick })
     C_Timer.After(Bridge.GlowLap(Looks.SPARKLE_STYLE) or speed("SLOW"), function()
         if f.gen == gen then API.GlowAround(f, false) end
     end)
@@ -310,6 +320,7 @@ local function text(target, on, opts)
         f.words:SetPoint("LEFT", f, "LEFT", 0, 0)
         f.words:SetPoint("RIGHT", f, "RIGHT", 0, 0)
         f.words:SetWordWrap(false)
+        Bridge.CooldownTextSize(f.words)
     end
     f.words:SetText(opts.value)
     f.words:SetTextColor(API.Accent())
