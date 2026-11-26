@@ -45,6 +45,10 @@ local addonName, ns = ...
 --   recipes    optional: { { key, action, after = recipe key } }, ready-made lines
 --   time(k, n) optional: while true, its seconds left and its whole length, both
 --              plain, or nil when the game won't say (a hides effect shows them)
+--   armed      optional, plain only: the moment is its turning true. A line holding it
+--              fires an edge effect only as this part turns true from a plain false,
+--              never on its first read or as another part turns true. Held effects
+--              stay lit while it is true
 --
 -- An effect (Conditions.RegisterEffect):
 --   key, fits(kind) optional, draw(target, on, opts), clear(target)
@@ -161,6 +165,7 @@ local function problem(c)
     if c.using ~= nil and type(c.using) ~= "function" then return "bad using" end
     if badParam(c.param) then return "bad param" end
     if c.ticker and c.secrecy ~= "client" then return "bad ticker" end
+    if c.armed and c.secrecy ~= "plain" then return "bad armed" end
     if not Conditions.LAYERS[c.layer] then return "bad layer" end
     if c.excludes ~= nil then
         if type(c.excludes) ~= "table" then return "bad excludes" end
@@ -628,6 +633,8 @@ local layers = setmetatable({}, weak)
 local ticking = {}
 -- Key as a string -> true for a piece that shows its buff and its cooldown in turn.
 local both = {}
+-- Key as a string -> armed part ("condition:n") -> its last plain read.
+local armedWas = {}
 local ticker
 local listener
 
@@ -726,6 +733,23 @@ local function refresh(k)
     local holder = frame and API.Attach(frame) or nil
     local want = {}   -- slot -> line record
     local asked = {}  -- slot -> { line record, ... }
+    -- Each armed part's read now, and whether it turned true since the last refresh.
+    local prev, armedNow, fresh = armedWas[k] or {}, {}, {}
+    local function armedOf(parts)
+        local any, turned = false, false
+        for _, p in ipairs(parts or {}) do
+            if p.c.armed then
+                local id = p.c.key .. ":" .. tostring(numberOf(p))
+                if armedNow[id] == nil then
+                    local v = readOf(p.c, k, numberOf(p))
+                    armedNow[id] = v == nil and "unknown" or v
+                    fresh[id] = prev[id] == false and v == true
+                end
+                any, turned = true, turned or fresh[id]
+            end
+        end
+        return any, turned
+    end
     for ck, acts in pairs(rule or {}) do
         local c = byKey[ck]
         for a, spec in pairs(acts) do
@@ -744,6 +768,7 @@ local function refresh(k)
             local slot = own and (act.effect .. "|" .. id) or act.effect
             local rec = { c = c, action = a, id = id, ek = act.effect, client = client, parts = parts,
                           opts = optsFor(act, spec, k, id) }
+            rec.armed, rec.fresh = armedOf(parts)
             asked[slot] = asked[slot] or {}
             asked[slot][#asked[slot] + 1] = rec
             local w = want[slot]
@@ -770,7 +795,7 @@ local function refresh(k)
                 w.client.c.drive(holder, f, { key = k, n = n })
                 if w.client.c.ticker then ticks[w.id] = { c = w.client.c, holder = holder, layer = f, n = n } end
                 drawn[holder] = true
-            elseif w and (not e.edge or was[slot] ~= w.id) then
+            elseif w and (not e.edge or was[slot] ~= w.id) and not (e.edge and w.armed and not w.fresh) then
                 if e.hides then w.opts.left, w.opts.dur = timeOf(k, w.parts) end
                 e.draw(holder, true, w.opts)
                 drawn[holder] = true
@@ -779,6 +804,11 @@ local function refresh(k)
         now[slot] = w and w.id or nil
     end
     ticking[k] = next(ticks) and ticks or nil
+    local keep = {}
+    for id, v in pairs(armedNow) do
+        if v ~= "unknown" then keep[id] = v end
+    end
+    armedWas[k] = next(keep) and keep or nil
     -- Slots no rule asks for now are cleared.
     for slot in pairs(was) do
         local ek = effectOf(slot)
@@ -1432,6 +1462,29 @@ Conditions.Register({
     words = { moment = "When it's only on the global cooldown", clause = "it's only on the global cooldown" },
 })
 
+-- Its real cooldown is over: no cooldown, or only the global one, as Daylight UI's
+-- ready reads it (CdmEffects Fx.OnCooldown). isActive and isOnGCD never go secret.
+-- Where Daylight UI's "When it's ready" means the same, its looks show there
+-- (Grammar.MERGED). Armed: a one-shot look fires as the cooldown ends.
+local function offCooldownNow(k)
+    local _, info = cooldownOf(k)
+    if not info or secret(info.isActive) or secret(info.isOnGCD) then return nil end
+    if type(info.isActive) ~= "boolean" then return nil end
+    return info.isActive == false or info.isOnGCD == true
+end
+Conditions.Register({
+    key = "offCooldown", moment = "offCooldown", actions = glowOnly(), armed = true,
+    fits = function(kind) return kind.cooldown == true and kind.realCooldown == true end,
+    read = offCooldownNow,
+    detail = function(k)
+        local sid, info = cooldownOf(k)
+        return { spell = sid, isActive = info and logged(info.isActive), isOnGCD = info and logged(info.isOnGCD) }
+    end,
+    events = { game = { "SPELL_UPDATE_COOLDOWN" }, daylight = { "ready", "started" } },
+    secrecy = "plain", layer = "cooldown", excludes = {},
+    words = { moment = "When it's off cooldown", clause = "it's off cooldown" },
+})
+
 -- Your class's forms, stances and stealth, from Daylight UI's own list
 -- (CdmEffects.FORMS), or nil for a class with none.
 local function myForms()
@@ -1521,6 +1574,24 @@ Conditions.Register({
                daylight = { "changed", "ready", "started" } },
     secrecy = "plain", layer = "any", excludes = {},
     words = { moment = "While my totem is up", clause = "my totem is up" },
+})
+
+-- This spell's totem is gone, totemUp's opposite. On a totem showing its own time its
+-- lines read under Daylight UI's "When my totem is down" (Grammar.MERGED).
+Conditions.Register({
+    key = "totemDown", moment = "totemDown", actions = glowOnly(),
+    fits = function(kind) return kind.totem == true end,
+    read = function(k)
+        local up = Bridge.TotemUp(spellOf(k))
+        if up == nil then return nil end
+        return not up
+    end,
+    detail = function(k) return { spell = spellOf(k), up = Bridge.TotemUp(spellOf(k)) } end,
+    events = { game = { "PLAYER_TOTEM_UPDATE", { "UNIT_SPELLCAST_SUCCEEDED", "player" } },
+               daylight = { "changed", "ready", "started" } },
+    secrecy = "plain", layer = "any", excludes = { "totemUp" },
+    words = { moment = "When my totem is down", clause = "my totem is down",
+              never = { totemUp = "my totem is up or down" } },
 })
 
 -- Each weapon slot's enchant list, or nil when the client refuses the read. The

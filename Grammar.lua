@@ -130,17 +130,43 @@ MAP.cooldown.nosweep = { field = "noSwipe", value = true }
 MAP.cooldown.nogcd = { field = "noGcd", value = true }
 -- The numbers' color for the cooldown's last seconds (CdmCard.lua:522-529).
 MAP.almost = { numbers = { look = "low", lookColor = "lowColor", at = "lowAt" } }
+-- A merged moment's line: one of Daylight UI's moments shows an EZ-CDM moment's
+-- action on pieces whose kind flag says they mean the same, each line still written
+-- to the EZ-CDM moment's own field. merges lists { moment, action, flag }; the flags
+-- of one action's merges never hold together on a piece.
 -- On a totem showing its own time (kind.totemTime), Daylight UI's cooling down is the
--- totem standing, the state EZ-CDM's totemUp reads. One moment, "While my totem is up",
--- takes both: Daylight UI's rows above, and totemUp's glow and sound, each still
--- written to totemUp's own field. merge names the kind flag that joins them.
-MAP.cooldown.glow = { alias = { moment = "totemUp", action = "glow" }, merge = "totemTime" }
-MAP.cooldown.sound = { alias = { moment = "totemUp", action = "sound" }, merge = "totemTime" }
+-- totem standing, the state EZ-CDM's totemUp reads: one "While my totem is up" takes
+-- Daylight UI's rows above and totemUp's glow and sound (InstallCondition adds its looks).
+MAP.cooldown.glow = { merges = { { moment = "totemUp", action = "glow", flag = "totemTime" } } }
+MAP.cooldown.sound = { merges = { { moment = "totemUp", action = "sound", flag = "totemTime" } } }
 Grammar.MAP = MAP
 
 -- A moment whose lines another moment shows on some pieces: its moment there, and
--- the kind flag that says so.
-Grammar.MERGED = { totemUp = { into = "cooldown", flag = "totemTime" } }
+-- the kind flag that says so. Daylight UI's ready keeps its own glow and sound, and
+-- takes the EZ-CDM moment's looks: offCooldown where ready is the real cooldown's end
+-- (kind.cooldownReady), totemDown where it is the totem gone (kind.totemTime).
+Grammar.MERGED = {
+    totemUp = { into = "cooldown", flag = "totemTime" },
+    offCooldown = { into = "ready", flag = "cooldownReady" },
+    totemDown = { into = "ready", flag = "totemTime" },
+}
+
+-- The merge a merged entry takes on kind ({ moment, action, flag }), or nil where kind
+-- merges none of them. With no kind, the first: every merge of one action is the
+-- same look, so what it holds and draws is the same.
+local function mergeOf(entry, kind)
+    for _, m in ipairs(entry.merges) do
+        if kind == nil or (type(kind) == "table" and kind[m.flag] == true) then return m end
+    end
+end
+
+-- An entry as it writes on kind: a merged one's EZ-CDM entry (nil where kind merges
+-- none), any other entry itself.
+local function resolved(entry, kind)
+    if not (entry and entry.merges) then return entry end
+    local m = mergeOf(entry, kind)
+    return m and MAP[m.moment][m.action] or nil
+end
 
 -- The moment a piece shows moment's lines under, where it merges into another, else nil.
 function Grammar.MergedInto(kind, moment)
@@ -591,6 +617,8 @@ end
 --   totemTime        a totem showing its own time, which Daylight UI times as its
 --                    cooldown (CdmEffects Fx.OnCooldown): its cooldown words are the
 --                    totem's
+--   cooldownReady    a cooldown face whose spell has a real cooldown and is no totem,
+--                    so Daylight UI's ready is that cooldown's end, as offCooldown reads
 --   cost             its spell costs power to cast (AuraLinks.costs, SpellPower): true
 --                    or false, nil when the tables don't list it. No short words on a
 --                    free spell
@@ -700,6 +728,8 @@ function Grammar.Kind(key, piece, shows)
     if not noAura then kind.aura = auraWord or (unlisted and kind.harmful == true and "debuff") or "buff" end
     kind.charges, kind.chargesSeen = chargesOf(key)
     kind.cost, kind.power = costOf(key)
+    -- Daylight UI times any totem by its totem, not its spell's cooldown (Fx.OnCooldown).
+    kind.cooldownReady = (kind.cooldown and kind.realCooldown == true and not kind.totem) or nil
     kind.lowPower = Grammar.LowPowers(key) ~= nil or nil
     -- A proc is your own: a buff with a spell (a weapon enchant has none, so the card
     -- hides its recast row, CdmCard.lua:420-424) that no other class puts on you. The
@@ -738,12 +768,14 @@ end
 
 -- A line in the words that write it: an alias's (Grammar.ALIASES) the line it stands
 -- for, a copy; any other line itself.
-function Grammar.Canonical(line)
+-- A merged moment's line stands for the EZ-CDM line kind merges.
+function Grammar.Canonical(line, kind)
     local entry = type(line) == "table" and MAP[line.moment] and MAP[line.moment][line.action]
-    if not (entry and entry.alias) then return line end
+    local to = entry and (entry.alias or (entry.merges and mergeOf(entry, kind)))
+    if not to then return line end
     local out = {}
     for k, v in pairs(line) do out[k] = v end
-    out.moment, out.action = entry.alias.moment, entry.alias.action
+    out.moment, out.action = to.moment, to.action
     return out
 end
 
@@ -753,10 +785,11 @@ function Grammar.Fits(kind, moment, action) return fits(kind, moment, action) en
 fits = function(kind, moment, action)
     local entry = MAP[moment] and MAP[moment][action]
     if not entry then return false end
-    if entry.alias and entry.merge then
+    if entry.merges then
         -- A merged moment's line fits where the piece merges and the line it writes fits.
         if kind == nil then return true end
-        return kind[entry.merge] == true and fits(kind, entry.alias.moment, entry.alias.action)
+        local m = mergeOf(entry, kind)
+        return m ~= nil and fits(kind, m.moment, m.action)
     end
     if entry.alias then
         -- The piece has the moment (its own row, the wears-off sound) and the line the
@@ -872,8 +905,7 @@ function Grammar.Words(kind, opts)
     for _, m in ipairs(Grammar.MOMENTS) do
         local actions = {}
         for _, a in ipairs(Grammar.MergedInto(kind, m) and {} or Grammar.ACTIONS) do
-            local e = MAP[m] and MAP[m][a]
-            if e and e.alias and e.merge then e = MAP[e.alias.moment][e.alias.action] end
+            local e = resolved(MAP[m] and MAP[m][a], kind)
             local c = e and e.cond and Conditions.Get(e.cond)
             if Grammar.Fits(kind, m, a) and (not c or offered(c, opts)) then actions[#actions + 1] = a end
         end
@@ -883,17 +915,17 @@ function Grammar.Words(kind, opts)
 end
 
 -- What a look line's value holds ("color", "text", "icon"), through a merged
--- moment's alias; nil for any other line.
+-- moment's merge; nil for any other line.
 function Grammar.ValueKind(moment, action)
-    local e = MAP[moment] and MAP[moment][action]
-    if e and e.alias and e.merge then e = MAP[e.alias.moment][e.alias.action] end
+    local e = resolved(MAP[moment] and MAP[moment][action])
     return e and e.valued or nil
 end
 
--- The EZ-CDM condition a line starts with, or nil.
-function Grammar.LineCondition(line)
+-- The EZ-CDM condition a line starts with on kind, or nil. Without kind a merged
+-- moment's line reads as its first merge's.
+function Grammar.LineCondition(line, kind)
     local e = type(line) == "table" and MAP[line.moment] and MAP[line.moment][line.action]
-    if e and e.alias and e.merge then e = MAP[e.alias.moment][e.alias.action] end
+    e = resolved(e, kind)
     return e and e.cond or nil
 end
 
@@ -903,8 +935,8 @@ end
 -- sound. opts as Grammar.Words.
 -- The parts a line holds, in order, or nil when it can take no more (an unknown
 -- part, or a client one).
-local function partsSoFar(line)
-    local ck = Grammar.LineCondition(line)
+local function partsSoFar(line, kind)
+    local ck = Grammar.LineCondition(line, kind)
     if not ck or Conditions.Get(ck).secrecy == "client" then return nil end
     local parts = { ck }
     for _, cl in ipairs(type(line.clauses) == "table" and line.clauses or {}) do
@@ -926,7 +958,7 @@ end
 -- none).
 local function nextParts(kind, line, opts)
     local out = {}
-    local parts = partsSoFar(line)
+    local parts = partsSoFar(line, kind)
     if not parts then return out end
     local used = {}
     for _, p in ipairs(parts) do used[p] = true end
@@ -940,9 +972,9 @@ local function nextParts(kind, line, opts)
     return out
 end
 
--- Whether a line can take another "and" part at all: an EZ-CDM line with no client
--- part yet.
-function Grammar.TakesClauses(line) return partsSoFar(line) ~= nil end
+-- Whether a line can take another "and" part at all on kind: an EZ-CDM line with no
+-- client part yet.
+function Grammar.TakesClauses(line, kind) return partsSoFar(line, kind) ~= nil end
 
 function Grammar.Clauses(kind, line, opts)
     local out = {}
@@ -981,7 +1013,7 @@ function Grammar.HiddenNote(kind, line)
     if kind.buttonHidden then
         return { code = "button", text = W.hiddenButton, fixes = kind.trackRow and { "shows" } or {} }
     end
-    local ck = Grammar.LineCondition(line)
+    local ck = Grammar.LineCondition(line, kind)
     if not ck or kind.shows ~= "both" then return nil end
     if Conditions.LineLayer(ck, { clauses = line.clauses }) ~= "cooldown" then return nil end
     -- A look on the whole piece shows on its buff's face too.
@@ -1132,10 +1164,16 @@ function Grammar.InstallCondition(c)
                              glow = effect == "glow" or nil, valued = Conditions.ValueKind(c.key, a) }
         if not indexOf(Grammar.ACTIONS, a) then Grammar.ACTIONS[#Grammar.ACTIONS + 1] = a end
         if not indexOf(Grammar.EZ_FIELDS, field) then Grammar.EZ_FIELDS[#Grammar.EZ_FIELDS + 1] = field end
-        -- A moment merged into another shows its looks there too, as its glow and sound.
+        -- A moment merged into another shows its actions there too, where that moment
+        -- has no action of its own by that word.
         local merged = Grammar.MERGED[c.moment]
-        if merged and MAP[merged.into][a] == nil then
-            MAP[merged.into][a] = { alias = { moment = c.moment, action = a }, merge = merged.flag }
+        local into = merged and MAP[merged.into][a]
+        if merged and into == nil then
+            MAP[merged.into][a] = { merges = { { moment = c.moment, action = a, flag = merged.flag } } }
+        elseif merged and into.merges then
+            local have = false
+            for _, m in ipairs(into.merges) do have = have or m.moment == c.moment end
+            if not have then into.merges[#into.merges + 1] = { moment = c.moment, action = a, flag = merged.flag } end
         end
     end
     for _, r in ipairs(c.recipes or {}) do
@@ -1313,7 +1351,7 @@ function Grammar.Compile(rules, kind)
     end
     for i, line in ipairs(rules.lines or {}) do
         if Grammar.Fits(kind, type(line) == "table" and line.moment, type(line) == "table" and line.action) then
-            line = Grammar.Canonical(line)
+            line = Grammar.Canonical(line, kind)
         end
         local entry = type(line) == "table" and MAP[line.moment] and MAP[line.moment][line.action]
         local spec, condCode
@@ -1470,8 +1508,8 @@ function Grammar.Decompile(fields, kind)
     for _, m in ipairs(Grammar.MOMENTS) do
         for _, a in ipairs(Grammar.ACTIONS) do
             local entry = MAP[m][a]
-            if entry and entry.alias and entry.merge then
-                entry = kind and kind[entry.merge] == true and MAP[entry.alias.moment][entry.alias.action] or nil
+            if entry and entry.merges then
+                entry = kind and resolved(entry, kind) or nil
             elseif Grammar.MergedInto(kind, m) then
                 entry = nil
             end
@@ -2012,7 +2050,7 @@ function Grammar.LeadWords(n) return WORDING.lead:format(Grammar.Seconds(n)) end
 -- The line as one sentence, in US English, in a piece's own words when kind is given.
 function Grammar.Describe(line, kind)
     if type(line) ~= "table" then return "" end
-    local ck = Grammar.LineCondition(line)
+    local ck = Grammar.LineCondition(line, kind)
     local phrase, joint = Grammar.MomentWords(line.moment, ck and Conditions.NumberOf(ck, line.n), kind)
     local entry = MAP[line.moment] and MAP[line.moment][line.action]
     if entry and entry.lead and line.at ~= nil then phrase = phrase .. " " .. Grammar.LeadWords(line.at) end

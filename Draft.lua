@@ -402,9 +402,9 @@ local function signature(line)
         tostring(line.at), tostring(line.style))
 end
 
--- The spell fields a line sets.
-local function fieldsOf(line)
-    line = Grammar.Canonical(line)
+-- The spell fields a line sets on a piece of kind.
+local function fieldsOf(line, kind)
+    line = Grammar.Canonical(line, kind)
     local e = Grammar.MAP[line.moment] and Grammar.MAP[line.moment][line.action]
     if not e then return {} end
     if e.all then return e.all end
@@ -441,6 +441,7 @@ function Draft.Kind(key, shows) return Grammar.Kind(key, nil, shows) end
 -- fields as they are. Returns rules without them, and those fields.
 local function keepUnfit(key, rules)
     local live, problems = Draft.Rules(key)
+    local kind = Draft.Kind(key)
     local unfit, protect = {}, {}
     for _, p in ipairs(problems or {}) do
         if p.code == "kind" and p.line then unfit[signature(live.lines[p.line])] = true end
@@ -449,7 +450,7 @@ local function keepUnfit(key, rules)
     local out = { lines = {}, group = rules.group, forms = {}, shows = rules.shows, style = rules.style }
     for _, l in ipairs(rules.lines) do
         if unfit[signature(l)] then
-            for _, f in ipairs(fieldsOf(l)) do protect[f] = true end
+            for _, f in ipairs(fieldsOf(l, kind)) do protect[f] = true end
         else
             out.lines[#out.lines + 1] = l
         end

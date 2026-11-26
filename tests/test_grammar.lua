@@ -66,7 +66,7 @@ local function emissions(G, B)
                 local why = m .. " " .. a
                 if e.look then
                     -- Look keys are checked on their own (lookEmissions).
-                elseif e.alias then
+                elseif e.alias or e.merges then
                     -- It writes the line it stands for (Grammar.Canonical), listed there.
                 elseif e.all then
                     for _, f in ipairs(e.all) do add(f, e.value, why) end
@@ -283,7 +283,8 @@ local CASES = {
 -- Batch A's conditions (test_batch_a): each action is EZ-CDM's own field.
 local BATCH_A = { "hasTarget", "targetEnemy", "targetBoss", "outOfRange", "targetCasting", "onlyGcd", "formBear",
                   "formCat", "formAquatic", "formTravel", "formMoonkin", "formStealth", "formBattle", "formDefensive",
-                  "formBerserker", "totemUp", "weaponBuffMissing", "inCombat", "noCombat", "inGroup", "inInstance" }
+                  "formBerserker", "totemUp", "weaponBuffMissing", "inCombat", "noCombat", "inGroup", "inInstance",
+                  "offCooldown", "totemDown" }
 local GRAYS = { outOfRange = true, targetCasting = true, onlyGcd = true }
 for _, k in ipairs(BATCH_A) do
     CASES[#CASES + 1] = { L(k, "glow"), { ["ez:" .. k .. ":glow"] = true } }
@@ -337,7 +338,7 @@ T.test("grammar compile: each sentence gives the expected fields", function()
                 T.eq(codes(p), "", m .. " " .. l.action .. ": no problems")
                 T.deq(f, withChain({ [e.field] = v and { value = v } or true }), m .. " " .. l.action)
                 seen[m .. " " .. l.action] = true
-            elseif e and e.alias and e.merge then
+            elseif e and e.merges then
                 seen[m .. " " .. l.action] = true
             end
         end
@@ -493,7 +494,9 @@ local function wordsOf(G, kind)
         local acts = {}
         for _, a in ipairs(e.actions) do
             local entry = G.MAP[e.moment][a]
-            if not (entry.merge and BATCH_MOMENT[entry.alias.moment]) then acts[#acts + 1] = a end
+            local batch = false
+            for _, m in ipairs(entry.merges or {}) do batch = batch or BATCH_MOMENT[m.moment] == true end
+            if not batch then acts[#acts + 1] = a end
         end
         if not BATCH_MOMENT[e.moment] then out[#out + 1] = e.moment .. "(" .. table.concat(acts, ",") .. ")" end
     end

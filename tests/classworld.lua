@@ -450,13 +450,16 @@ function W.Build(class, opts)
         -- The range checks EZ-CDM turns on, and the spells only the GCD holds (w.Gcd).
         w.rangeChecks, w.gcd = {}, {}
         C_Spell.EnableSpellRangeCheck = function(id, on) w.rangeChecks[id] = on end
+        -- The game always answers isActive (SpellCooldownInfo, never nil or secret);
+        -- the fake game's info leaves it out, so it comes from the duration here.
         local cooldown = C_Spell.GetSpellCooldown
         C_Spell.GetSpellCooldown = function(id)
             local info = cooldown(id)
-            if not w.gcd[id] then return info end
+            if type(info) ~= "table" then return info end
             local out = {}
-            for k, v in pairs(type(info) == "table" and info or {}) do out[k] = v end
-            out.isActive, out.isOnGCD = true, true
+            for k, v in pairs(info) do out[k] = v end
+            if out.isActive == nil and type(out.duration) == "number" then out.isActive = out.duration > 0 end
+            if w.gcd[id] then out.isActive, out.isOnGCD = true, true end
             return out
         end
     end

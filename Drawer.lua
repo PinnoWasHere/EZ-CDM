@@ -1001,7 +1001,7 @@ local function clauseChoices(kind, line, j)
             refused[#refused + 1] = r
         end
     end
-    return keys, ns.Conditions.AnyAdvanced() and Grammar.TakesClauses(probe), refused
+    return keys, ns.Conditions.AnyAdvanced() and Grammar.TakesClauses(probe, kind), refused
 end
 
 -- Puts cond in as clause j; a client one ends the line, so the clauses after it go.
@@ -1057,8 +1057,8 @@ end
 -- the line stays on "When it's about to fall off", and goes when it leaves.
 -- An EZ-CDM condition's number and clauses: a new moment takes its own number's
 -- default and keeps the clauses it can, none after a client one; a new action keeps
--- a client clause only where its effect is alpha-safe.
-local function retarget(line, moment, action)
+-- a client clause only where its effect is alpha-safe. kind is the piece's.
+local function retarget(line, moment, action, kind)
     local keepAt = moment == "recast" and line.moment == "recast"
     if action ~= line.action then
         line.value, line.style = nil, nil
@@ -1068,7 +1068,7 @@ local function retarget(line, moment, action)
     if moment ~= line.moment then line.n = nil end
     line.moment, line.action = moment, action
     if action == "sound" and line.value == nil then line.value = firstSound() end
-    local ck = Grammar.LineCondition(line)
+    local ck = Grammar.LineCondition(line, kind)
     local C = ns.Conditions
     if not ck or C.Get(ck).secrecy == "client" then
         line.clauses = nil
@@ -1158,7 +1158,7 @@ local function sentence(s, kind, rules, i, line)
     local finished = line.moment ~= nil and line.action ~= nil
     local off = finished and not Grammar.Fits(kind, line.moment, line.action) and "OFF" or nil
     local id = "line:" .. i .. ":"
-    local ck = Grammar.LineCondition(line)
+    local ck = Grammar.LineCondition(line, kind)
     local C = ns.Conditions
     -- The moment's condition takes its number before an action is picked.
     local mk = ck or Grammar.MomentCondition(line.moment)
@@ -1172,12 +1172,12 @@ local function sentence(s, kind, rules, i, line)
                 local l = r.lines[i]
                 local a = l.action
                 if a ~= nil and not Grammar.Fits(kind, m, a) then a = actions[m][1] end
-                retarget(l, m, a)
+                retarget(l, m, a, kind)
                 if m == "recast" and l.at == nil then l.at = leadOf(r) end
                 if Grammar.RingOnly(kind, m) then l.style = nil end
             end)
         end,
-        clear = function() edit(function(r) retarget(r.lines[i], nil, r.lines[i].action) end) end }
+        clear = function() edit(function(r) retarget(r.lines[i], nil, r.lines[i].action, kind) end) end }
     local nWord = mk and C.Get(mk).param and numberWord(id .. "n", mk, line.n,
         function(r, x) r.lines[i].n = x end, off)
     for _, p in ipairs(withNumber(phrase, nWord, function(text)
@@ -1233,8 +1233,8 @@ local function sentence(s, kind, rules, i, line)
         or WORDING.chooseWhat, id .. "action", {
         kind = "action", keys = line.moment and actions[line.moment] or any, values = Grammar.ActionNames(line.moment),
         current = line.action,
-        onPick = function(a) edit(function(r) retarget(r.lines[i], r.lines[i].moment, a) end) end,
-        clear = function() edit(function(r) retarget(r.lines[i], r.lines[i].moment, nil) end) end },
+        onPick = function(a) edit(function(r) retarget(r.lines[i], r.lines[i].moment, a, kind) end) end,
+        clear = function() edit(function(r) retarget(r.lines[i], r.lines[i].moment, nil, kind) end) end },
         line.action ~= nil, off)
     local valued = line.moment ~= nil and line.action ~= nil and Grammar.ValueKind(line.moment, line.action) or nil
     if line.action == "sound" then

@@ -24,7 +24,7 @@ local function offered(G, C, kind)
     for _, w in ipairs(G.Words(kind, { more = true })) do
         for _, a in ipairs(w.actions) do
             local e = G.MAP[w.moment][a]
-            local ck = looks[a] and G.LineCondition({ moment = w.moment, action = a })
+            local ck = looks[a] and G.LineCondition({ moment = w.moment, action = a }, kind)
             local c = ck and C.Get(ck)
             if c then
                 local client = c.secrecy == "client"
@@ -32,7 +32,7 @@ local function offered(G, C, kind)
                 if not seen[id] then
                     seen[id] = true
                     out[#out + 1] = { moment = w.moment, action = a, cond = ck, client = client,
-                                      valued = G.ValueKind(w.moment, a), merged = e.alias ~= nil }
+                                      valued = G.ValueKind(w.moment, a), merged = e.merges ~= nil }
                 end
             end
         end
@@ -40,8 +40,9 @@ local function offered(G, C, kind)
     return out
 end
 
--- Every condition reads on, a client one drives its layer to 1. Returns the undo.
-local function allOn(C)
+-- Every condition reads on, a client one drives its layer to 1; with armedOff an armed
+-- one reads off, so the next allOn is its turning true. Returns the undo.
+local function allOn(C, armedOff)
     local undo = {}
     for _, c in ipairs(C.List()) do
         if c.secrecy == "client" then
@@ -50,7 +51,8 @@ local function allOn(C)
             undo[#undo + 1] = function() c.drive = keep end
         else
             local keep = c.read
-            c.read = function() return true end
+            local v = not (armedOff and c.armed)
+            c.read = function() return v end
             undo[#undo + 1] = function() c.read = keep end
         end
     end
@@ -81,7 +83,11 @@ local function check(ns, key, name, class, bad)
         bad[#bad + 1] = tag .. ": looks refused: " .. tostring(why) .. " " .. tostring(p and p.words)
         return
     end
-    local undo = allOn(C)
+    -- An armed part fires a one-shot look only as it turns true (Conditions armed).
+    local undo = allOn(C, true)
+    C.Refresh(key)
+    undo()
+    undo = allOn(C)
     C.Refresh(key)
     stub.RunTimers()
     if not C.FrameOf(key) then

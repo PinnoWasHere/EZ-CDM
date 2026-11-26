@@ -538,7 +538,7 @@ local function expected(G, kind, rules)
         -- An alias reads back as the line it writes (Grammar.Canonical); a merged
         -- moment's line (Grammar.MERGED) reads back as itself.
         local e = G.MAP[l.moment] and G.MAP[l.moment][l.action]
-        if not G.IsDefault(l, kind) then out[#out + 1] = e and e.merge and l or G.Canonical(l) end
+        if not G.IsDefault(l, kind) then out[#out + 1] = e and e.merges and l or G.Canonical(l, kind) end
     end
     return out
 end
