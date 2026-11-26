@@ -437,7 +437,7 @@ T.test("effects: Daylight UI's SetGlow inside initializeFrame trips on the secre
     T.truthy(#list > 0)
     T.eq(stub.initSecretErrors, #list, "one secret test per button")
     local err = tostring(stub.errors[1])
-    T.truthy(err:find("CdmEffects.lua:388", 1, true), err)
+    T.truthy(err:find("CdmEffects.lua:397", 1, true), err)
     T.truthy(err:find("boolean test on a secret boolean value", 1, true), err)
     T.falsy(stub.InitializingAura(list[1]), "out of initializeFrame once the client is done")
 end)
@@ -595,7 +595,7 @@ end
 local function refresh(AB) AB.CdmData.Changed(); AB.CdmRows.Refresh(); stub.RunTimers() end
 
 -- A shaman with an enchant on the main hand, the main-hand and off-hand pieces
--- placed. Daylight UI draws a weapon enchant on its own face (CdmAuras.lua:419-425).
+-- placed. Daylight UI draws a weapon enchant on its own face (CdmAuras.lua:454-460).
 -- db = { dui, ez }: the saved variables of an earlier session, as after a /reload.
 local function weaponWorld(db)
     stub.neverSecretAuras = {}
@@ -646,7 +646,7 @@ end)
 
 T.test("effects face: a holder with client buttons says so, and its rule stays EZ-CDM's", function()
     local _, ns, AB, key = procWorld({ holder = true, rule = RED })
-    T.eq(ns.Bridge.ClientButtons(key), true, "client containers (CdmAuras.lua:385)")
+    T.eq(ns.Bridge.ClientButtons(key), true, "client containers (CdmAuras.lua:419)")
     T.truthy(#buttons(AB, key) > 0)
     T.truthy(ns.Effects.Drawn(key))
     refresh(AB)
@@ -1344,7 +1344,7 @@ local function styleWorld(lines, pieceStyle)
 end
 
 -- What each glow frame shows: a light's style, or "ring". Spied on Daylight UI's
--- GlowAround, which lays a light on the glow frame (CdmEffects.lua:364-372).
+-- GlowAround, which lays a light on the glow frame (CdmEffects.lua:373-381).
 function watchStyles(DUI)
     local on = setmetatable({}, { __mode = "k" })
     local keep = DUI.Widgets.GlowAround

@@ -20,6 +20,7 @@ Gray.lua
 Looks.lua
 AuraLinks.lua
 Grammar.lua
+Ready.lua
 Draft.lua
 Start.lua
 Drawer.lua

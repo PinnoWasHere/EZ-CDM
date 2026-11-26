@@ -6,10 +6,12 @@ local _, ns = ...
 -- (Grammar.FIELDS and hideIn<Key>), its look keys (Grammar.LOOK_FIELDS), then
 -- EZ-CDM's own rules (Effects): the up glow, the fall-off lead and sound, and the
 -- glow lines' own styles. A piece with an EZ-CDM gray line has Gray out written
--- Stay colored and the player's own kept (Gray).
+-- Stay colored and the player's own kept (Gray); one with an EZ-CDM ready glow or
+-- sound line has Daylight UI's own off and the player's kept (Ready).
 -- Only fields that change are written, and no piece ever moves.
 
-local Bridge, Grammar, Effects, Conditions, Gray = ns.Bridge, ns.Grammar, ns.Effects, ns.Conditions, ns.Gray
+local Bridge, Grammar, Effects, Conditions, Gray, Ready = ns.Bridge, ns.Grammar, ns.Effects, ns.Conditions, ns.Gray,
+    ns.Ready
 
 local Draft = {}
 ns.Draft = Draft
@@ -278,6 +280,12 @@ local function planFor(key, rules, g)
     if not same(grOld, grNew) then
         op(5, "ez", "grayOwned", grOld, grNew, function() return Gray.Set(g, key, grNew) end)
     end
+    -- An EZ-CDM ready glow or sound line owns that part: Daylight UI's own goes off
+    -- and the player's is kept (Ready.Split).
+    local rdOld, rdNew = Ready.Record(key, g), Ready.Split(fields, cnNew, kind)
+    if not same(rdOld, rdNew) then
+        op(5, "ez", "readyOwned", rdOld, rdNew, function() return Ready.Set(g, key, rdNew) end)
+    end
     if not same(cnOld, cnNew) then
         op(5, "ez", "conditions", cnOld, cnNew, function() return Conditions.SetRule(g, key, cnNew) end)
     end
@@ -426,7 +434,7 @@ function Draft.Rules(key)
     local pieces, chains = layout(g)
     local live = pieces[key]
     if not live then return nil end
-    local fields = Gray.Merge(key, Conditions.Merge(key, Effects.Merge(key, copy(live), g), g), g)
+    local fields = Ready.Merge(key, Gray.Merge(key, Conditions.Merge(key, Effects.Merge(key, copy(live), g), g), g), g)
     fields.chain = copy(chains[Bridge.Root(key, g)] or {})
     return Grammar.Decompile(fields, Grammar.Kind(key))
 end

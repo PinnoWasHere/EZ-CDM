@@ -121,7 +121,17 @@ MAP.blocked = {}
 MAP.ends.glow = { alias = { moment = "missing", action = "glow" } }
 MAP.ready.glow = { field = "readyGlow", value = true, color = "readyGlowColor", style = true }
 MAP.ready.sound = { field = "readySound", sound = true }
--- desat tracks cooldown state only (CdmEffects.lua:1133-1142), so gray goes with
+-- An owned line: Daylight UI's line until it takes an "and" clause, then the EZ-CDM
+-- line owns lists, on pieces whose kind flag says that EZ-CDM moment is this one
+-- (Ready.lua turns Daylight UI's own off for the piece). owns is { moment, action, flag }.
+local READY_OWNS = { offCooldown = "cooldownReady", totemDown = "totemTime" }
+for _, a in ipairs({ "glow", "sound" }) do
+    MAP.ready[a].owns = {}
+    for _, m in ipairs({ "offCooldown", "totemDown" }) do
+        MAP.ready[a].owns[#MAP.ready[a].owns + 1] = { moment = m, action = a, flag = READY_OWNS[m] }
+    end
+end
+-- desat tracks cooldown state only (CdmEffects.lua:1142-1151), so gray goes with
 -- cooldown alone.
 MAP.cooldown.gray = { field = "desat", value = "grey" }
 MAP.cooldown.color = { field = "desat", value = "color" }
@@ -160,6 +170,16 @@ local function mergeOf(entry, kind)
     end
 end
 
+-- The EZ-CDM line an owned entry becomes on kind ({ moment, action, flag }), or nil
+-- where kind takes none. With no kind, the first.
+local function ownedOf(entry, kind)
+    for _, m in ipairs(entry.owns) do
+        if kind == nil or (type(kind) == "table" and kind[m.flag] == true) then return m end
+    end
+end
+
+local function hasClauses(line) return type(line.clauses) == "table" and #line.clauses > 0 end
+
 -- An entry as it writes on kind: a merged one's EZ-CDM entry (nil where kind merges
 -- none), any other entry itself.
 local function resolved(entry, kind)
@@ -192,7 +212,7 @@ Grammar.EZ_FIELDS = { "ezLead", "ezSound", "ezStyles" }
 -- The fall-off lead's choices, in seconds.
 Grammar.LEADS = { 2, 3, 4, 5, 8, 10 }
 
--- Which glow shows when several could (CdmEffects.lua:502-527): proc, then missing,
+-- Which glow shows when several could (CdmEffects.lua:511-536): proc, then missing,
 -- recast, up, usable and ready. The game's proc glow has no word here.
 Grammar.GLOW_ORDER = { "missing", "recast", "up", "usable", "ready" }
 
@@ -343,7 +363,7 @@ local function linkedProc(key, cast)
 end
 
 -- Whether a piece's recast moment can ever fire: the clock starts only on a cast of
--- one of its own ids (CdmAuras.lua:1194-1211), so a piece whose every id is passive
+-- one of its own ids (CdmAuras.lua:1237-1254), so a piece whose every id is passive
 -- or not the player's never gets one. A weapon enchant has no spell at all.
 -- Daylight UI's card offers the row on any spell (CdmCard.lua:422-424).
 local function castable(key)
@@ -771,7 +791,8 @@ end
 -- A merged moment's line stands for the EZ-CDM line kind merges.
 function Grammar.Canonical(line, kind)
     local entry = type(line) == "table" and MAP[line.moment] and MAP[line.moment][line.action]
-    local to = entry and (entry.alias or (entry.merges and mergeOf(entry, kind)))
+    local to = entry and (entry.alias or (entry.merges and mergeOf(entry, kind))
+        or (entry.owns and hasClauses(line) and ownedOf(entry, kind)))
     if not to then return line end
     local out = {}
     for k, v in pairs(line) do out[k] = v end
@@ -925,8 +946,29 @@ end
 -- moment's line reads as its first merge's.
 function Grammar.LineCondition(line, kind)
     local e = type(line) == "table" and MAP[line.moment] and MAP[line.moment][line.action]
+    if e and e.owns then
+        local m = hasClauses(line) and ownedOf(e, kind)
+        return m and MAP[m.moment][m.action].cond or nil
+    end
     e = resolved(e, kind)
     return e and e.cond or nil
+end
+
+-- The EZ-CDM condition a line's "and" clauses follow on kind: its LineCondition, or
+-- for Daylight UI's own ready glow and sound the EZ-CDM line it becomes with a clause.
+function Grammar.ClauseRoot(line, kind)
+    local ck = Grammar.LineCondition(line, kind)
+    if ck then return ck end
+    local e = type(line) == "table" and MAP[line.moment] and MAP[line.moment][line.action]
+    local m = e and e.owns and kind ~= nil and ownedOf(e, kind)
+    return m and MAP[m.moment][m.action].cond or nil
+end
+
+-- The EZ-CDM condition that is Daylight UI's ready on kind (offCooldown or
+-- totemDown), or nil.
+function Grammar.ReadyCondition(kind)
+    local m = type(kind) == "table" and ownedOf(MAP.ready.glow, kind)
+    return m and m.moment or nil
 end
 
 -- The conditions a line may take as its next "and" clause, in registry order: an
@@ -936,7 +978,7 @@ end
 -- The parts a line holds, in order, or nil when it can take no more (an unknown
 -- part, or a client one).
 local function partsSoFar(line, kind)
-    local ck = Grammar.LineCondition(line, kind)
+    local ck = Grammar.ClauseRoot(line, kind)
     if not ck or Conditions.Get(ck).secrecy == "client" then return nil end
     local parts = { ck }
     for _, cl in ipairs(type(line.clauses) == "table" and line.clauses or {}) do
@@ -1234,7 +1276,7 @@ end
 -- ---------------------------------------------------------------------
 
 -- Hide (Buff up) and Hide (Buff missing) show nothing then, so these glows never
--- light (CdmEffects.lua:491-500). With no sweep while the buff is up, its color has
+-- light (CdmEffects.lua:500-509). With no sweep while the buff is up, its color has
 -- nothing to color, and the card hides that row (CdmCard.lua:695-697).
 local HIDDEN_BY = {
     { glow = "upGlow", hide = "hideActive" },
@@ -1501,6 +1543,23 @@ end
 -- name the lines that don't fit kind, kept so a save never drops them unseen. A
 -- merged moment's fields (Grammar.MERGED) read as lines of the moment kind shows
 -- them under, so a rule saved as "While my totem stands" reads "While my totem is up".
+-- An EZ-CDM condition's line from its saved spec v, as moment m and action a, or nil.
+local function condLine(m, a, entry, v)
+    if v ~= true and type(v) ~= "table" then return nil end
+    local line = { moment = m, action = a }
+    if type(v) == "table" then
+        line.n = v.n
+        if entry.sound then line.value = v.value end
+        if entry.glow then line.value, line.style = v.value, v.style end
+        if entry.valued then line.value = v.value end
+        if type(v.clauses) == "table" then
+            line.clauses = {}
+            for j, cl in ipairs(v.clauses) do line.clauses[j] = { cond = cl.cond, n = cl.n } end
+        end
+    end
+    return line
+end
+
 function Grammar.Decompile(fields, kind)
     fields = type(fields) == "table" and fields or {}
     local lines, problems = {}, {}
@@ -1517,19 +1576,7 @@ function Grammar.Decompile(fields, kind)
                 local v = entry.field and fields[entry.field]
                 local line
                 if entry.cond then
-                    if v == true or type(v) == "table" then
-                        line = { moment = m, action = a }
-                        if type(v) == "table" then
-                            line.n = v.n
-                            if entry.sound then line.value = v.value end
-                            if entry.glow then line.value, line.style = v.value, v.style end
-                            if entry.valued then line.value = v.value end
-                            if type(v.clauses) == "table" then
-                                line.clauses = {}
-                                for j, cl in ipairs(v.clauses) do line.clauses[j] = { cond = cl.cond, n = cl.n } end
-                            end
-                        end
-                    end
+                    line = condLine(m, a, entry, v)
                 elseif entry.paint then
                     local c = fields[entry.paint]
                     if isColor(c) then line = { moment = m, action = a, value = copyColor(c) } end
@@ -1563,6 +1610,11 @@ function Grammar.Decompile(fields, kind)
                     lines[#lines + 1] = line
                     if not Grammar.Fits(kind, m, a) then problems[#problems + 1] = { line = #lines, code = "kind" } end
                 end
+                -- The EZ-CDM line an owned entry became, under Daylight UI's own.
+                local o = entry.owns and kind and ownedOf(entry, kind)
+                local oe = o and MAP[o.moment][o.action]
+                line = oe and condLine(m, a, oe, fields[oe.field])
+                if line then lines[#lines + 1] = line end
             end
         end
     end
@@ -2102,7 +2154,7 @@ local function glowName(moment)
 end
 
 -- Two glow moments that can be true at once. Buff missing is never true with buff up,
--- and recast never lights on a known "missing" (CdmEffects.lua:503-508).
+-- and recast never lights on a known "missing" (CdmEffects.lua:512-517).
 local function overlap(a, b)
     local pair = a < b and a .. "+" .. b or b .. "+" .. a
     return pair ~= "missing+up" and pair ~= "missing+recast"

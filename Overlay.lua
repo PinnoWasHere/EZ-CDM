@@ -349,7 +349,7 @@ if type(API) == "table" then
             local frame = Conditions.FrameOf(opts.key)
             local ring = Bridge.IsRing(opts.style)
             local how = ring and (frame and API.Attach(frame) == target and "api" or "layer")
-                or (opts.style == "breathe" and "paced" or "lights")
+                or (opts.style == "breathe" and not opts.ready and "paced" or "lights")
             local was = glowing[target]
             if was and was.how ~= how then glowOff(target) end
             if going[target] then going[target][how] = nil end
@@ -375,12 +375,22 @@ if type(API) == "table" then
         shown = function(target) return glowing[target] and target or nil end,
     })
     -- A sound line: Daylight UI's alert (opts.value, a Sound.AlertChoices key),
-    -- played once as the line turns on.
+    -- played once as the line turns on. An owned ready sound (opts.ready) keeps
+    -- Daylight UI's gap between a piece's sounds, so two never play at once; the
+    -- player's own Daylight UI line (opts.daylight) plays whatever EZ-CDM's setting.
+    local heardAt = {}
     Conditions.RegisterEffect({
         key = "sound",
         edge = true,
         draw = function(_, on, opts)
-            if on and type(opts.value) == "string" then Bridge.PlayAlert(opts.value) end
+            if not (on and type(opts.value) == "string") then return end
+            if opts.ready then
+                local now, gap = GetTime(), Bridge.SoundGap() or 0
+                local k = tostring(opts.key)
+                if heardAt[k] and now - heardAt[k] < gap then return end
+                heardAt[k] = now
+            end
+            if opts.daylight then Bridge.DaylightAlert(opts.value) else Bridge.PlayAlert(opts.value) end
         end,
         clear = function() end,
     })

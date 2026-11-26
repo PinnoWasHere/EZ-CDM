@@ -11,6 +11,9 @@ local SW = require("sweep_lib")
 --   a totem showing its time  "When my totem is down" takes every EZ look (totemDown merged)
 --   any other totem           totemDown is its own chip
 --   no totem                  totemDown nowhere
+-- And the ready glow and sound with an "and" clause (docs/tasks/w1-ready-owned.md): EZ-CDM's
+-- line where "When it's ready" merges offCooldown or totemDown, written to that condition's
+-- field and read back as written; refused anywhere else.
 
 local CLASSES = { "DRUID", "HUNTER", "MAGE", "PALADIN", "PRIEST", "ROGUE", "SHAMAN", "WARLOCK", "WARRIOR" }
 
@@ -52,12 +55,37 @@ local function check(G, C, B, key, name, bad, totals)
         say(m.totemDown and "a When my totem is down chip" or "no When my totem is down chip")
     end
     if C.FitsKind("totemDown", kind) ~= totem then say("totemDown fits wrongly") end
+    local wantOwn = readyFace and ((real and not totem) or totemTime)
+    for _, a in ipairs({ "glow", "sound" }) do
+        if m.ready and m.ready[a] then
+            local l = { moment = "ready", action = a, clauses = { { cond = "inCombat" } } }
+            if a == "sound" then l.value = "dui:quest" end
+            if G.TakesClauses({ moment = "ready", action = a }, kind) ~= wantOwn then
+                say("ready " .. a .. " takes and wrongly")
+            end
+            local fields, problems = G.Compile({ lines = { l } }, kind)
+            if wantOwn then
+                local ck = G.ReadyCondition(kind)
+                local f = ck and fields["ez:" .. ck .. ":" .. a]
+                local back = G.Decompile(fields, kind).lines[1]
+                if #problems > 0 or not f or fields.readyGlow ~= nil or fields.readySound ~= nil then
+                    say("ready " .. a .. " with a clause doesn't compile to EZ-CDM's line")
+                elseif not (back and back.moment == "ready" and back.action == a and back.clauses
+                    and back.clauses[1].cond == "inCombat") then
+                    say("ready " .. a .. " with a clause doesn't read back")
+                end
+                if a == "glow" then totals.owned = totals.owned + 1 end
+            elseif not (problems[1] and problems[1].code == "pair") then
+                say("ready " .. a .. " with a clause isn't refused")
+            end
+        end
+    end
     if real and readyFace then totals.real = totals.real + 1 end
     if totem then totals.totems = totals.totems + 1 end
     if ownCd then totals.own = totals.own + 1 end
 end
 
-local totals = { pieces = 0, real = 0, totems = 0, own = 0 }
+local totals = { pieces = 0, real = 0, totems = 0, own = 0, owned = 0 }
 
 local function report(bad)
     return #bad .. " wrong offers:\n  " .. table.concat(bad, "\n  ", 1, math.min(#bad, 40))
@@ -117,8 +145,9 @@ end)
 -- catalogue cooldowns), so the own chip is counted, not required; test_w1_ready_totemdown
 -- covers it on a made kind.
 T.test("sweep ready: the sweep met real cooldowns and totems", function()
-    print(string.format("ready sweep: %d pieces, %d real cooldowns, %d totems, %d own off-cooldown chips",
-        totals.pieces, totals.real, totals.totems, totals.own))
+    print(string.format("ready sweep: %d pieces, %d real cooldowns, %d totems, %d own off-cooldown chips, "
+        .. "%d ready glows that take and", totals.pieces, totals.real, totals.totems, totals.own, totals.owned))
+    T.truthy(totals.owned >= 100, "ready glows that take and: " .. totals.owned)
     T.truthy(totals.pieces >= 500, "pieces: " .. totals.pieces)
     T.truthy(totals.real >= 100, "real cooldowns: " .. totals.real)
     T.truthy(totals.totems >= 5, "totems: " .. totals.totems)

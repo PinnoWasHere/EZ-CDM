@@ -137,7 +137,7 @@ end
 -- The ring inside the client's button
 -- ---------------------------------------------------------------------
 
--- Daylight UI's ring on a square icon (CdmEffects.lua:199-274): the game's proc
+-- Daylight UI's ring on a square icon (CdmEffects.lua:208-283): the game's proc
 -- loop art, gray so the color tints true, reaching past each edge by pad times
 -- the side, turned by a looping flipbook. size is the button's side as Daylight UI
 -- set it, so nothing here asks the button. The texture sits two frames deep, as
@@ -153,7 +153,7 @@ local function ringFrames(btn, size, art)
 end
 
 -- The rule's color, or the accent as Daylight UI paints its ring (paintGlow,
--- CdmEffects.lua:278-295).
+-- CdmEffects.lua:287-304).
 local function paint(tex, color)
     if color then
         tex:SetVertexColor(color[1], color[2], color[3], 1)
@@ -378,7 +378,7 @@ function Effects.Ring(btn) return rings[btn] end
 
 -- "When it's about to fall off (N seconds before)" on Daylight UI's recast clock.
 -- The end comes from Daylight UI's buff moments where they come (below: the buff
--- landing), else from your own cast (CdmAuras.lua:1194-1211), which Daylight UI
+-- landing), else from your own cast (CdmAuras.lua:1237-1254), which Daylight UI
 -- keeps in h.endsAt, a plain number. A wrap on ClipDue moves its due moment to N
 -- seconds before that end, so Daylight UI lights its own recast glow then, in its
 -- own color, style and priority, and its own timer wakes for it. A wrap on Clip
@@ -478,7 +478,7 @@ end
 -- Seconds a "down" waits for an up before the clock stops.
 Effects.DOWN_GRACE = 1
 -- Seconds after a target change in which an up is the old debuff seen again
--- (Daylight UI's END_QUIET, CdmEffects.lua:717 at 2.2.4).
+-- (Daylight UI's END_QUIET, CdmEffects.lua:726 at 2.2.4).
 Effects.SWAP_QUIET = 0.5
 
 -- Piece key as a string -> { up, ends, upAt, downAt, token }. ends is set only by an
@@ -505,7 +505,7 @@ local function plainSeconds(v)
     return v > 0 and v or nil
 end
 
--- The buff's length, as Daylight UI's cast clock takes it (CdmAuras.lua:1125-1130):
+-- The buff's length, as Daylight UI's cast clock takes it (CdmAuras.lua:1168-1173):
 -- the length the watch or holder last read, else the holder's, else the game's data.
 local function lengthOf(key, h)
     return plainSeconds(type(h) == "table" and h.auraLasts or nil) or Bridge.AuraLasts(key) or Bridge.FactLasts(key)
@@ -622,7 +622,7 @@ end
 -- asks again, or a second holder of the same piece, plays nothing more. A recast
 -- moves the end later and re-arms it. An end that moves a second or less is the
 -- same cast, read again (Daylight UI's own test for a new application,
--- CdmAuras.lua:1017).
+-- CdmAuras.lua:1054).
 local heardFor = {}
 
 -- Around CdmAuras.Clip: the pass's answer, unchanged.
@@ -667,8 +667,8 @@ end
 -- the SetDown wrap hands on. Emptied as the pass ends.
 local heldNow = {}
 
--- Around CdmAuras.Told. Daylight UI drops the clock on a "down" (CdmAuras.lua:1370)
--- and the pass skips Clip (CdmRows.lua:624, 883), so a held "down" is told as
+-- Around CdmAuras.Told. Daylight UI drops the clock on a "down" (CdmAuras.lua:1413)
+-- and the pass skips Clip (CdmRows.lua:628, 887), so a held "down" is told as
 -- "can't tell" and the clock is asked as the pass would. On a piece with a fall-off
 -- rule:
 --   events route  a "down" is held while the buff moments say up, or for the grace
@@ -695,12 +695,12 @@ function Effects.Heard(key) return heardFor[key] end
 -- A glow style per moment
 -- ---------------------------------------------------------------------
 
--- Daylight UI asks GlowStyle once as it lights a glow (CdmEffects.lua:377), with
+-- Daylight UI asks GlowStyle once as it lights a glow (CdmEffects.lua:386), with
 -- the piece's saved table and never the moment. A wrap on SetDown keeps what each
 -- pass tells an item, and SetDown lights the item's glow before it returns. A wrap
 -- on EndPass forgets the items a pass didn't tell, as Daylight UI does. The style
 -- wrap rebuilds the moment from those in Daylight UI's order (wantsGlow,
--- CdmEffects.lua:516-530) and asks Daylight UI's own rule about that moment's
+-- CdmEffects.lua:525-539) and asks Daylight UI's own rule about that moment's
 -- style, so motion off still gives the ring. A moment with no style of its own
 -- keeps the piece's.
 --
@@ -836,7 +836,7 @@ local function castableNow(key)
 end
 
 -- The moment a lit glow stands for, in Daylight UI's order: missing, recast and up
--- from what the pass told (buffGlow, CdmEffects.lua:505-510), then castable or
+-- from what the pass told (buffGlow, CdmEffects.lua:514-519), then castable or
 -- ready. r is nil for an item no pass told.
 local function momentOf(p, r, key)
     local isDown, isDue = r and r.down, r and r.due

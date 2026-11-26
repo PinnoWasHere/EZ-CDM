@@ -123,7 +123,7 @@ local function validSpell(spec, v, B)
     return false
 end
 
-T.test("grammar: every field and value it can write is valid on Daylight UI 2.3.0", function()
+T.test("grammar: every field and value it can write is valid on Daylight UI 2.4.0", function()
     local _, ns, G, AB = world()
     local B = ns.Bridge
     local spell, bad = AB.CdmData.SPELL_FIELDS, {}
@@ -527,6 +527,9 @@ local function pieceWorld(hidden)
     D.AddPiece(set, k.own, "icon", 200, 0)
     D.AddPiece(set, k.weapon, "icon", 300, 0)
     if hidden then
+        -- Battle Shout stands for a buff nothing can track. Daylight UI 2.4.0 counts anyone's
+        -- Battle Shout on its holder (CdmAuras A.AnyCaster), so that is off here.
+        AB.CdmAuras.AnyCaster = function() return false end
         CW.Setting("BuffIconCooldownViewer", "VisibleSetting", Enum.CooldownViewerVisibleSetting.Hidden)
         CW.Setting("BuffBarCooldownViewer", "VisibleSetting", Enum.CooldownViewerVisibleSetting.Hidden)
     end
@@ -1028,7 +1031,7 @@ T.test("grammar notes: the glow that wins, by Daylight UI's priority", function(
     T.eq(winners(G.Notes(rulesOf({ L("up", "glow"), L("missing", "glow") }))), "",
         "a buff is never up and missing at once")
     T.eq(winners(G.Notes(rulesOf({ L("recast", "glow"), L("missing", "glow") }))), "",
-        "recast never lights on a missing buff (CdmEffects.lua:503-508)")
+        "recast never lights on a missing buff (CdmEffects.lua:512-517)")
     local all = G.Notes(rulesOf({ L("ready", "glow"), L("usable", "glow"), L("up", "glow"), L("recast", "glow"),
         L("missing", "glow"), L("ready", "hide") }))
     T.eq(winners(all), "missing>usable missing>ready recast>up recast>usable recast>ready up>usable up>ready usable>ready")
@@ -1079,7 +1082,7 @@ local CARD_OTHER = {
 -- Rows EZ-CDM leaves to Daylight UI's card, each with its reason.
 local LEFT = {
     -- Behavior
-    activeGlow = "Highlight off: \"hide the sweep\" (noDurationSwipe) covers it, Daylight UI's own buff holders too (CdmEffects.lua:17-19, 863)",
+    activeGlow = "Highlight off: \"hide the sweep\" (noDurationSwipe) covers it, Daylight UI's own buff holders too (CdmEffects.lua:17-19, 872)",
     totemTrack = "a totem's What it shows has its own values (Totem, Cooldown; CdmCard.lua:388-391)",
     buffTotemTrack = "a totem's What it shows reads Totem and buff (CdmCard.lua:395-405)",
     -- Look: size, the reverse sweep, text, bars and their animation
@@ -1158,7 +1161,7 @@ end
 local DEPARTURE = "missing glow (CdmCard.lua:285-294, 704)"
 -- The second departure. The card offers Glow to recast on any spell (CdmCard.lua:
 -- 413-415), but its clock starts only on a cast of one of the piece's own ids
--- (CdmAuras.lua:1194-1211). The grammar leaves it out where every id is passive or
+-- (CdmAuras.lua:1237-1254). The grammar leaves it out where every id is passive or
 -- not the player's (Grammar.Casts), as on Improved Stormstrike.
 local RECAST = "recast glow on a spell you never cast (CdmCard.lua:422-424)"
 -- The third departure. The card offers Color when almost ready on any icon with
@@ -1629,7 +1632,7 @@ T.test("grammar vs card: an enchanted weapon learns a length and still offers no
     local _, ns, G, AB, k = pieceWorld()
     stub.weaponEnchants = { { slot = 0, timeLeft = 1800000, enchantID = 19 } }
     AB.CdmData.Changed(); AB.CdmRows.Refresh(); stub.RunTimers()
-    T.eq(ns.Bridge.AuraLasts(k.weapon), 1800, "Daylight UI read the enchant's length (CdmAuras.lua:1017)")
+    T.eq(ns.Bridge.AuraLasts(k.weapon), 1800, "Daylight UI read the enchant's length (CdmAuras.lua:1054)")
     T.eq(ns.Bridge.ClientButtons(k.weapon), false, "drawn on Daylight UI's own face")
     local kind = G.Kind(k.weapon)
     T.falsy(kind.ezGlow, "its up glow is Daylight UI's")

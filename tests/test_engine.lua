@@ -195,7 +195,9 @@ T.test("engine grammar: a client condition goes last, once; clauses only on EZ l
     check(line("boss", "gray", { clauses = { { cond = "low" }, { cond = "soon" } } }), "1:order", "two client parts")
     check(line("boss", "gray", { clauses = { { cond = "dance" } } }), "1:pair", "no such condition")
     check(line("boss", "gray", { clauses = { { cond = "boss" } } }), "1:twice", "the same condition twice")
-    check(line("ready", "glow", { clauses = { { cond = "boss" } } }), "1:pair", "Daylight UI's own moment takes none")
+    check(line("cooldown", "fade", { clauses = { { cond = "boss" } } }), "1:pair", "Daylight UI's own moment takes none")
+    check(line("ready", "glow", { clauses = { { cond = "boss" } } }), "",
+        "a ready glow with a clause is EZ-CDM's (test_ready_owned)")
     check(line("boss", "sound", { value = "none", clauses = { { cond = "low" } } }), "1:secret",
         "a sound can't follow a client part")
     check(line("boss", "gray", { clauses = { { cond = "low", n = 120 } } }), "1:value", "a clause's number is checked")
@@ -226,7 +228,8 @@ T.test("engine grammar: the drawer's words hide combat-dead and advanced conditi
     T.eq(keys(line("boss", "sound", { value = "none" }), { drawer = true }),
         "cantCast notUsable noMana noBuff onlyGcd offCooldown formBattle formDefensive formBerserker near",
         "a sound line takes plain parts only")
-    T.eq(keys(line("ready", "glow"), { drawer = true }), "", "Daylight UI's moments take none")
+    T.eq(keys(line("cooldown", "fade"), { drawer = true }), "", "Daylight UI's moments take none")
+    T.truthy(keys(line("ready", "glow"), { drawer = true }) ~= "", "but its ready glow does (test_ready_owned)")
     noErrors()
 end)
 

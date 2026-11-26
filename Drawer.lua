@@ -1068,7 +1068,7 @@ local function retarget(line, moment, action, kind)
     if moment ~= line.moment then line.n = nil end
     line.moment, line.action = moment, action
     if action == "sound" and line.value == nil then line.value = firstSound() end
-    local ck = Grammar.LineCondition(line, kind)
+    local ck = Grammar.ClauseRoot(line, kind)
     local C = ns.Conditions
     if not ck or C.Get(ck).secrecy == "client" then
         line.clauses = nil
@@ -1158,7 +1158,8 @@ local function sentence(s, kind, rules, i, line)
     local finished = line.moment ~= nil and line.action ~= nil
     local off = finished and not Grammar.Fits(kind, line.moment, line.action) and "OFF" or nil
     local id = "line:" .. i .. ":"
-    local ck = Grammar.LineCondition(line, kind)
+    -- Daylight UI's own ready glow and sound take "and" too (Grammar.ClauseRoot).
+    local ck = Grammar.ClauseRoot(line, kind)
     local C = ns.Conditions
     -- The moment's condition takes its number before an action is picked.
     local mk = ck or Grammar.MomentCondition(line.moment)

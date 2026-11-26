@@ -28,7 +28,7 @@ its code in this repository, so the tests load it from a Daylight UI checkout at
 release named in `tests/pin.lua`. Set it up once:
 
 ```
-git clone --depth 1 --branch v2.3.0 https://github.com/dayightt/DaylightUI .daylight/DaylightUI
+git clone --depth 1 --branch v2.4.0 https://github.com/dayightt/DaylightUI .daylight/DaylightUI
 python tools/fetch_blizzard.py
 ```
 

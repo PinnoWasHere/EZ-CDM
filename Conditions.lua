@@ -45,6 +45,8 @@ local addonName, ns = ...
 --   recipes    optional: { { key, action, after = recipe key } }, ready-made lines
 --   time(k, n) optional: while true, its seconds left and its whole length, both
 --              plain, or nil when the game won't say (a hides effect shows them)
+--   late       optional: it reads what Daylight UI drew, so each of its Daylight UI
+--              handlers reads the piece again a frame on, after Daylight UI's pass
 --   armed      optional, plain only: the moment is its turning true. A line holding it
 --              fires an edge effect only as this part turns true from a plain false,
 --              never on its first read or as another part turns true. Held effects
@@ -693,7 +695,12 @@ local styleOf = {}
 local function optsFor(act, spec, k, id)
     local out = { key = k, line = id }
     for f, v in pairs(act.opts or {}) do out[f] = v end
-    if type(spec) == "table" then out.value, out.n, out.style = spec.value, spec.n, spec.style end
+    if type(spec) == "table" then
+        out.value, out.n, out.style = spec.value, spec.n, spec.style
+        -- An owned ready line (Ready.Drawn): drawn as Daylight UI's own; daylight is
+        -- the player's own Daylight UI line.
+        out.ready, out.daylight = spec.ready, spec.daylight
+    end
     if act.effect == "glow" and out.style == nil and k then out.style = styleOf[k] end
     return out
 end
@@ -939,8 +946,17 @@ local function readPieces()
     return two, styles
 end
 
+-- Whether a rule uses a late condition (Conditions' late field).
+local function usesLate(rule)
+    for _, c in pairs(usedBy(rule)) do
+        if c.late then return true end
+    end
+    return false
+end
+
 local function sync()
     if ns.Gray then ns.Gray.Reconcile() end
+    if ns.Ready then ns.Ready.Reconcile() end
     local profile = Bridge.ProfileOf()
     local saved = profile ~= nil and store()[profile]
     both, styleOf = readPieces()
@@ -949,6 +965,7 @@ local function sync()
     for key, v in pairs(type(saved) == "table" and saved or {}) do
         local r = clean(v)
         if r and ns.Gray and ns.Gray.Cooling(key) then r[Conditions.COOLING] = { gray = true } end
+        if r and ns.Ready then r = ns.Ready.Drawn(key, r) end
         if r then
             local k = tostring(key)
             now[k] = r
@@ -971,8 +988,11 @@ local function sync()
     for _, c in ipairs(list) do
         if c.using then c.using(users[c.key] or {}) end
     end
+    local function watchName(r, k)
+        return table.concat(handlersFor(r, k), " ") .. (usesLate(r) and " +late" or "")
+    end
     for k, h in pairs(watches) do
-        local names = now[k] and table.concat(handlersFor(now[k], k), " ")
+        local names = now[k] and watchName(now[k], k)
         if names ~= watchedWith[k] then
             if h then API.Off(h) end
             watches[k], watchedWith[k] = nil, nil
@@ -983,9 +1003,15 @@ local function sync()
         if watches[k] == nil and #names > 0 then
             me = me or API.For(addonName)
             local handlers = {}
-            for _, h in ipairs(names) do handlers[h] = function() refresh(k) end end
+            local late = usesLate(r)
+            for _, h in ipairs(names) do
+                handlers[h] = function()
+                    refresh(k)
+                    if late then C_Timer.After(0, function() refresh(k) end) end
+                end
+            end
             watches[k] = me.WatchCooldown(k, handlers) or false
-            watchedWith[k] = table.concat(names, " ")
+            watchedWith[k] = watchName(r, k)
         end
     end
     listen(want)
@@ -1180,7 +1206,7 @@ end
 
 local USABLE_EVENTS = {
     -- The game's usability signals. Daylight UI re-reads usable and noPower on the
-    -- next frame (CdmEffects.lua:1558-1561); its watch moments never fire on them.
+    -- next frame (CdmEffects.lua:1567-1570); its watch moments never fire on them.
     game = { "SPELL_UPDATE_USABLE", "SPELL_UPDATE_COOLDOWN" },
     daylight = { "changed" },
 }
@@ -1948,6 +1974,41 @@ byKey[Conditions.COOLING] = {
     detail = usableDetail,
     events = { game = { "SPELL_UPDATE_COOLDOWN" }, daylight = { "changed", "ready", "started" } },
     secrecy = "plain", layer = "cooldown", excludes = {},
+}
+
+-- Daylight UI's own ready line ("When it's ready, glow", "play a sound"), drawn by
+-- EZ-CDM while an EZ-CDM ready line owns that part of the piece (Ready.lua): a copy of
+-- the ready condition under another key, below every other line. Never registered,
+-- so never offered or saved; the driver adds its line (Ready.Drawn).
+Conditions.KEPT_READY = { offCooldown = "daylightReady", totemDown = "daylightTotemDown" }
+for from, key in pairs(Conditions.KEPT_READY) do
+    local c = {}
+    for f, v in pairs(byKey[from]) do c[f] = v end
+    c.key, c.order, c.priority = key, 0, -1
+    c.actions = { glow = GLOW, sound = { effect = "sound" } }
+    byKey[key] = c
+end
+
+-- Daylight UI lights no glow of its own on the piece now. An owned ready glow takes
+-- it first (Ready.Drawn), so it gives way to Daylight UI's proc, buff and castable
+-- glows as Daylight UI's own ready glow does (CdmEffects wantsGlow). Never registered.
+Conditions.QUIET = "daylightGlowQuiet"
+byKey[Conditions.QUIET] = {
+    key = Conditions.QUIET, moment = Conditions.QUIET, order = 0, priority = 0, late = true,
+    actions = {},
+    fits = anyPiece,
+    read = function(k)
+        local frame = frameOf[k]
+        if not frame then return true end
+        return not Bridge.DaylightGlowLit(frame)
+    end,
+    detail = function(k)
+        local frame = frameOf[k]
+        return { daylightGlow = frame and Bridge.DaylightGlowLit(frame) or false }
+    end,
+    events = { game = { "SPELL_UPDATE_USABLE", "SPELL_UPDATE_COOLDOWN" },
+               daylight = { "ready", "started", "usable", "proc", "buffUp", "buffDown", "changed" } },
+    secrecy = "plain", layer = "any", excludes = {},
 }
 
 -- ---------------------------------------------------------------------
