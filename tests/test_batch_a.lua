@@ -84,10 +84,6 @@ end)
 T.test("batch A: the rows Forever can't answer plainly are not registered", function()
     local w = W.Build("WARRIOR")
     local C = w.ns.Conditions
-    -- Interruptible: the cast's notInterruptible is secret in boss fights, keystones
-    -- and battlegrounds (Daylight UI CastBar.lua), so it is never plain: batch B
-    -- draws it through the client tier (test_batch_b).
-    T.eq(C.Get("targetInterruptible") and C.Get("targetInterruptible").secrecy, "client", "no plain interruptible")
     -- Charges: no class spell in the client's tables has a charge category.
     T.falsy(C.Get("fullCharges"), "no full charges")
     T.falsy(C.Get("recharging"), "no recharging")
@@ -230,7 +226,7 @@ T.test("batch A: target casting follows the target's casts and channels", functi
     w.TargetCasts("channel")
     T.truthy(lit(w, key, "targetCasting:glow"), "a channel")
     -- In a boss fight the cast's fields are secret, but whether one came is a type.
-    stub.units.target.channel = { name = stub.Secret("Drain"), notInterruptible = stub.Secret(true) }
+    stub.units.target.channel = { name = stub.Secret("Drain") }
     T.eq(w.ns.Conditions.Sample("targetCasting", key), true, "a secret cast still reads")
     noErrors()
 end)

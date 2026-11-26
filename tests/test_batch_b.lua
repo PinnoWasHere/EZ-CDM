@@ -11,7 +11,7 @@ local LIGHTNING_BOLT, EARTH_SHOCK, SEARING, KICK = 403, 8042, 3599, 1766
 local SKULL_BASH, WRATH, GROWL = 410176, 5176, 2649
 local MANA, RAGE, ENERGY = 0, 1, 3
 
-local BATCH = { "targetLow", "playerLow", "powerLow", "targetInterruptible" }
+local BATCH = { "targetLow", "playerLow", "powerLow" }
 
 local function noErrors()
     T.eq(#stub.errors, 0, tostring(stub.errors[1]))
@@ -110,8 +110,6 @@ T.test("batch B: the words read as sentences, numbers and powers put in", functi
     T.eq(G.Describe({ moment = "targetLow", action = "glow", n = 20 }, kind), "When my target is below 20% health, glow.")
     T.eq(G.Describe({ moment = "playerLow", action = "glow", n = 35 }, kind), "When I'm below 35% health, glow.")
     T.eq(G.Describe({ moment = "powerLow", action = "glow", n = 25 }, kind), "When my rage is below 25%, glow.")
-    T.eq(G.Describe({ moment = "targetCasting", action = "glow", clauses = { { cond = "targetInterruptible" } } }, kind),
-        "When my target is casting and my target's cast can be interrupted, glow.")
     noErrors()
 end)
 
@@ -156,16 +154,6 @@ T.test("batch B: my power fits only a power the spell costs and my class has", f
     T.falsy(fits(w5, growl, "powerLow"), "Growl's focus is the pet's")
     local w6, charge = place("WARRIOR", 100)
     T.falsy(fits(w6, charge, "powerLow"), "Charge costs nothing")
-    noErrors()
-end)
-
-T.test("batch B: can be interrupted fits an interrupt (letter i), as target casting", function()
-    local w, key = place("WARRIOR", PUMMEL)
-    T.truthy(fits(w, key, "targetInterruptible"), "Pummel")
-    local w2, shock = place("SHAMAN", EARTH_SHOCK)
-    T.truthy(fits(w2, shock, "targetInterruptible"), "Earth Shock")
-    local w3, bolt = place("SHAMAN", LIGHTNING_BOLT)
-    T.falsy(fits(w3, bolt, "targetInterruptible"), "Lightning Bolt interrupts nothing")
     noErrors()
 end)
 
@@ -291,33 +279,6 @@ T.test("batch B: Skull Bash reads the bar the druid shows now, energy or rage", 
     T.eq((drawn(w, key, id)), 0, "Bear Form: 90 rage")
     w.Bar(MANA, "MANA")
     T.eq((drawn(w, key, id)), 0, "caster form: neither")
-    noErrors()
-end)
-
-T.test("batch B: the target's cast can be interrupted: the flag sets the layer, secret or plain", function()
-    local w, key = place("WARRIOR", PUMMEL)
-    T.truthy(rule(w, key, { moment = "targetInterruptible" }))
-    local id = "targetInterruptible:glow"
-    T.eq((drawn(w, key, id)), 0, "no target")
-    w.NewTarget()
-    T.eq((drawn(w, key, id)), 0, "no cast")
-    w.TargetCasts("cast")
-    T.eq((drawn(w, key, id)), 1, "a cast you can kick")
-    w.Interruptible(true)
-    T.eq((drawn(w, key, id)), 0, "locked")
-    w.EnterCombat()
-    w.Interruptible(stub.Secret(false))
-    local a, isSecret = drawn(w, key, id)
-    T.eq(a, 1, "the game's answer from a secret flag")
-    T.truthy(isSecret, "set from the secret, never read")
-    local layer = w.ns.Conditions.Layer(key, id)
-    T.truthy(layer.__alphaFromBoolean and issecretvalue(layer.__alphaFromBoolean[1]), "through SetAlphaFromBoolean")
-    w.Interruptible(nil)
-    T.eq((drawn(w, key, id)), 0, "a flag left out reads unknown: dark")
-    w.TargetCasts("channel")
-    T.eq((drawn(w, key, id)), 1, "a channel you can kick")
-    w.TargetCasts(nil, "CHANNEL_STOP")
-    T.eq((drawn(w, key, id)), 0, "the channel ends")
     noErrors()
 end)
 

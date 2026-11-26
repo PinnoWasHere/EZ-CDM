@@ -108,12 +108,13 @@ Conditions.LAYERS = { cooldown = true, buff = true, any = true }
 -- The saved rules' form. 2: "cantCast" is any reason; the old one is "notUsable".
 -- 3: the pop and shake looks are gone. 4: the "cooldownReset" moment is gone.
 -- 5: glow lines in Comet or Shine move to Circling or Ring (Bridge.GLOW_MOVED).
-Conditions.VERSION = 5
+-- 6: the "targetInterruptible" condition is gone.
+Conditions.VERSION = 6
 -- Looks a saved rule may still hold from before they went (VERSION 3).
 Conditions.GONE = { pop = true, shake = true }
--- Conditions a saved rule may still name from before they went (VERSION 4), as a
+-- Conditions a saved rule may still name from before they went (VERSION 4 and 6), as a
 -- moment or as an "and" clause.
-Conditions.GONE_CONDS = { cooldownReset = true }
+Conditions.GONE_CONDS = { cooldownReset = true, targetInterruptible = true }
 -- The shared ticker's beat, in seconds.
 Conditions.TICK = 0.2
 -- What the dev suite logs for a value the game keeps secret.
@@ -425,7 +426,7 @@ local function dropGone(all)
     end
 end
 
--- Rules saved before VERSION 4 may use a condition that went, as its moment or in a
+-- Rules saved before VERSION 6 may use a condition that went, as its moment or in a
 -- line's clauses. That moment, and any line with such a clause, goes; a condition,
 -- rule or profile left with no line goes with it.
 local function dropGoneConds(all)
@@ -477,7 +478,7 @@ local function store()
         local v = type(was) == "number" and was or 1
         if v < 2 then toNotUsable(EZCDMDB.conditions) end
         if v < 3 then dropGone(EZCDMDB.conditions) end
-        if v < 4 then dropGoneConds(EZCDMDB.conditions) end
+        if v < 6 then dropGoneConds(EZCDMDB.conditions) end
         if v < 5 then moveStyles(EZCDMDB.conditions) end
         EZCDMDB.conditionsVersion = Conditions.VERSION
     end
@@ -1863,49 +1864,6 @@ Conditions.Register({
                         { "UNIT_DISPLAYPOWER", "player" } } },
     secrecy = "client", layer = "any", excludes = {},
     words = { moment = "When my %s is below #%", clause = "my %s is below #%" },
-})
-
--- The target's cast or channel and its notInterruptible flag (8th of UnitCastingInfo,
--- 7th of UnitChannelInfo), the flag plain or secret; nil with no cast. A cast's
--- fields go secret in restricted fights (SecretWhenUnitSpellCastRestricted), but
--- whether one came back is a plain type, as Daylight UI's cast bars read it.
-local function castFlag()
-    local cast, _, _, _, _, _, _, ni = UnitCastingInfo("target")
-    if type(cast) ~= "nil" then return true, ni end
-    local channel, _, _, _, _, _, ni2 = UnitChannelInfo("target")
-    if type(channel) ~= "nil" then return true, ni2 end
-    return false, nil
-end
-
--- The target's cast can be interrupted. The flag goes secret in boss fights, keystones
--- and battlegrounds (Daylight UI CastBar.lua), so the game sets the layer from it
--- (SetAlphaFromBoolean, secret-safe). A flag the game leaves out reads unknown: dark.
-Conditions.Register({
-    key = "targetInterruptible", moment = "targetInterruptible", actions = grayOrGlow(),
-    fits = function(kind) return kind.interrupt == true and castable(kind) end,
-    drive = function(_, layer)
-        if targetNow() ~= true then return layer:SetAlpha(0) end
-        local casting, ni = castFlag()
-        if not casting then return layer:SetAlpha(0) end
-        if secret(ni) or type(ni) == "boolean" then
-            layer:SetAlphaFromBoolean(ni, 0, 1)
-        else
-            layer:SetAlpha(0)
-        end
-    end,
-    detail = function()
-        local t = targetNow()
-        if t ~= true then return { target = logged(UnitExists("target")) } end
-        local casting, ni = castFlag()
-        return { target = true, casting = casting, notInterruptible = casting and answer(ni) or nil }
-    end,
-    events = { game = { "PLAYER_TARGET_CHANGED", { "UNIT_SPELLCAST_START", "target" },
-                        { "UNIT_SPELLCAST_STOP", "target" }, { "UNIT_SPELLCAST_FAILED", "target" },
-                        { "UNIT_SPELLCAST_INTERRUPTED", "target" }, { "UNIT_SPELLCAST_CHANNEL_START", "target" },
-                        { "UNIT_SPELLCAST_CHANNEL_STOP", "target" }, { "UNIT_SPELLCAST_INTERRUPTIBLE", "target" },
-                        { "UNIT_SPELLCAST_NOT_INTERRUPTIBLE", "target" } } },
-    secrecy = "client", layer = "cooldown", excludes = {},
-    words = { moment = "When my target's cast can be interrupted", clause = "my target's cast can be interrupted" },
 })
 
 -- What you're doing and where, per spell, as Daylight UI's group rules read them

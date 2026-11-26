@@ -190,8 +190,22 @@ T.test("looks migrate: the cooldownReset moment goes, and lines with it as a cla
     })
     T.deq(ns.Conditions.Rule(key), { notUsable = { glow = true } })
     T.eq(EZCDMDB.conditionsVersion, ns.Conditions.VERSION)
-    T.eq(ns.Conditions.VERSION, 5)
+    T.eq(ns.Conditions.VERSION, 6)
     T.deq(rules[key], { notUsable = { glow = true } }, "dropped as saved")
+    T.isnil(rules.other, "a rule of that moment only goes whole")
+    noErrors()
+end)
+
+T.test("looks migrate: the targetInterruptible moment goes, and lines with it as a clause", function()
+    local _, ns, _, key = world()
+    local rules = saved(ns, 5, {
+        [key] = { targetInterruptible = { glow = true, gray = true },
+                  targetCasting = { glow = true, flash = { value = GOLD, clauses = { { cond = "targetInterruptible" } } } } },
+        ["other"] = { targetInterruptible = { glow = true } },
+    })
+    T.deq(ns.Conditions.Rule(key), { targetCasting = { glow = true } })
+    T.eq(EZCDMDB.conditionsVersion, ns.Conditions.VERSION)
+    T.deq(rules[key], { targetCasting = { glow = true } }, "dropped as saved")
     T.isnil(rules.other, "a rule of that moment only goes whole")
     noErrors()
 end)

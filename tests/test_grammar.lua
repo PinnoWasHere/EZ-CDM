@@ -188,7 +188,7 @@ T.test("grammar: gray and color go with cooldown only, and sounds only where Day
     local _, _, G = world()
     for _, m in ipairs(G.MOMENTS) do
         T.eq(G.MAP[m].gray ~= nil, m == "cooldown" or m == "unusable" or m == "blocked" or m == "noBuff"
-            or m == "outOfRange" or m == "targetCasting" or m == "onlyGcd" or m == "targetInterruptible", m .. " gray")
+            or m == "outOfRange" or m == "targetCasting" or m == "onlyGcd", m .. " gray")
         T.eq(G.MAP[m].color ~= nil, m == "cooldown", m .. " color")
     end
     T.eq(G.MAP.blocked.gray.cond, "cantCast", "can't cast gray is EZ-CDM's condition")
@@ -294,11 +294,10 @@ end
 
 -- Batch B's client conditions (test_batch_b): glow, and gray on the cooldown one; no
 -- sound, and a typed number where it takes one.
-for _, k in ipairs({ "targetLow", "playerLow", "powerLow", "targetInterruptible" }) do
+for _, k in ipairs({ "targetLow", "playerLow", "powerLow" }) do
     CASES[#CASES + 1] = { L(k, "glow"), { ["ez:" .. k .. ":glow"] = true } }
 end
 CASES[#CASES + 1] = { { moment = "targetLow", action = "glow", n = 35 }, { ["ez:targetLow:glow"] = { n = 35 } } }
-CASES[#CASES + 1] = { L("targetInterruptible", "gray"), { ["ez:targetInterruptible:gray"] = true } }
 
 local function withChain(t)
     local out = { chain = {} }

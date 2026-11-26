@@ -6,16 +6,15 @@ local SW = require("sweep_lib")
 -- batch B word is checked against the client's tables (EZ-CDM/AuraLinks.lua), read
 -- here straight from them:
 --   targetLow            only on a spell cast at a unit you pick (letter t)
---   targetInterruptible  only on an interrupt (letter i)
 --   powerLow             only where every power the piece's casts cost is a bar the
 --                        class's player has as a percent (classPowers; mana, rage,
 --                        energy, focus), and its words name those powers
 --   playerLow, powerLow  only on a piece you can cast (a cooldown or a spell button)
---   all four             no sound: a client part has no edge to play one on
+--   all three            no sound: a client part has no edge to play one on
 
 local CLASSES = { "DRUID", "HUNTER", "MAGE", "PALADIN", "PRIEST", "ROGUE", "SHAMAN", "WARLOCK", "WARRIOR" }
 local PERCENT = { mana = true, rage = true, energy = true, focus = true }
-local BATCH = { targetLow = true, playerLow = true, powerLow = true, targetInterruptible = true }
+local BATCH = { targetLow = true, playerLow = true, powerLow = true }
 
 local totals = { pieces = 0 }
 for k in pairs(BATCH) do totals[k] = 0 end
@@ -75,10 +74,7 @@ local function check(G, C, B, key, name, class, bad)
     if offered.targetLow and not letters:find("t", 1, true) then
         bad[#bad + 1] = tag .. ": target health on a spell cast at no unit (" .. letters .. ")"
     end
-    if offered.targetInterruptible and not letters:find("i", 1, true) then
-        bad[#bad + 1] = tag .. ": can be interrupted on a spell that interrupts nothing (" .. letters .. ")"
-    end
-    if (offered.playerLow or offered.powerLow or offered.targetInterruptible) and not castable then
+    if (offered.playerLow or offered.powerLow) and not castable then
         bad[#bad + 1] = tag .. ": castable words on a piece you can't cast"
     end
     local words = costsOf(ids)
@@ -158,8 +154,8 @@ for _, class in ipairs({ "SHAMAN", "DRUID", "HUNTER" }) do
 end
 
 T.test("sweep client: the sweep met each batch B word and pieces where each doesn't fit", function()
-    print(string.format("client sweep: %d pieces; targetLow %d, playerLow %d, powerLow %d, targetInterruptible %d",
-        totals.pieces, totals.targetLow, totals.playerLow, totals.powerLow, totals.targetInterruptible))
+    print(string.format("client sweep: %d pieces; targetLow %d, playerLow %d, powerLow %d",
+        totals.pieces, totals.targetLow, totals.playerLow, totals.powerLow))
     T.truthy(totals.pieces >= 1000, "pieces read: " .. totals.pieces)
     for k in pairs(BATCH) do
         T.truthy(totals[k] >= 20, k .. " offered: " .. totals[k])

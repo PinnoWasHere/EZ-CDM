@@ -104,7 +104,7 @@ end)
 -- Saved Comet and Shine lines
 -- ---------------------------------------------------------------------
 
-T.test("glow styles migrate: saved Comet glow lines become Circle, Shine Ring (Conditions.VERSION 5)", function()
+T.test("glow styles migrate: saved Comet glow lines become Circle, Shine Ring (Conditions.VERSION 5, stamped 6)", function()
     local _, ns, _, key = world()
     ns.Conditions.Rule("none")
     local profile = ns.Bridge.ProfileOf()
@@ -116,8 +116,8 @@ T.test("glow styles migrate: saved Comet glow lines become Circle, Shine Ring (C
     local rules = EZCDMDB.conditions[profile]
     T.deq(ns.Conditions.Rule(key), { notUsable = { glow = { value = GOLD, style = "circle" } },
                                      cantCast = { glow = { style = "ring" } } })
-    T.eq(ns.Conditions.VERSION, 5)
-    T.eq(EZCDMDB.conditionsVersion, 5)
+    T.eq(ns.Conditions.VERSION, 6)
+    T.eq(EZCDMDB.conditionsVersion, 6)
     T.eq(rules[key].notUsable.glow.style, "circle", "as saved")
     T.deq(rules.other, { notUsable = { glow = { style = "twinkle" }, flash = { value = GOLD } } }, "the rest as it was")
     noErrors()

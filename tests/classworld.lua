@@ -311,8 +311,6 @@ end
 --   w.Health(unit, pct, how)     unit's health at pct (0-1); how "plain", "secret" or "nil"
 --   w.Power(t, pct, how)         your power of PowerType t at pct (0-1), the same
 --   w.Bar(t, token)              the bar your power shows now (a druid's form)
---   w.Interruptible(ni)          the target's cast can't be interrupted (true), can
---                                (false), or the flag is left out (nil); a secret too
 --   w.Fire(event, ...)           a game event as the client sends it
 --   w.Tick(n)                    the shared ticker's beat n times (Conditions.Tick)
 --   w.EnterCombat() / w.LeaveCombat()
@@ -335,8 +333,6 @@ W.EVENT_DRIVERS = {
     UNIT_POWER_UPDATE = function(w) w.Unit("player", {}) end,
     UNIT_MAXPOWER = function(w) w.Power(0, 0.5); w.Fire("UNIT_MAXPOWER", "player", "MANA") end,
     UNIT_DISPLAYPOWER = function(w) w.Bar(0, "MANA") end,
-    UNIT_SPELLCAST_INTERRUPTIBLE = function(w) w.TargetCasts("cast"); w.Interruptible(false) end,
-    UNIT_SPELLCAST_NOT_INTERRUPTIBLE = function(w) w.TargetCasts("cast"); w.Interruptible(true) end,
     UNIT_FLAGS = function(w) w.Unit("target", {}) end,
     UNIT_FACTION = function(w) w.Unit("target", {}) end,
     UNIT_CLASSIFICATION_CHANGED = function(w) w.Unit("target", {}) end,
@@ -594,18 +590,6 @@ function W.Build(class, opts)
         stub.FireEvent("UNIT_DISPLAYPOWER", "player")
         run()
     end
-    -- The target's cast now can't be interrupted (true), can (false), or the game
-    -- leaves the flag out (nil); a secret too. Sends the game's event for it.
-    function w.Interruptible(ni)
-        local t = stub.units.target
-        local c = t and (t.cast or t.channel)
-        if not c then return end
-        c.notInterruptible = ni
-        local locked = stub.Plain(ni) == true
-        stub.FireEvent(locked and "UNIT_SPELLCAST_NOT_INTERRUPTIBLE" or "UNIT_SPELLCAST_INTERRUPTIBLE", "target")
-        run()
-    end
-
     -- ids = { [spell id] = true }: the spells whose range the game checks.
     function w.HasRange(ids)
         C_Spell.SpellHasRange = function(id) return ids[id] == true end
@@ -620,12 +604,11 @@ function W.Build(class, opts)
     end
     -- The target casts ("cast"), channels ("channel") or stops (nil). ending names how
     -- a cast ends: "STOP" (the default), "FAILED", "INTERRUPTED" or "CHANNEL_STOP".
-    -- A cast can be interrupted (notInterruptible false) unless w.Interruptible says.
     function w.TargetCasts(kind, ending)
         local t = stub.units.target
         if not t then return end
-        t.cast = kind == "cast" and { name = "Fireball", notInterruptible = false } or nil
-        t.channel = kind == "channel" and { name = "Drain Life", notInterruptible = false } or nil
+        t.cast = kind == "cast" and { name = "Fireball" } or nil
+        t.channel = kind == "channel" and { name = "Drain Life" } or nil
         local e = kind == "cast" and "START" or kind == "channel" and "CHANNEL_START" or ending or "STOP"
         stub.FireEvent("UNIT_SPELLCAST_" .. e, "target")
         run()
