@@ -969,12 +969,12 @@ SW.GROUPS = {
     a = { "DRUID:shown" },
     b = { "PALADIN:shown" },
     c = { "SHAMAN:shown" },
-    d = { "ROGUE" },
+    d = { "ROGUE:shown" },
     e = { "MAGE:shown" },
     f = { "HUNTER:shown" },
     g = { "PRIEST:shown" },
     h = { "WARLOCK:shown" },
-    i = { "WARRIOR:shown", "WARRIOR:hidden" },
+    i = { "WARRIOR:shown" },
     j = { "DRUID:bars", "HUNTER:bars" },
     k = { "SHAMAN:hidden" },
     l = { "MAGE:hidden" },
@@ -987,6 +987,8 @@ SW.GROUPS = {
     s = { "PALADIN:bars", "SHAMAN:bars" },
     t = { "MAGE:bars", "PRIEST:bars" },
     u = { "WARLOCK:bars" },
+    v = { "WARRIOR:hidden" },
+    w = { "ROGUE:hidden", "ROGUE:bars" },
 }
 
 -- A group entry's class and its variants.

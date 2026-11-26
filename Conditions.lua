@@ -101,7 +101,8 @@ Conditions.SECRECY = { plain = true, outOfCombat = true, client = true }
 Conditions.LAYERS = { cooldown = true, buff = true, any = true }
 -- The saved rules' form. 2: "cantCast" is any reason; the old one is "notUsable".
 -- 3: the pop and shake looks are gone. 4: the "cooldownReset" moment is gone.
-Conditions.VERSION = 4
+-- 5: glow lines in Comet or Shine move to Circling or Ring (Bridge.GLOW_MOVED).
+Conditions.VERSION = 5
 -- Looks a saved rule may still hold from before they went (VERSION 3).
 Conditions.GONE = { pop = true, shake = true }
 -- Conditions a saved rule may still name from before they went (VERSION 4), as a
@@ -446,6 +447,21 @@ local function dropGoneConds(all)
     end
 end
 
+-- Rules saved before VERSION 5 may hold a glow style EZ-CDM no longer offers. It
+-- moves to the style Bridge.GLOW_MOVED names.
+local function moveStyles(all)
+    local moved = Bridge.GLOW_MOVED
+    for _, pieces in pairs(all) do
+        for _, rule in pairs(type(pieces) == "table" and pieces or {}) do
+            for _, acts in pairs(type(rule) == "table" and rule or {}) do
+                for _, spec in pairs(type(acts) == "table" and acts or {}) do
+                    if type(spec) == "table" and moved[spec.style] then spec.style = moved[spec.style] end
+                end
+            end
+        end
+    end
+end
+
 local function store()
     if type(EZCDMDB) ~= "table" then EZCDMDB = {} end
     if type(EZCDMDB.conditions) ~= "table" then EZCDMDB.conditions = {} end
@@ -455,6 +471,7 @@ local function store()
         if v < 2 then toNotUsable(EZCDMDB.conditions) end
         if v < 3 then dropGone(EZCDMDB.conditions) end
         if v < 4 then dropGoneConds(EZCDMDB.conditions) end
+        if v < 5 then moveStyles(EZCDMDB.conditions) end
         EZCDMDB.conditionsVersion = Conditions.VERSION
     end
     return EZCDMDB.conditions

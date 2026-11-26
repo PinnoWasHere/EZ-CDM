@@ -1175,10 +1175,13 @@ T.test("drawer style: the glow style in Daylight UI's own labels, one per spell,
     w:Click()
     T.eq(strip(Drawer).heading, "Choose a glow style:")
     local want, labels = { "ring" }, {}
-    for _, st in ipairs(DUI.API.GlowStyles()) do want[#want + 1] = st.key; labels[st.key] = st.label end
-    T.eq(keysText(strip(Drawer).keys), keysText(want), "Ring, then API.GlowStyles(), as the card's Style row")
+    for _, st in ipairs(DUI.API.GlowStyles()) do
+        labels[st.key] = st.label
+        if not ns.Bridge.GLOW_MOVED[st.key] then want[#want + 1] = st.key end
+    end
+    T.eq(keysText(strip(Drawer).keys), keysText(want), "Ring, then API.GlowStyles() less Comet and Shine, in the card's order")
     T.eq(stub.Text(strip(Drawer).chip.breathe.text), labels.breathe, "Daylight UI's own label")
-    T.truthy(strip(Drawer).chip.comet.on)
+    T.isnil(strip(Drawer).chip.comet, "its saved Comet is no chip, though the sentence names it")
     pick(Drawer, "breathe")
     T.eq(pieceOf(k.clap).glowStyle, "breathe")
     local style
@@ -1199,22 +1202,24 @@ T.test("drawer style: each glow line has its own style word, written live", func
     wordOf(Drawer, 1, "style"):Click()
     T.eq(strip(Drawer).heading, "Choose a glow style:")
     local want = { "piece", "ring" }
-    for _, st in ipairs(DUI.API.GlowStyles()) do want[#want + 1] = st.key end
-    T.eq(keysText(strip(Drawer).keys), keysText(want), "the spell's style, then the card's styles")
+    for _, st in ipairs(DUI.API.GlowStyles()) do
+        if not ns.Bridge.GLOW_MOVED[st.key] then want[#want + 1] = st.key end
+    end
+    T.eq(keysText(strip(Drawer).keys), keysText(want), "the spell's style, then the styles EZ-CDM offers")
     T.eq(stub.Text(strip(Drawer).chip.piece.text), "the spell's style")
     T.truthy(strip(Drawer).chip.piece.on, "none of its own yet")
-    pick(Drawer, "comet")
+    pick(Drawer, "twinkle")
     local profile = ns.Bridge.ProfileOf(1)
-    T.deq(EZCDMDB.glowStyle[profile][k.clap], { ready = "comet" }, "EZ-CDM's, by moment")
+    T.deq(EZCDMDB.glowStyle[profile][k.clap], { ready = "twinkle" }, "EZ-CDM's, by moment")
     T.eq(pieceOf(k.clap).glowStyle, "comet", "the piece's own style untouched")
-    T.eq(sentences(Drawer)[1].said, "When it's ready, glow with a Comet in gold.")
+    T.eq(sentences(Drawer)[1].said, "When it's ready, glow with a Twinkle in gold.")
     T.eq(blockWith(Drawer, "style").said, "Other glows use Comet.", "the piece's style, for the rest")
     -- Back to the spell's style.
     pick(Drawer, "piece")
     T.isnil(EZCDMDB.glowStyle[profile], "cleared")
     T.eq(sentences(Drawer)[1].said, "When it's ready, glow with the spell's style in gold.")
     -- Another action drops the style; a line that isn't a glow has no style word.
-    pick(Drawer, "shine")
+    pick(Drawer, "circle")
     wordOf(Drawer, 1, "action"):Click()
     pick(Drawer, "sound")
     T.isnil(wordOf(Drawer, 1, "style"), "no style on a sound")

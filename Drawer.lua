@@ -1130,18 +1130,17 @@ local function word(text, id, def, chosen, color)
         end or nil }
 end
 
--- The glow styles in the card's order and labels. piece puts "the spell's style"
--- first, for a glow line with no style of its own.
+-- The glow styles EZ-CDM offers (Bridge.OfferedStyles) in the card's order, and every
+-- style's label, so a piece's own style EZ no longer offers still reads by name.
+-- piece puts "the spell's style" first, for a glow line with no style of its own.
 local function styleChoices(piece)
     local keys, values = {}, {}
     if piece then
         keys[1] = "piece"
         values.piece = WORDING.pieceStyle
     end
-    for _, st in ipairs(Bridge.GlowStyles() or {}) do
-        keys[#keys + 1] = st.key
-        values[st.key] = st.label
-    end
+    for _, st in ipairs(Bridge.GlowStyles() or {}) do values[st.key] = st.label end
+    for _, st in ipairs(Bridge.OfferedStyles()) do keys[#keys + 1] = st.key end
     return keys, values
 end
 

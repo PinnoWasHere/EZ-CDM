@@ -26,7 +26,7 @@ TOC_TESTS = ["test_load", "test_hygiene", "test_guards"]
 SWEEP = ["test_sweep_a", "test_sweep_b", "test_sweep_c", "test_sweep_d", "test_sweep_e", "test_sweep_f",
          "test_sweep_g", "test_sweep_h", "test_sweep_i", "test_sweep_j", "test_sweep_k", "test_sweep_l",
          "test_sweep_m", "test_sweep_n", "test_sweep_o", "test_sweep_p", "test_sweep_q", "test_sweep_r",
-         "test_sweep_s", "test_sweep_t", "test_sweep_u", "test_sweep_looks_a", "test_sweep_looks_b"]
+         "test_sweep_s", "test_sweep_t", "test_sweep_u", "test_sweep_v", "test_sweep_w", "test_sweep_looks_a", "test_sweep_looks_b"]
 # A shipped file's own tests and the tests of the files built on it. Drawer reads
 # Draft; Draft reads Grammar and Effects; all of them read Bridge. Grammar reads the
 # aura links and Effects. Start reads Grammar's words, and shares the editor's hooks

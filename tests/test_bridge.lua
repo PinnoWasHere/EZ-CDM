@@ -9,11 +9,11 @@ local SHOUT, REND, BLOCK, RAGE, CLAP, WALL = 6673, 772, 2565, 2687, 6343, 871
 
 -- Daylight UI, the game's Cooldown Manager and EZ-CDM, stopped before login.
 -- opts.before(DUI, ns) runs there; opts.off turns Daylight UI's CDM off; opts.panel
--- loads its info panel too.
+-- loads its info panel, nameplates and chat too.
 local function world(opts)
     opts = opts or {}
     stub.neverSecretAuras = {}
-    local DUI, ns = stub.LoadPlugin({ actionbars = true, infopanel = opts.panel, login = false, before = function()
+    local DUI, ns = stub.LoadPlugin({ actionbars = true, infopanel = opts.panel, nameplates = opts.panel, chat = opts.panel, login = false, before = function()
         stub.SetUnits({ player = { name = "Me", class = "WARRIOR", friend = true },
                         target = { name = "Boar", reaction = 2 } })
         CW.Install({ with = SHOUT, known = { SHOUT, REND, BLOCK, RAGE, CLAP, WALL }, showAll = true })
@@ -815,18 +815,24 @@ T.test("bridge: the info panel's fold tab, with the panel loaded", function()
     T.eq(f.tab, Panel.TAB); T.eq(f.arrow, Panel.ARROW); T.eq(f.color, Panel.ARROW_COLOR)
     T.eq(f.slide, Panel.SLIDE); T.eq(f.border, Panel.XP_BORDER)
     T.eq(B.Resolve("InfoPanel.Panel.TAB"), DUI:GetModule("InfoPanel").ns.Panel.TAB, "through the module's ns")
+    -- The glow's Circling light and Breathing breath, read live.
+    T.eq(B.CircleLight(), DUI:GetModule("Nameplates").ns.Plate.CIRCLE_SCALE.size)
+    T.eq(B.Breath(), DUI:GetModule("Chat").ns.Feel.BREATH)
     noErrors()
 end)
 
 T.test("bridge: without the info panel, FoldTab is nil and EZ-CDM stays on", function()
     local _, _, B = world()
-    local panel = 0
+    local apart = 0
     for _, path in ipairs(B.OPTIONAL) do
-        if path:find("^InfoPanel%.") then panel = panel + 1 end
+        if path:find("^InfoPanel%.") or path:find("^Nameplates%.") or path:find("^Chat%.") then apart = apart + 1 end
     end
-    T.eq(#B.MissingOptional(), panel, "every info panel entry is missing; the rest is in the core and the editor")
+    T.eq(#B.MissingOptional(), apart,
+        "every info panel, nameplate and chat entry is missing; the rest is in the core and the editor")
     T.truthy(B.CanShowText())
     T.isnil(B.FoldTab())
+    T.eq(B.CircleLight(), B.CIRCLE_LIGHT, "Daylight UI's number, kept by the Bridge")
+    T.eq(B.Breath(), B.BREATH)
     T.truthy(B.Ready(), "on")
     T.eq(#ourLines(), 0, "no chat line")
     noErrors()

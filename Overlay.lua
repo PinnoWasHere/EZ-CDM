@@ -286,17 +286,42 @@ if type(API) == "table" then
     -- piece's when none), as Daylight UI's Cooldown Manager glows a piece:
     --   ring    its ring (Ring, a style not loaded, or motion off: CdmEffects.GlowStyle),
     --           API.Glow on the piece's holder, CdmEffects.SetGlow on a line's layer
-    --   lights  API.GlowAround sized by the Cooldown Manager's GLOW_SCALE
+    --   lights  API.GlowAround sized by the Cooldown Manager's GLOW_SCALE (Circling's
+    --           light at Bridge.CircleLight)
+    --   paced   Breathing, on Bridge.PacedGlow at Daylight UI's breath (Bridge.Breath)
     -- It decorates the whole piece, so it shows on either face. Alpha only, so a client
-    -- part may drive it.
+    -- part may drive it. Another line's off leaves a lit glow alone. A light glow put
+    -- out goes a frame later, so a line that lights the same target in the same pass
+    -- keeps it lit: Daylight UI's GlowAround keeps fading out when asked on again at once.
     local glowing = setmetatable({}, { __mode = "k" })
+    -- Target -> { [how] = true }: light glows going out next frame.
+    local going = setmetatable({}, { __mode = "k" })
 
-    local function glowOff(target)
+    local function lightsOff(target, how)
+        if how == "paced" then Bridge.PacedGlow(target, false) else API.GlowAround(target, false) end
+    end
+
+    local function goneNow(target)
+        local set = going[target]
+        going[target] = nil
+        for how in pairs(set or {}) do lightsOff(target, how) end
+    end
+
+    local function glowOff(target, now)
         local was = glowing[target]
         if not was then return end
         glowing[target] = nil
-        if was.how == "lights" then
-            API.GlowAround(target, false)
+        if was.how == "lights" or was.how == "paced" then
+            if now then return lightsOff(target, was.how) end
+            going[target] = going[target] or {}
+            going[target][was.how] = true
+            C_Timer.After(0, function()
+                local set = going[target]
+                if not (set and set[was.how]) then return end
+                set[was.how] = nil
+                if next(set) == nil then going[target] = nil end
+                lightsOff(target, was.how)
+            end)
         elseif was.how == "api" then
             API.Glow(was.frame, false)
         else
@@ -304,18 +329,29 @@ if type(API) == "table" then
         end
     end
 
+    local function glowClear(target)
+        glowOff(target, true)
+        goneNow(target)
+    end
+
     Conditions.RegisterEffect({
         key = "glow",
         client = true,
         anyFace = true,
         draw = function(target, on, opts)
-            if not on then return glowOff(target) end
+            if not on then
+                local was = glowing[target]
+                if was and was.line ~= nil and opts.line ~= nil and was.line ~= opts.line then return end
+                return glowOff(target)
+            end
             local c = type(opts.value) == "table" and opts.value or nil
             local frame = Conditions.FrameOf(opts.key)
             local ring = Bridge.IsRing(opts.style)
-            local how = ring and (frame and API.Attach(frame) == target and "api" or "layer") or "lights"
+            local how = ring and (frame and API.Attach(frame) == target and "api" or "layer")
+                or (opts.style == "breathe" and "paced" or "lights")
             local was = glowing[target]
             if was and was.how ~= how then glowOff(target) end
+            if going[target] then going[target][how] = nil end
             if how == "api" then
                 API.Glow(frame, true, c and c[1], c and c[2], c and c[3])
             elseif how == "layer" then
@@ -323,13 +359,14 @@ if type(API) == "table" then
             else
                 local w, h
                 if frame then w, h = frame:GetWidth(), frame:GetHeight() end
-                local size, thick = Bridge.GlowShape(target, w, h)
-                API.GlowAround(target, true, { style = opts.style, r = c and c[1], g = c and c[2], b = c and c[3],
-                    size = size, thick = thick })
+                local size, thick = Bridge.GlowShape(target, w, h, opts.style)
+                local o = { style = opts.style, r = c and c[1], g = c and c[2], b = c and c[3], size = size, thick = thick }
+                if how == "paced" then Bridge.PacedGlow(target, true, o, Bridge.Breath())
+                else API.GlowAround(target, true, o) end
             end
-            glowing[target] = { how = how, frame = frame }
+            glowing[target] = { how = how, frame = frame, line = opts.line }
         end,
-        clear = glowOff,
+        clear = glowClear,
         shown = function(target) return glowing[target] and target or nil end,
     })
     -- A sound line: Daylight UI's alert (opts.value, a Sound.AlertChoices key),

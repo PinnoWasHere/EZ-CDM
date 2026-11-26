@@ -190,7 +190,7 @@ T.test("looks migrate: the cooldownReset moment goes, and lines with it as a cla
     })
     T.deq(ns.Conditions.Rule(key), { notUsable = { glow = true } })
     T.eq(EZCDMDB.conditionsVersion, ns.Conditions.VERSION)
-    T.eq(ns.Conditions.VERSION, 4)
+    T.eq(ns.Conditions.VERSION, 5)
     T.deq(rules[key], { notUsable = { glow = true } }, "dropped as saved")
     T.isnil(rules.other, "a rule of that moment only goes whole")
     noErrors()

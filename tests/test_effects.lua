@@ -1461,11 +1461,11 @@ local function shoutWorld(style)
 end
 
 T.test("glow style: a holder's glow takes its moment's style, lit in the pass that builds it", function()
-    local _, _, AB, key, styleOf = shoutWorld("comet")
+    local _, _, AB, key, styleOf = shoutWorld("twinkle")
     local h = AB.CdmAuras.Frame(key)
-    T.eq(styleOf(AB, h), "comet", "the missing glow on the holder, as a Comet")
+    T.eq(styleOf(AB, h), "twinkle", "the missing glow on the holder, as a Twinkle")
     pass(AB)
-    T.eq(styleOf(AB, h), "comet", "the next pass keeps it")
+    T.eq(styleOf(AB, h), "twinkle", "the next pass keeps it")
     noErrors()
     -- With no style of its own, Daylight UI's ring, as before.
     local _, _, AB2, key2, styleOf2 = shoutWorld(nil)
@@ -1474,7 +1474,7 @@ T.test("glow style: a holder's glow takes its moment's style, lit in the pass th
 end)
 
 T.test("glow style: one pass with two moments uses the right style for each", function()
-    local _, ns, AB, shout, styleOf = shoutWorld("shine")
+    local _, ns, AB, shout, styleOf = shoutWorld("circle")
     local rend = CW.ID(REND, ESSENTIAL)
     AB.CdmData.AddPiece(AB.CdmData.Ensure(1), rend, "icon", 60, 0)
     pass(AB)
@@ -1485,12 +1485,12 @@ T.test("glow style: one pass with two moments uses the right style for each", fu
     local h = AB.CdmAuras.Frame(shout)
     -- One pass tells both: Battle Shout's holder is missing, Rend about to fall off.
     pass(AB)
-    T.eq(styleOf(AB, h), "shine", "Battle Shout: missing")
+    T.eq(styleOf(AB, h), "circle", "Battle Shout: missing")
     T.eq(styleOf(AB, rend), "breathe", "Rend: about to fall off")
     -- A cooldown event re-asks Rend's lit glow outside a pass.
     AB.CdmEffects.UpdateAll()
     T.eq(styleOf(AB, rend), "breathe")
-    T.eq(styleOf(AB, h), "shine")
+    T.eq(styleOf(AB, h), "circle")
     stub.LeaveCombat()
     noErrors()
 end)

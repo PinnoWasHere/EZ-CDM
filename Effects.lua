@@ -709,9 +709,31 @@ function Effects.Heard(key) return heardFor[key] end
 -- The moments a glow line names (Grammar.GLOW_ORDER).
 Effects.STYLE_MOMENTS = { ready = true, usable = true, up = true, missing = true, recast = true }
 
+-- The store's form. 2: Comet and Shine move to Circling and Ring (Bridge.GLOW_MOVED).
+Effects.STYLE_VERSION = 2
+
+-- Brings saved styles to STYLE_VERSION: as the saved variables load, and before any read.
+-- An empty store has nothing to move and stays unmarked, so a read writes nothing.
+local function moveStyles()
+    if type(EZCDMDB) ~= "table" or type(EZCDMDB.glowStyle) ~= "table" then return end
+    if EZCDMDB.glowStyleVersion == Effects.STYLE_VERSION or next(EZCDMDB.glowStyle) == nil then return end
+    local moved = Bridge.GLOW_MOVED
+    for _, byKey in pairs(EZCDMDB.glowStyle) do
+        for _, styles in pairs(type(byKey) == "table" and byKey or {}) do
+            if type(styles) == "table" then
+                for m, s in pairs(styles) do
+                    if moved[s] then styles[m] = moved[s] end
+                end
+            end
+        end
+    end
+    EZCDMDB.glowStyleVersion = Effects.STYLE_VERSION
+end
+
 local function styleStore()
     if type(EZCDMDB) ~= "table" then EZCDMDB = {} end
     if type(EZCDMDB.glowStyle) ~= "table" then EZCDMDB.glowStyle = {} end
+    moveStyles()
     return EZCDMDB.glowStyle
 end
 
@@ -744,6 +766,7 @@ function Effects.SetStyles(g, key, styles)
     local profile, why = Bridge.SavedProfile(g)
     if not profile then return false, why end
     local all = styleStore()
+    EZCDMDB.glowStyleVersion = Effects.STYLE_VERSION
     all[profile] = all[profile] or {}
     all[profile][key] = cleanStyles(styles)
     if next(all[profile]) == nil then all[profile] = nil end
@@ -879,7 +902,10 @@ events:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
 events:RegisterEvent("PLAYER_TARGET_CHANGED")
 events:SetScript("OnEvent", function(_, event, name)
     if event == "ADDON_LOADED" then
-        if name == "EZ-CDM" then dropProcRings() end
+        if name == "EZ-CDM" then
+            dropProcRings()
+            moveStyles()
+        end
         return
     end
     if event == "PLAYER_TARGET_CHANGED" then

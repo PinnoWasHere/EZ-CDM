@@ -148,6 +148,8 @@ Bridge.NEEDS = {
     "ActionBars.Ping.FLASH_ALPHA",
     "ActionBars.Skin.COOLDOWN_SIZE",
     "DaylightUI.Style.SetTextSize",
+    -- Overlay: a Breathing glow on a host EZ-CDM keeps, so its breath can be its own
+    "DaylightUI.Widgets.GlowAround",
 }
 
 -- NEEDS entries that are tables kept by a lowercase name.
@@ -178,6 +180,10 @@ Bridge.OPTIONAL = {
     "ActionBars.CdmEditor.Spells",
     "ActionBars.CdmEditor.Add",
     "ActionBars.CdmData.RemovePiece",
+    -- The glow's Circling light and Breathing breath (Bridge.CircleLight, Bridge.Breath).
+    -- Without them, Daylight UI's numbers as the Bridge keeps them.
+    "Nameplates.Plate.CIRCLE_SCALE",
+    "Chat.Feel.BREATH",
 }
 
 -- The table a root name stands for, or nil.
@@ -476,6 +482,19 @@ function Bridge.GlowStyles()
             return out
         end
     end
+end
+
+-- Styles EZ-CDM no longer offers, and the style a saved one moves to (owner,
+-- 2026-11-25). Comet looks like Circling, and Shine is too faint on an icon.
+Bridge.GLOW_MOVED = { comet = "circle", shine = "ring" }
+
+-- The glow styles EZ-CDM's strips offer: GlowStyles less GLOW_MOVED.
+function Bridge.OfferedStyles()
+    local out = {}
+    for _, st in ipairs(Bridge.GlowStyles() or {}) do
+        if not Bridge.GLOW_MOVED[st.key] then out[#out + 1] = st end
+    end
+    return out
 end
 
 -- ---------------------------------------------------------------------
@@ -1067,8 +1086,9 @@ function Bridge.ShellColor(s, color) return call("DaylightUI.Style.SetShellColor
 
 -- The light size and strip width the Cooldown Manager gives a glow on a piece w by h
 -- (CdmEffects.GLOW_SCALE of the short side, the strip never under 2 px, as
--- styleGlow lays it). nil for a size that isn't a plain positive number.
-function Bridge.GlowShape(frame, w, h)
+-- styleGlow lays it). Circling's light is Bridge.CircleLight instead. nil for a size
+-- that isn't a plain positive number.
+function Bridge.GlowShape(frame, w, h, style)
     local sc = Bridge.Resolve("ActionBars.CdmEffects.GLOW_SCALE")
     local px = Bridge.Resolve("DaylightUI.Pixel.Px")
     if type(sc) ~= "table" or type(px) ~= "function" then return nil end
@@ -1076,7 +1096,64 @@ function Bridge.GlowShape(frame, w, h)
     if type(w) ~= "number" or type(h) ~= "number" or secret(w) or secret(h) then return nil end
     local short = math.min(w, h)
     if short <= 0 then return nil end
-    return short * sc.size, math.max(px(frame, 2), short * sc.thick)
+    local size = style == "circle" and Bridge.CircleLight() or sc.size
+    return short * size, math.max(px(frame, 2), short * sc.thick)
+end
+
+-- Circling's light on an EZ glow, a share of the short side: the nameplate target's
+-- circling light (Plate.CIRCLE_SCALE.size), brighter than the Cooldown Manager's 0.7.
+-- Owner, 2026-11-25. CIRCLE_LIGHT is Daylight UI's number for when nameplates are off.
+Bridge.CIRCLE_LIGHT = 0.9
+function Bridge.CircleLight()
+    local sc = Bridge.Resolve("Nameplates.Plate.CIRCLE_SCALE")
+    local v = type(sc) == "table" and sc.size
+    return type(v) == "number" and v > 0 and v or Bridge.CIRCLE_LIGHT
+end
+
+-- Seconds one breath of an EZ Breathing glow takes: Daylight UI's breath, the unread
+-- chat tab's pulse (Chat Feel.BREATH), quicker than the Breathing glow's 2.8 s lap.
+-- Owner, 2026-11-25. BREATH is Daylight UI's number for when chat is off.
+Bridge.BREATH = 2.4
+function Bridge.Breath()
+    local v = Bridge.Resolve("Chat.Feel.BREATH")
+    return type(v) == "number" and v > 0 and v or Bridge.BREATH
+end
+
+-- A glow style round frame on a host EZ-CDM keeps, laid as API.GlowAround lays one
+-- (API.lua:1092-1109), one lap in lap seconds. Workaround: API.GlowAround takes no
+-- lap, and Widgets.GLOW_LAP is every glow's (docs/reference/dui-prs/glow-lap.md).
+-- The lap rides on the host's own clock (glowDriver, glowAt, glowStyle).
+local paced = setmetatable({}, { __mode = "k" })
+function Bridge.PacedGlow(frame, on, opts, lap)
+    local glow = Bridge.Resolve("DaylightUI.Widgets.GlowAround")
+    local px = Bridge.Resolve("DaylightUI.Pixel.Px")
+    if type(glow) ~= "function" or type(px) ~= "function" or type(frame) ~= "table" then return false end
+    opts = type(opts) == "table" and opts or {}
+    local host = paced[frame]
+    if not host then
+        if on == false then return true end
+        host = {}
+        paced[frame] = host
+    end
+    local num = function(x) return type(x) == "number" and x or nil end
+    local c
+    if num(opts.r) and num(opts.g) and num(opts.b) then c = { opts.r, opts.g, opts.b } end
+    glow(host, on ~= false, {
+        style = opts.style, frame = frame, parent = frame, layer = "OVERLAY", sub = 7,
+        inset = 0, thick = num(opts.thick) or px(frame, 2), size = num(opts.size), lo = c,
+    })
+    host.ezLap = num(lap)
+    local d = host.glowDriver
+    if d and not host.ezPaced then
+        host.ezPaced = true
+        d:HookScript("OnUpdate", function(_, dt)
+            local laps = Bridge.Resolve("DaylightUI.Widgets.GLOW_LAP")
+            local base = type(laps) == "table" and laps[host.glowStyle]
+            if not (host.ezLap and type(base) == "number" and type(host.glowAt) == "number") then return end
+            host.glowAt = (host.glowAt + dt * (1 / host.ezLap - 1 / base)) % 1
+        end)
+    end
+    return true
 end
 
 -- Whether Daylight UI's Cooldown Manager draws a glow style as its ring: Ring itself,
