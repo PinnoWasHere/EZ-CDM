@@ -1882,6 +1882,12 @@ Grammar.WORDING = {
     },
     -- What's New, newest first, from CHANGELOG.md.
     news = {
+        { version = "1.1.0", lines = {
+            "One line can do several things: \"When I can't cast it, glow and pulse it.\"",
+            "Click \"and …\" after what happens to add up to three actions.",
+            "Lines with the same moment now read as one sentence. They work as before.",
+            "Right-click one action to take just that one away.",
+        } },
         { version = "1.0.0", lines = {
             "Join conditions with \"and\": \"When it's ready and I'm in combat, glow.\"",
             "New conditions: target, range, health, power, forms, totems, weapon buffs.",

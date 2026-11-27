@@ -36,6 +36,8 @@ needs a newer Daylight UI.
 5. Click a word to change it, or "+ add a line" for a new one. "+ a recipe" adds a
    ready-made set of lines in one click. Right-click a chosen word to clear it.
 6. Click "and …" after a moment to add another condition to the line.
+7. Click "and …" after what happens to add another action, up to three on a line: "When
+   I can't cast it, glow and pulse it". Right-click one action to take just that one away.
 
 EZ-CDM's settings are on its own page under Plugins in `/dui`.
 
@@ -137,7 +139,6 @@ Alerts flares. Its 15-second mana buff is a separate buff you can place and glow
 - Sharing one spell's sentences as a text string.
 - A progress fill over an icon.
 - Icons at your cursor.
-- More than one thing on a line: "When I can't cast it, pulse it and glow".
 - Shield charges in a fight, such as Lightning Shield's.
 
 ### Contributing

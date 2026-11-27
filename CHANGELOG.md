@@ -1,4 +1,4 @@
-# EZ-CDM 1.1.0 (unreleased)
+# EZ-CDM 1.1.0
 
 One line can do several things: "When I can't cast it, glow and pulse it."
 
