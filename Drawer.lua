@@ -633,6 +633,26 @@ local function refusal(why, report)
     return { why = why, text = text, notes = notes }
 end
 
+-- The lines of a row (Grammar.Rows) in rules, in reading order.
+local function rowLines(rules, row)
+    local out = {}
+    for p, x in ipairs(row) do out[p] = rules.lines[x] end
+    return out
+end
+
+-- A row's id: its lowest line number. Its moment, number and clause words carry it.
+local function rowId(row)
+    local at = row[1]
+    for _, x in ipairs(row) do
+        if x < at then at = x end
+    end
+    return at
+end
+
+-- The words of a line that belong to its whole row, not to one action.
+local ROW_WORDS = { moment = true, n = true, ["and"] = true, also = true, lead = true }
+local function rowWord(what) return ROW_WORDS[what] or what:match("^clause%d") or what:match("^cn%d") end
+
 -- Points the open strip at its word after a write. A line's word ids carry the
 -- line's index, and the grammar can move the line, so target (the line the strip
 -- is on) is found again. A group or form word's id carries the word, so it
@@ -649,9 +669,22 @@ local function follow(target, open)
                 if l == target then line = last + p end
             end
             if not line then
-                for i = 1, last do
-                    local l = rules.lines[i]
-                    if l.moment == target.moment and l.action == target.action then line = i; break end
+                local key = Grammar.RowKey(target)
+                for pass = 1, 2 do
+                    for i = 1, last do
+                        local l = rules.lines[i]
+                        if not line and l.moment == target.moment and l.action == target.action
+                            and (pass == 2 or Grammar.RowKey(l) == key) then line = i end
+                    end
+                end
+            end
+            -- A word of the whole line (its moment, clauses, number) goes by the line's
+            -- lowest number (Grammar.Rows).
+            if line and rowWord(what) then
+                for _, row in ipairs(Grammar.Rows(rules.lines, Grammar.Kind(shown))) do
+                    for _, x in ipairs(row) do
+                        if x == line then line = rowId(row) end
+                    end
                 end
             end
         end
@@ -933,7 +966,7 @@ local function fillStrip()
         -- Parts the line can't take with what it holds, and why.
         for _, r in ipairs(slot.refused or {}) do
             words(s, { { text = WORDING.neverPart:format(r.words or Grammar.ClauseWords(r.cond), r.why), size = "small",
-                color = "LABEL" } }).never = r.cond
+                color = "LABEL" } }).never = r.cond or r.action
         end
     else
         focusedFor = nil
@@ -977,31 +1010,6 @@ local function clauseNames(kind)
     for _, c in ipairs(ns.Conditions.List()) do out[c.key] = Grammar.ClauseWords(c.key, nil, kind) end
     out[Drawer.DROP] = WORDING.dropClause
     return out
-end
-
--- The clauses line may take at clause j (a new one past the end): the ones open
--- before it, less those after it, with its own first.
-local function clauseChoices(kind, line, j)
-    local clauses = type(line.clauses) == "table" and line.clauses or {}
-    local before = {}
-    for x = 1, j - 1 do before[x] = clauses[x] end
-    local view = { drawer = true, more = more() }
-    local probe = { moment = line.moment, action = line.action, clauses = before }
-    local later = {}
-    for x = j + 1, #clauses do later[clauses[x].cond] = true end
-    local keys = {}
-    if clauses[j] then keys[1] = clauses[j].cond end
-    for _, k in ipairs(Grammar.Clauses(kind, probe, view)) do
-        if not later[k] and k ~= keys[1] then keys[#keys + 1] = k end
-    end
-    local refused = {}
-    for _, r in ipairs(Grammar.ClauseRefusals(kind, probe, view)) do
-        if not later[r.cond] then
-            r.words = Grammar.ClauseWords(r.cond, nil, kind)
-            refused[#refused + 1] = r
-        end
-    end
-    return keys, ns.Conditions.AnyAdvanced() and Grammar.TakesClauses(probe, kind), refused
 end
 
 -- Puts cond in as clause j; a client one ends the line, so the clauses after it go.
@@ -1153,11 +1161,102 @@ local function numberWord(id, key, n, set, off)
         clear = function() edit(function(r) set(r, nil) end) end }, true, off)
 end
 
-local function sentence(s, kind, rules, i, line)
+-- Each of a row's lines in r, by its line numbers.
+local function eachOf(r, row, fn)
+    for _, x in ipairs(row) do fn(r.lines[x]) end
+end
+
+-- Removes the lines numbered in list from r.
+local function removeLines(r, list)
+    local sorted = {}
+    for p, x in ipairs(list) do sorted[p] = x end
+    table.sort(sorted, function(a, b) return a > b end)
+    for _, x in ipairs(sorted) do table.remove(r.lines, x) end
+end
+
+-- The clauses a row may take at clause j (a new one past the end): those every
+-- action's line may take (Grammar.RowClauses) and open before it, less those after
+-- it, with its own first; the ones refused, with why.
+local function rowClauseChoices(kind, lines, j)
+    local first = lines[1]
+    local clauses = type(first.clauses) == "table" and first.clauses or {}
+    local before = {}
+    for x = 1, j - 1 do before[x] = clauses[x] end
+    local view = { drawer = true, more = more() }
+    local probes = {}
+    for p, l in ipairs(lines) do probes[p] = { moment = l.moment, action = l.action, clauses = before } end
+    local later = {}
+    for x = j + 1, #clauses do later[clauses[x].cond] = true end
+    local keys = {}
+    if clauses[j] then keys[1] = clauses[j].cond end
+    local offered, refusedAll = Grammar.RowClauses(kind, probes, view)
+    for _, k in ipairs(offered) do
+        if not later[k] and k ~= keys[1] then keys[#keys + 1] = k end
+    end
+    local refused = {}
+    for _, r in ipairs(refusedAll) do
+        if not later[r.cond] then
+            r.words = Grammar.ClauseWords(r.cond, nil, kind)
+            refused[#refused + 1] = r
+        end
+    end
+    return keys, ns.Conditions.AnyAdvanced() and Grammar.RowTakesClauses(probes, kind), refused
+end
+
+-- A row on a new moment: each action that fits it stays, once, and with none the
+-- moment's first action. The clauses every kept action keeps stay for all.
+local function retargetRow(r, row, m, kind, actions)
+    local keep, drop = {}, {}
+    for _, x in ipairs(row) do
+        local a = r.lines[x].action
+        local fine = a == nil or Grammar.Fits(kind, m, a)
+        for _, y in ipairs(keep) do
+            if fine and a ~= nil and Grammar.ActionsClash({ moment = m, action = r.lines[y].action },
+                { moment = m, action = a }) then fine = false end
+        end
+        if fine then keep[#keep + 1] = x else drop[#drop + 1] = x end
+    end
+    if #keep == 0 then
+        keep[1] = table.remove(drop, 1)
+        r.lines[keep[1]].action = actions[m] and actions[m][1]
+    end
+    local fewest
+    for _, x in ipairs(keep) do
+        local l = r.lines[x]
+        retarget(l, m, l.action, kind)
+        if m == "recast" and l.at == nil then l.at = leadOf(r) end
+        if Grammar.RingOnly(kind, m) then l.style = nil end
+        local n = type(l.clauses) == "table" and #l.clauses or 0
+        if not fewest or n < fewest.n then fewest = { n = n, clauses = l.clauses } end
+    end
+    for _, x in ipairs(keep) do r.lines[x].clauses = fewest and copy(fewest.clauses) or nil end
+    removeLines(r, drop)
+end
+
+-- Another action on line's line: its moment, number, clauses and lead, a sound's
+-- first sound. One whose words or icon aren't picked yet waits with its blank open.
+local function addAction(line, a)
+    local new = { moment = line.moment, action = a, n = line.n, at = line.at, clauses = copy(line.clauses) }
+    if a == "sound" then new.value = firstSound() end
+    edit(function(r) r.lines[#r.lines + 1] = new end)
+    local valued = Grammar.ValueKind(new.moment, a)
+    if valued ~= "text" and valued ~= "icon" then return end
+    for p, l in ipairs(pending) do
+        if l == new then
+            local _, _, last = current()
+            openNext, slot = "line:" .. (last + p) .. ":" .. valued, nil
+            Drawer.Refresh()
+        end
+    end
+end
+
+local function sentence(s, kind, rules, row)
     local moments, actions, any, hasMore = wordsFor(kind)
+    local lines = rowLines(rules, row)
+    local i, line = row[1], lines[1]
     local finished = line.moment ~= nil and line.action ~= nil
     local off = finished and not Grammar.Fits(kind, line.moment, line.action) and "OFF" or nil
-    local id = "line:" .. i .. ":"
+    local id = "line:" .. rowId(row) .. ":"
     -- Daylight UI's own ready glow and sound take "and" too (Grammar.ClauseRoot).
     local ck = Grammar.ClauseRoot(line, kind)
     local C = ns.Conditions
@@ -1168,50 +1267,48 @@ local function sentence(s, kind, rules, i, line)
     local momentDef = {
         kind = "moment", keys = moments, values = momentNames(kind), current = line.moment, more = hasMore,
         onPick = function(m)
-            edit(function(r)
-                -- The action stays while it fits the new moment; a blank stays blank.
-                local l = r.lines[i]
-                local a = l.action
-                if a ~= nil and not Grammar.Fits(kind, m, a) then a = actions[m][1] end
-                retarget(l, m, a, kind)
-                if m == "recast" and l.at == nil then l.at = leadOf(r) end
-                if Grammar.RingOnly(kind, m) then l.style = nil end
-            end)
+            -- Each action stays while it fits the new moment; a blank stays blank.
+            edit(function(r) retargetRow(r, row, m, kind, actions) end)
         end,
-        clear = function() edit(function(r) retarget(r.lines[i], nil, r.lines[i].action, kind) end) end }
+        clear = function() edit(function(r) eachOf(r, row, function(l) retarget(l, nil, l.action, kind) end) end) end }
     local nWord = mk and C.Get(mk).param and numberWord(id .. "n", mk, line.n,
-        function(r, x) r.lines[i].n = x end, off)
+        function(r, x) eachOf(r, row, function(l) l.n = x end) end, off)
     for _, p in ipairs(withNumber(phrase, nWord, function(text)
         return word(text, id .. "moment", momentDef, line.moment ~= nil, off)
     end)) do pieces[#pieces + 1] = p end
-    -- "and" clauses, each its own word with its number, then the and … blank.
+    -- "and" clauses, each its own word with its number, then the and … blank. Each
+    -- goes on every action's line.
     local clauses = ck and type(line.clauses) == "table" and line.clauses or {}
     for j, cl in ipairs(clauses) do
-        local keys, moreWords, refused = clauseChoices(kind, line, j)
+        local keys, moreWords, refused = rowClauseChoices(kind, lines, j)
         keys[#keys + 1] = Drawer.DROP
         local def = { kind = "clause", keys = keys, values = clauseNames(kind), current = cl.cond, more = moreWords,
             refused = refused,
             onPick = function(k)
                 edit(function(r)
-                    if k == Drawer.DROP then dropClause(r.lines[i], j) else setClause(r.lines[i], j, k) end
+                    eachOf(r, row, function(l)
+                        if k == Drawer.DROP then dropClause(l, j) else setClause(l, j, k) end
+                    end)
                 end)
             end,
-            clear = function() edit(function(r) dropClause(r.lines[i], j) end) end }
+            clear = function() edit(function(r) eachOf(r, row, function(l) dropClause(l, j) end) end) end }
         local c = C.Get(cl.cond)
         local w = c and c.param and numberWord(id .. "cn" .. j, cl.cond, cl.n,
-            function(r, x) r.lines[i].clauses[j].n = x end, off)
+            function(r, x) eachOf(r, row, function(l) l.clauses[j].n = x end) end, off)
         pieces[#pieces + 1] = { text = " " .. WORDING.andWord .. " " }
         for _, p in ipairs(withNumber(Grammar.ClauseWords(cl.cond, c and Grammar.NUMBER_MARK, kind), w, function(text)
             return word(text, id .. "clause" .. j, def, true, off)
         end)) do pieces[#pieces + 1] = p end
     end
-    if finished and ck then
-        local keys, moreWords, refused = clauseChoices(kind, line, #clauses + 1)
+    if finished and ck and Grammar.RowTakesClauses(lines, kind) then
+        local keys, moreWords, refused = rowClauseChoices(kind, lines, #clauses + 1)
         if #keys > 0 or moreWords or #refused > 0 then
             pieces[#pieces + 1] = { text = " ", aside = true }
             local chip = word(WORDING.addClause, id .. "and", { kind = "and", keys = keys, values = clauseNames(kind),
                 more = moreWords, refused = refused,
-                onPick = function(k) edit(function(r) setClause(r.lines[i], #clauses + 1, k) end) end },
+                onPick = function(k)
+                    edit(function(r) eachOf(r, row, function(l) setClause(l, #clauses + 1, k) end) end)
+                end },
                 false)
             chip.aside = true
             pieces[#pieces + 1] = chip
@@ -1229,145 +1326,199 @@ local function sentence(s, kind, rules, i, line)
         pieces[#pieces + 1] = { text = after }
     end
     pieces[#pieces + 1] = { text = joint }
-    pieces[#pieces + 1] = word(line.action and (line.action == "sound" and "play"
-        or Grammar.ActionWords(line.moment, line.action))
-        or WORDING.chooseWhat, id .. "action", {
-        kind = "action", keys = line.moment and actions[line.moment] or any, values = Grammar.ActionNames(line.moment),
-        current = line.action,
-        onPick = function(a) edit(function(r) retarget(r.lines[i], r.lines[i].moment, a, kind) end) end,
-        clear = function() edit(function(r) retarget(r.lines[i], r.lines[i].moment, nil, kind) end) end },
-        line.action ~= nil, off)
-    local valued = line.moment ~= nil and line.action ~= nil and Grammar.ValueKind(line.moment, line.action) or nil
-    if line.action == "sound" then
-        local values, keys = sounds()
-        local name = values[line.value]
-        pieces[#pieces + 1] = { text = " " }
-        pieces[#pieces + 1] = word(type(name) == "string" and name or tostring(line.value), id .. "sound", {
-            kind = "sound", keys = keys, values = values, current = line.value,
-            onPick = function(k) edit(function(r) r.lines[i].value = k end) end }, true, off)
-    elseif valued == "text" then
-        pieces[#pieces + 1] = { text = " " }
-        pieces[#pieces + 1] = word(type(line.value) == "string" and ("\"" .. line.value .. "\"") or WORDING.chooseText,
-            id .. "text", {
-            kind = "text", keys = {}, values = {}, current = line.value,
-            onPick = function(t) edit(function(r) r.lines[i].value = t end) end }, line.value ~= nil, off)
-    elseif valued == "icon" then
-        pieces[#pieces + 1] = { text = " " }
-        pieces[#pieces + 1] = word(line.value ~= nil and WORDING.iconPicked or WORDING.chooseIcon, id .. "icon", {
-            kind = "icon", keys = { "pick" }, values = { pick = Drawer.COLOR_WORDS.pick }, current = nil,
-            onPick = function()
-                Bridge.PickIcon({ title = WORDING.iconTitle, first = { Bridge.SpellTexture(shown) },
-                    current = line.value,
-                    onPick = function(icon) edit(function(r) r.lines[i].value = icon end) end })
-            end, writes = false }, line.value ~= nil, off)
-    elseif valued == "flare" then
-        -- " (Sunrise, Pulse, Proc Alerts' sound)": each pick a word of its own. A pick
-        -- back at Proc Alerts' own is left out of the value.
-        local design, anim, sound = Grammar.FlarePicks(line.value)
-        local function pick(field, k, own)
-            edit(function(r)
-                local v = {}
-                for f, x in pairs(type(r.lines[i].value) == "table" and r.lines[i].value or {}) do v[f] = x end
-                if k == own then v[field] = nil else v[field] = k end
-                r.lines[i].value = next(v) and v or nil
-            end)
+    -- Each action with its own picks: "A", "A and B", "A, B, and C".
+    for p, x in ipairs(row) do
+        local i, line = x, rules.lines[x]
+        local id = "line:" .. i .. ":"
+        if p > 1 then
+            local sep = #row == 2 and " " .. WORDING.andWord .. " "
+                or (p == #row and ", " .. WORDING.andWord .. " " or ", ")
+            pieces[#pieces + 1] = { text = sep }
         end
-        local L = ns.Looks
-        local sv, sk = sounds()
-        local soundKeys, soundValues = { Drawer.FLARE_SOUND }, { [Drawer.FLARE_SOUND] = WORDING.flareSound }
-        for _, k in ipairs(sk) do
-            soundKeys[#soundKeys + 1] = k
-            soundValues[k] = sv[k]
+        -- The actions this one may become: any fitting the moment alone, else those that
+        -- can stand with the line's other actions.
+        local keys, refused = line.moment and actions[line.moment] or any, nil
+        if #row > 1 then
+            local others, rest = {}, {}
+            for _, y in ipairs(row) do
+                if y ~= x then others[#others + 1] = rules.lines[y] end
+            end
+            for _, l in ipairs(rules.lines) do
+                if l ~= line then rest[#rest + 1] = l end
+            end
+            local can
+            can, refused = Grammar.LineActions(kind, others, rest)
+            keys = { line.action }
+            for _, a in ipairs(can) do keys[#keys + 1] = a end
+            for _, r in ipairs(refused) do r.words = Grammar.ActionWords(line.moment, r.action) end
         end
-        local soundNow = sound or Drawer.FLARE_SOUND
-        pieces[#pieces + 1] = { text = " (" }
-        pieces[#pieces + 1] = word(WORDING.flareDesigns[design] or design, id .. "design", {
-            kind = "design", keys = L.FLARE_DESIGNS, values = WORDING.flareDesigns, current = design,
-            onPick = function(k) pick("design", k, L.FLARE_DESIGN) end }, true, off)
-        pieces[#pieces + 1] = { text = ", " }
-        pieces[#pieces + 1] = word(WORDING.flareAnims[anim] or anim, id .. "anim", {
-            kind = "anim", keys = L.FLARE_ANIMS, values = WORDING.flareAnims, current = anim,
-            onPick = function(k) pick("anim", k, L.FLARE_ANIM) end }, true, off)
-        pieces[#pieces + 1] = { text = ", " }
-        local said = soundValues[soundNow]
-        pieces[#pieces + 1] = word(type(said) == "string" and said or tostring(soundNow), id .. "flareSound", {
-            kind = "flareSound", keys = soundKeys, values = soundValues, current = soundNow,
-            onPick = function(k) pick("sound", k, Drawer.FLARE_SOUND) end }, true, off)
-        pieces[#pieces + 1] = { text = ")" }
-    elseif line.action == "glow" or line.action == "tint" or valued == "color" then
-        -- A glow's own style, unless it is EZ-CDM's combat ring.
-        if line.action == "glow" and line.moment ~= nil and not Grammar.RingOnly(kind, line.moment) then
-            local keys, values = styleChoices(true)
-            local text = (line.style ~= nil and WORDING.lineStyle or WORDING.lineStyleNone):format("\1")
-            local before, after = text:match("^(.-)\1(.*)$")
-            pieces[#pieces + 1] = { text = " " .. before }
-            pieces[#pieces + 1] = word(line.style ~= nil and (values[line.style] or tostring(line.style))
-                or WORDING.pieceStyle, id .. "style", {
-                kind = "style", keys = keys, values = values, current = line.style or "piece",
-                onPick = function(k) edit(function(r) r.lines[i].style = k ~= "piece" and k or nil end) end,
-                clear = line.style ~= nil and function() edit(function(r) r.lines[i].style = nil end) end or nil },
-                true, off)
-            if after ~= "" then pieces[#pieces + 1] = { text = after } end
-        end
-        -- The sweep's color keeps an alpha, as the card's Highlight color does.
-        local alpha = line.action == "tint"
-        pieces[#pieces + 1] = { text = " in " }
-        pieces[#pieces + 1] = word(Draft.ColorName(line.value), id .. "color", {
-            kind = "color", keys = { "accent", "pick" }, values = Drawer.COLOR_WORDS,
-            current = line.value == nil and "accent" or nil,
-            onPick = function(k)
-                if k == "accent" then
-                    edit(function(r) r.lines[i].value = nil end)
-                    return
-                end
-                local start = line.value or { API.Accent() }
-                Bridge.PickColor({ start[1], start[2], start[3], alpha and start[4] or nil }, function(c)
-                    edit(function(r) r.lines[i].value = { c[1], c[2], c[3], alpha and c[4] or nil } end)
-                end, alpha)
-            end, writes = false,
-            clear = line.value ~= nil and function() edit(function(r) r.lines[i].value = nil end) end or nil },
-            true, off)
-    end
-    if line.action == "numbers" then
-        -- The numbers' color (nil = Daylight UI's own) and their seconds.
-        local daylight = Bridge.LookDefault("lowColor")
-        pieces[#pieces + 1] = { text = " in " }
-        pieces[#pieces + 1] = word(Draft.ColorName(line.value or daylight), id .. "color", {
-            kind = "color", keys = { "default", "pick" },
-            values = { default = WORDING.daylightColor, pick = Drawer.COLOR_WORDS.pick },
-            current = line.value == nil and "default" or nil,
-            onPick = function(k)
-                if k == "default" then
-                    edit(function(r) r.lines[i].value = nil end)
-                    return
-                end
-                local start = line.value or daylight or { API.Accent() }
-                Bridge.PickColor({ start[1], start[2], start[3] }, function(c)
-                    edit(function(r) r.lines[i].value = { c[1], c[2], c[3] } end)
+        pieces[#pieces + 1] = word(line.action and (line.action == "sound" and "play"
+            or Grammar.ActionWords(line.moment, line.action))
+            or WORDING.chooseWhat, id .. "action", {
+            kind = "action", keys = keys, values = Grammar.ActionNames(line.moment), refused = refused,
+            current = line.action,
+            onPick = function(a) edit(function(r) retarget(r.lines[i], r.lines[i].moment, a, kind) end) end,
+            -- One of several actions goes; a line's only action goes back to its blank.
+            clear = function()
+                edit(function(r)
+                    if #row > 1 then
+                        table.remove(r.lines, i)
+                    else
+                        retarget(r.lines[i], r.lines[i].moment, nil, kind)
+                    end
                 end)
-            end, writes = false }, true, off)
-        local at = line.at or Bridge.LookDefault("lowAt")
-        local keys, values = {}, {}
-        for n = 1, 10 do
-            keys[n] = n
-            values[n] = Grammar.Seconds(n)
+            end },
+            line.action ~= nil, off)
+        local valued = line.moment ~= nil and line.action ~= nil and Grammar.ValueKind(line.moment, line.action) or nil
+        if line.action == "sound" then
+            local values, keys = sounds()
+            local name = values[line.value]
+            pieces[#pieces + 1] = { text = " " }
+            pieces[#pieces + 1] = word(type(name) == "string" and name or tostring(line.value), id .. "sound", {
+                kind = "sound", keys = keys, values = values, current = line.value,
+                onPick = function(k) edit(function(r) r.lines[i].value = k end) end }, true, off)
+        elseif valued == "text" then
+            pieces[#pieces + 1] = { text = " " }
+            pieces[#pieces + 1] = word(type(line.value) == "string" and ("\"" .. line.value .. "\"") or WORDING.chooseText,
+                id .. "text", {
+                kind = "text", keys = {}, values = {}, current = line.value,
+                onPick = function(t) edit(function(r) r.lines[i].value = t end) end }, line.value ~= nil, off)
+        elseif valued == "icon" then
+            pieces[#pieces + 1] = { text = " " }
+            pieces[#pieces + 1] = word(line.value ~= nil and WORDING.iconPicked or WORDING.chooseIcon, id .. "icon", {
+                kind = "icon", keys = { "pick" }, values = { pick = Drawer.COLOR_WORDS.pick }, current = nil,
+                onPick = function()
+                    Bridge.PickIcon({ title = WORDING.iconTitle, first = { Bridge.SpellTexture(shown) },
+                        current = line.value,
+                        onPick = function(icon) edit(function(r) r.lines[i].value = icon end) end })
+                end, writes = false }, line.value ~= nil, off)
+        elseif valued == "flare" then
+            -- " (Sunrise, Pulse, Proc Alerts' sound)": each pick a word of its own. A pick
+            -- back at Proc Alerts' own is left out of the value.
+            local design, anim, sound = Grammar.FlarePicks(line.value)
+            local function pick(field, k, own)
+                edit(function(r)
+                    local v = {}
+                    for f, x in pairs(type(r.lines[i].value) == "table" and r.lines[i].value or {}) do v[f] = x end
+                    if k == own then v[field] = nil else v[field] = k end
+                    r.lines[i].value = next(v) and v or nil
+                end)
+            end
+            local L = ns.Looks
+            local sv, sk = sounds()
+            local soundKeys, soundValues = { Drawer.FLARE_SOUND }, { [Drawer.FLARE_SOUND] = WORDING.flareSound }
+            for _, k in ipairs(sk) do
+                soundKeys[#soundKeys + 1] = k
+                soundValues[k] = sv[k]
+            end
+            local soundNow = sound or Drawer.FLARE_SOUND
+            pieces[#pieces + 1] = { text = " (" }
+            pieces[#pieces + 1] = word(WORDING.flareDesigns[design] or design, id .. "design", {
+                kind = "design", keys = L.FLARE_DESIGNS, values = WORDING.flareDesigns, current = design,
+                onPick = function(k) pick("design", k, L.FLARE_DESIGN) end }, true, off)
+            pieces[#pieces + 1] = { text = ", " }
+            pieces[#pieces + 1] = word(WORDING.flareAnims[anim] or anim, id .. "anim", {
+                kind = "anim", keys = L.FLARE_ANIMS, values = WORDING.flareAnims, current = anim,
+                onPick = function(k) pick("anim", k, L.FLARE_ANIM) end }, true, off)
+            pieces[#pieces + 1] = { text = ", " }
+            local said = soundValues[soundNow]
+            pieces[#pieces + 1] = word(type(said) == "string" and said or tostring(soundNow), id .. "flareSound", {
+                kind = "flareSound", keys = soundKeys, values = soundValues, current = soundNow,
+                onPick = function(k) pick("sound", k, Drawer.FLARE_SOUND) end }, true, off)
+            pieces[#pieces + 1] = { text = ")" }
+        elseif line.action == "glow" or line.action == "tint" or valued == "color" then
+            -- A glow's own style, unless it is EZ-CDM's combat ring.
+            if line.action == "glow" and line.moment ~= nil and not Grammar.RingOnly(kind, line.moment) then
+                local keys, values = styleChoices(true)
+                local text = (line.style ~= nil and WORDING.lineStyle or WORDING.lineStyleNone):format("\1")
+                local before, after = text:match("^(.-)\1(.*)$")
+                pieces[#pieces + 1] = { text = " " .. before }
+                pieces[#pieces + 1] = word(line.style ~= nil and (values[line.style] or tostring(line.style))
+                    or WORDING.pieceStyle, id .. "style", {
+                    kind = "style", keys = keys, values = values, current = line.style or "piece",
+                    onPick = function(k) edit(function(r) r.lines[i].style = k ~= "piece" and k or nil end) end,
+                    clear = line.style ~= nil and function() edit(function(r) r.lines[i].style = nil end) end or nil },
+                    true, off)
+                if after ~= "" then pieces[#pieces + 1] = { text = after } end
+            end
+            -- The sweep's color keeps an alpha, as the card's Highlight color does.
+            local alpha = line.action == "tint"
+            pieces[#pieces + 1] = { text = " in " }
+            pieces[#pieces + 1] = word(Draft.ColorName(line.value), id .. "color", {
+                kind = "color", keys = { "accent", "pick" }, values = Drawer.COLOR_WORDS,
+                current = line.value == nil and "accent" or nil,
+                onPick = function(k)
+                    if k == "accent" then
+                        edit(function(r) r.lines[i].value = nil end)
+                        return
+                    end
+                    local start = line.value or { API.Accent() }
+                    Bridge.PickColor({ start[1], start[2], start[3], alpha and start[4] or nil }, function(c)
+                        edit(function(r) r.lines[i].value = { c[1], c[2], c[3], alpha and c[4] or nil } end)
+                    end, alpha)
+                end, writes = false,
+                clear = line.value ~= nil and function() edit(function(r) r.lines[i].value = nil end) end or nil },
+                true, off)
         end
-        pieces[#pieces + 1] = { text = " " .. WORDING.lastSeconds .. " " }
-        pieces[#pieces + 1] = word(Grammar.Seconds(at), id .. "seconds", {
-            kind = "seconds", keys = keys, values = values, current = at,
-            onPick = function(n) edit(function(r) r.lines[i].at = n end) end }, true, off)
+        if line.action == "numbers" then
+            -- The numbers' color (nil = Daylight UI's own) and their seconds.
+            local daylight = Bridge.LookDefault("lowColor")
+            pieces[#pieces + 1] = { text = " in " }
+            pieces[#pieces + 1] = word(Draft.ColorName(line.value or daylight), id .. "color", {
+                kind = "color", keys = { "default", "pick" },
+                values = { default = WORDING.daylightColor, pick = Drawer.COLOR_WORDS.pick },
+                current = line.value == nil and "default" or nil,
+                onPick = function(k)
+                    if k == "default" then
+                        edit(function(r) r.lines[i].value = nil end)
+                        return
+                    end
+                    local start = line.value or daylight or { API.Accent() }
+                    Bridge.PickColor({ start[1], start[2], start[3] }, function(c)
+                        edit(function(r) r.lines[i].value = { c[1], c[2], c[3] } end)
+                    end)
+                end, writes = false }, true, off)
+            local at = line.at or Bridge.LookDefault("lowAt")
+            local keys, values = {}, {}
+            for n = 1, 10 do
+                keys[n] = n
+                values[n] = Grammar.Seconds(n)
+            end
+            pieces[#pieces + 1] = { text = " " .. WORDING.lastSeconds .. " " }
+            pieces[#pieces + 1] = word(Grammar.Seconds(at), id .. "seconds", {
+                kind = "seconds", keys = keys, values = values, current = at,
+                onPick = function(n) edit(function(r) r.lines[i].at = n end) end }, true, off)
+        end
+    end
+    -- The and … blank after the last action: another action on this line.
+    if finished and line.moment ~= nil then
+        local keys, refused = Grammar.LineActions(kind, lines, rules.lines)
+        if #keys > 0 or #refused > 0 then
+            for _, r in ipairs(refused) do r.words = Grammar.ActionWords(line.moment, r.action) end
+            pieces[#pieces + 1] = { text = " ", aside = true }
+            local chip = word(WORDING.addAction, id .. "also", { kind = "also", keys = keys,
+                values = Grammar.ActionNames(line.moment), refused = refused,
+                onPick = function(a) addAction(line, a) end }, false)
+            chip.aside = true
+            pieces[#pieces + 1] = chip
+        end
     end
     pieces[#pieces + 1] = { text = "." }
-    local b = words(s, pieces, { onRemove = function() edit(function(r) table.remove(r.lines, i) end) end })
-    b.line = i
+    local b = words(s, pieces, { onRemove = function() edit(function(r) removeLines(r, row) end) end })
+    b.line, b.lines = rowId(row), row
     -- A look Daylight UI keeps away now: a one-shot look while its motion is off, a
-    -- flare while Proc Alerts is off.
-    local act = finished and ck and ns.Conditions.Get(ck).actions[line.action]
-    local e = act and ns.Conditions.Effect(act.effect)
-    local why = e and e.offNote and e.offNote()
-    if why then
-        local n = words(s, { { text = WORDING[why], size = "small", color = "LABEL" } })
-        n[why] = i
+    -- flare while Proc Alerts is off. Each once.
+    local noted = {}
+    for _, l in ipairs(lines) do
+        local lk = finished and Grammar.ClauseRoot(l, kind)
+        local act = lk and l.action and ns.Conditions.Get(lk).actions[l.action]
+        local e = act and ns.Conditions.Effect(act.effect)
+        local why = e and e.offNote and e.offNote()
+        if why and not noted[why] then
+            noted[why] = true
+            local n = words(s, { { text = WORDING[why], size = "small", color = "LABEL" } })
+            n[why] = rowId(row)
+        end
     end
     return b
 end
@@ -1711,15 +1862,23 @@ local function spellBody(s, key)
     local rules, first, last = current()
     showsLine(s, kind, rules)
     local fallOffNoted, buttonNoted = false, false
-    for i, line in ipairs(rules.lines) do
-        sentence(s, kind, rules, i, line)
+    for _, row in ipairs(Grammar.Rows(rules.lines, kind)) do
+        sentence(s, kind, rules, row)
+        local i, line = rowId(row), rules.lines[row[1]]
+        local lines = rowLines(rules, row)
+        local function any(fn)
+            for _, l in ipairs(lines) do
+                local v = fn(l)
+                if v then return v end
+            end
+        end
         -- Daylight UI's own Gray out line while EZ-CDM owns the gray (Gray.lua).
-        local owned = Grammar.GrayOwnedNote(line, rules.lines)
+        local owned = any(function(l) return Grammar.GrayOwnedNote(l, rules.lines) end)
         if owned then
             words(s, { { text = owned, size = "small", color = "LABEL" } }).grayOwned = i
         end
         -- A line its piece can't show, why, and the fixes. A spell button's note shows once.
-        local hidden = Grammar.HiddenNote(kind, line)
+        local hidden = any(function(l) return Grammar.HiddenNote(kind, l) end)
         if hidden and not (hidden.code == "button" and buttonNoted) then
             buttonNoted = buttonNoted or hidden.code == "button"
             local bits = { { text = hidden.text, size = "small", color = "LABEL" } }
@@ -1732,9 +1891,10 @@ local function spellBody(s, key)
                 else
                     bits[#bits + 1] = { kind = "add", text = Grammar.FixText(fix, kind), onClick = function()
                         edit(function(r)
-                            local l = r.lines[i]
-                            l.clauses = l.clauses or {}
-                            l.clauses[#l.clauses + 1] = { cond = "noBuff" }
+                            eachOf(r, row, function(l)
+                                l.clauses = l.clauses or {}
+                                l.clauses[#l.clauses + 1] = { cond = "noBuff" }
+                            end)
                         end)
                     end }
                 end
@@ -1748,11 +1908,15 @@ local function spellBody(s, key)
                 words(s, { { text = n.text, size = "small", color = "LABEL" } }).fallOff = n.code
             end
         end
-        if i >= first and i <= last then
+        -- Daylight UI does every action on the line anyway.
+        local default = true
+        for _, x in ipairs(row) do default = default and x >= first and x <= last end
+        if default then
             words(s, { { text = WORDING.default, size = "small", color = "LABEL" } }).default = i
         end
         -- EZ-CDM draws this glow itself (Effects), so it shows in a fight too.
-        if line.moment == "up" and line.action == "glow" and Effects.Drawn(key) and Effects.Get(key) ~= nil then
+        local upGlow = any(function(l) return l.moment == "up" and l.action == "glow" end)
+        if upGlow and Effects.Drawn(key) and Effects.Get(key) ~= nil then
             words(s, { { text = WORDING.ezGlow, size = "small", color = "LABEL" } }).ezGlow = i
             if Effects.Pending(key) then
                 words(s, { { text = WORDING.ezGlowReload, size = "small", color = "LABEL" } }).ezReload = i

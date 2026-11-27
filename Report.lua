@@ -303,6 +303,9 @@ function Report.Collect()
         known = known,
         passive = passive,
         rules = rules(Bridge.ProfileOf()),
+        -- The rules' saved form (Conditions.VERSION), so a rebuild reads them as saved.
+        rulesVersion = type(EZCDMDB) == "table" and type(EZCDMDB.conditionsVersion) == "number"
+            and EZCDMDB.conditionsVersion or nil,
     }
 end
 

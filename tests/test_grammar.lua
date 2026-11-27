@@ -123,7 +123,7 @@ local function validSpell(spec, v, B)
     return false
 end
 
-T.test("grammar: every field and value it can write is valid on Daylight UI 2.4.0", function()
+T.test("grammar: every field and value it can write is valid on Daylight UI 2.4.1", function()
     local _, ns, G, AB = world()
     local B = ns.Bridge
     local spell, bad = AB.CdmData.SPELL_FIELDS, {}
@@ -986,6 +986,7 @@ T.test("grammar wording: placeholders and strip headings", function()
         clause = "Choose another condition:", number = "Type a number:",
         text = "Type a few words:", icon = "Choose an icon:",
         design = "Choose a flare:", anim = "Choose how it moves:", flareSound = "Choose a sound:",
+        also = "Choose what else happens:",
     })
     -- No phrase starts with a separate When or While: each moment is one phrase.
     for m, phrase in pairs(G.WORDING.moments) do

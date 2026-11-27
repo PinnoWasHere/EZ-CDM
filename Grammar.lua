@@ -1745,8 +1745,19 @@ Grammar.WORDING = {
     colorOwned = "EZ-CDM's gray lines decide when it turns gray.",
     andWord = "and",
     -- The "and …" blank, a clause's strip chip that takes it out, and the strip's
-    -- chip for advanced words (Settings "more").
+    -- chip for advanced words (Settings "more"). addAction is the blank after a line's
+    -- last action, which adds another.
     addClause = "and …",
+    addAction = "and …",
+    -- Why an action can't join a line (Grammar.LineActions), after neverPart's
+    -- 'Not "%s": '. neverAction: %s is an action the line has, then the one refused.
+    -- neverSecret: %s is the line's part the game hides in a fight. neverOther: %s is
+    -- an action whose line can't take that part.
+    neverAction = "it can't %s and %s at once",
+    neverClauses = "it can't take this line's \"and\" parts",
+    neverSecret = "the game hides \"%s\" in a fight, so only looks that stay on can follow it",
+    neverTaken = "another line already does it at this moment, and only one can",
+    neverOther = "\"%s\" can't follow a part the game hides in a fight",
     dropClause = "remove this part",
     more = "more…",
     fewer = "fewer",
@@ -1771,6 +1782,7 @@ Grammar.WORDING = {
         clause = "Choose another condition:", number = "Type a number:",
         text = "Type a few words:", icon = "Choose an icon:",
         design = "Choose a flare:", anim = "Choose how it moves:", flareSound = "Choose a sound:",
+        also = "Choose what else happens:",
     },
     -- Under a one-shot look's line while Daylight UI's motion is off.
     motionOff = "Daylight UI's motion is off, so this doesn't show.",
@@ -2108,9 +2120,8 @@ end
 -- The fall-off lead as words: "(5 seconds before)".
 function Grammar.LeadWords(n) return WORDING.lead:format(Grammar.Seconds(n)) end
 
--- The line as one sentence, in US English, in a piece's own words when kind is given.
-function Grammar.Describe(line, kind)
-    if type(line) ~= "table" then return "" end
+-- A line's moment, lead and clauses as words, capitalized, and its joint.
+local function momentPart(line, kind)
     local ck = Grammar.LineCondition(line, kind)
     local phrase, joint = Grammar.MomentWords(line.moment, ck and Conditions.NumberOf(ck, line.n), kind)
     local entry = MAP[line.moment] and MAP[line.moment][line.action]
@@ -2119,7 +2130,226 @@ function Grammar.Describe(line, kind)
         local key = type(cl) == "table" and cl.cond
         phrase = phrase .. " " .. WORDING.andWord .. " " .. Grammar.ClauseWords(key, Conditions.NumberOf(key, cl.n), kind)
     end
-    return phrase:sub(1, 1):upper() .. phrase:sub(2) .. joint .. actionWords(line) .. "."
+    return phrase:sub(1, 1):upper() .. phrase:sub(2), joint
+end
+
+-- "A", "A and B", "A, B, and C".
+local function listOf(words)
+    if #words <= 2 then return table.concat(words, " " .. WORDING.andWord .. " ") end
+    return table.concat(words, ", ", 1, #words - 1) .. ", " .. WORDING.andWord .. " " .. words[#words]
+end
+Grammar.ListWords = listOf
+
+-- The line as one sentence, in US English, in a piece's own words when kind is given.
+function Grammar.Describe(line, kind)
+    if type(line) ~= "table" then return "" end
+    local phrase, joint = momentPart(line, kind)
+    return phrase .. joint .. actionWords(line) .. "."
+end
+
+-- ---------------------------------------------------------------------
+-- Several actions on one line: "When I can't cast it, pulse it and glow."
+-- ---------------------------------------------------------------------
+
+-- A line with several actions is the lines that share its moment, number and
+-- clauses, one per action, each with its own picks. They save and compile as lines
+-- of one action each, so Daylight UI's own actions (show, fade, hide, its glow and
+-- sound) keep their fields and EZ-CDM's keep theirs. Grammar.Rows joins them for
+-- the drawer and the sentence; Grammar.LineActions says what may join one.
+
+-- The most actions one line holds.
+Grammar.MAX_ACTIONS = 3
+
+-- Two actions that can't both show on one line though they set different things:
+-- the gray and the icon swap each lay a copy over the icon (Overlay.lua).
+Grammar.NEVER_ACTIONS = { { "gray", "swap" } }
+
+-- Actions that show off the piece, so "hide it" leaves them be: a sound, the screen's
+-- edge, the flare around the character.
+Grammar.OFF_PIECE = { sound = true, screen = true, flare = true }
+
+-- The spell field a line sets, or nil.
+local function fieldOf(line)
+    local c = Grammar.Canonical(line)
+    local e = MAP[c.moment] and MAP[c.moment][c.action]
+    return e and (e.field or e.paint) or nil
+end
+
+-- A part's number as it reads: its own, else its condition's default.
+local function partNumber(key, n)
+    if Conditions.Get(key) and Conditions.Get(key).param then return Conditions.NumberOf(key, n) end
+    return n
+end
+
+-- What a line shares with the other actions of its line: moment, number and
+-- clauses, as text. nil for a line with no action yet, which stands alone.
+function Grammar.RowKey(line)
+    if type(line) ~= "table" or line.action == nil then return nil end
+    local mk = Grammar.MomentCondition(line.moment)
+    local out = { tostring(line.moment), tostring(mk and partNumber(mk, line.n) or line.n) }
+    for _, cl in ipairs(type(line.clauses) == "table" and line.clauses or {}) do
+        local c = type(cl) == "table" and cl.cond
+        out[#out + 1] = tostring(c) .. "=" .. tostring(c and partNumber(c, cl.n))
+    end
+    return table.concat(out, "|")
+end
+
+-- Where an action reads in its line: the action words' order, a sound last.
+local function actionRank(a)
+    if a == "sound" then return #Grammar.ACTIONS + 1 end
+    return indexOf(Grammar.ACTIONS, a) or #Grammar.ACTIONS
+end
+
+-- lines in rows, each the indexes of one line's actions in reading order, rows in
+-- the order of their first line. A line kind can't show stands alone.
+function Grammar.Rows(lines, kind)
+    local rows, byKey = {}, {}
+    for i, l in ipairs(type(lines) == "table" and lines or {}) do
+        local key = Grammar.RowKey(l)
+        if key and kind ~= nil and not fits(kind, l.moment, l.action) then key = nil end
+        local row = key and byKey[key]
+        if row then
+            row[#row + 1] = i
+        else
+            row = { i }
+            rows[#rows + 1] = row
+            if key then byKey[key] = row end
+        end
+    end
+    for _, row in ipairs(rows) do
+        table.sort(row, function(a, b)
+            local ra, rb = actionRank(lines[a].action), actionRank(lines[b].action)
+            if ra ~= rb then return ra < rb end
+            return a < b
+        end)
+    end
+    return rows
+end
+
+-- The line of several actions as one sentence: "When it's ready, glow and pulse it."
+function Grammar.DescribeRow(lines, kind)
+    if type(lines) ~= "table" or #lines == 0 then return "" end
+    local phrase, joint = momentPart(lines[1], kind)
+    local said = {}
+    for i, l in ipairs(lines) do said[i] = actionWords(l) end
+    return phrase .. joint .. listOf(said) .. "."
+end
+
+-- Whether two actions can never both show on one line: they set the same thing
+-- (show and hide, gray and keep its color), or Grammar.NEVER_ACTIONS pairs them.
+local function actionsClash(a, b)
+    if a.action == b.action then return true end
+    local fa, fb = family(a), family(b)
+    if fa ~= nil and fa == fb then return true end
+    -- Hidden, the piece shows nothing drawn on it.
+    local off = Grammar.OFF_PIECE
+    if (a.action == "hide" and not off[b.action]) or (b.action == "hide" and not off[a.action]) then return true end
+    -- One hides the other's look (HIDDEN_BY: the sweep's color with no sweep).
+    local ea, eb = fieldOf(a), fieldOf(b)
+    for _, h in ipairs(HIDDEN_BY) do
+        if (ea == h.glow and eb == h.hide) or (eb == h.glow and ea == h.hide) then return true end
+    end
+    for _, p in ipairs(Grammar.NEVER_ACTIONS) do
+        if (p[1] == a.action and p[2] == b.action) or (p[1] == b.action and p[2] == a.action) then return true end
+    end
+    return false
+end
+Grammar.ActionsClash = actionsClash
+
+-- The line's client part, or nil: a client condition as its moment or its last clause.
+local function clientPart(line, kind)
+    local ck = Grammar.ClauseRoot(line, kind) or Grammar.MomentCondition(line.moment)
+    local c = ck and Conditions.Get(ck)
+    if c and c.secrecy == "client" then return ck, nil end
+    local cls = type(line.clauses) == "table" and line.clauses or {}
+    local last = cls[#cls]
+    c = type(last) == "table" and Conditions.Get(last.cond)
+    if c and c.secrecy == "client" then return last.cond, last.n end
+end
+
+-- The actions that may join a line, row (its lines, in reading order), on kind, in
+-- action order, and those left out with why: { { action, why } }. Each fits the
+-- moment, isn't on the line yet, can both show with every action on it, takes the
+-- line's clauses, can follow its client part, and no other line in all (the piece's
+-- lines) does it at this moment. None once the line holds MAX_ACTIONS.
+function Grammar.LineActions(kind, row, all)
+    local keys, refused = {}, {}
+    local first = type(row) == "table" and row[1]
+    if type(first) ~= "table" or first.moment == nil or #row >= Grammar.MAX_ACTIONS then return keys, refused end
+    local mine = {}
+    for _, l in ipairs(row) do mine[l] = true end
+    local clauses = type(first.clauses) == "table" and #first.clauses > 0
+    local ck, cn = clientPart(first, kind)
+    for _, a in ipairs(Grammar.ACTIONS) do
+        local here = false
+        for _, l in ipairs(row) do here = here or l.action == a end
+        if not here and fits(kind, first.moment, a) then
+            local probe = { moment = first.moment, action = a, n = first.n, clauses = first.clauses }
+            local why
+            for _, l in ipairs(row) do
+                if not why and actionsClash(l, probe) then
+                    why = WORDING.neverAction:format(Grammar.ActionWords(l.moment, l.action),
+                        Grammar.ActionWords(probe.moment, a))
+                end
+            end
+            local root = Grammar.ClauseRoot(probe, kind)
+            if not why and clauses and not root then why = WORDING.neverClauses end
+            if not why and ck and not (root and Conditions.ClientSafe(root, a)) then
+                why = WORDING.neverSecret:format(Grammar.ClauseWords(ck, Conditions.NumberOf(ck, cn), kind))
+            end
+            if not why then
+                local fam = family(Grammar.Canonical(probe, kind))
+                for _, l in ipairs(type(all) == "table" and all or {}) do
+                    if not why and not mine[l] and type(l) == "table" and l.moment ~= nil and l.action ~= nil
+                        and family(Grammar.Canonical(l, kind)) == fam then
+                        why = WORDING.neverTaken
+                    end
+                end
+            end
+            if why then refused[#refused + 1] = { action = a, why = why } else keys[#keys + 1] = a end
+        end
+    end
+    return keys, refused
+end
+
+-- Whether a line of several actions can take an "and" part: each of its actions can.
+function Grammar.RowTakesClauses(row, kind)
+    if type(row) ~= "table" or #row == 0 then return false end
+    for _, l in ipairs(row) do
+        if not Grammar.TakesClauses(l, kind) then return false end
+    end
+    return true
+end
+
+-- The conditions a line of several actions may take as its next "and" part: those
+-- every action's line may take (Grammar.Clauses). Refused: the never-both ones, and
+-- a client one some action can't follow, with why.
+function Grammar.RowClauses(kind, row, opts)
+    if not Grammar.RowTakesClauses(row, kind) then return {}, {} end
+    local each, any = {}, {}
+    for i, l in ipairs(row) do
+        each[i] = {}
+        for _, k in ipairs(Grammar.Clauses(kind, l, opts)) do
+            each[i][k] = true
+            any[k] = true
+        end
+    end
+    local keys, refused = {}, Grammar.ClauseRefusals(kind, row[1], opts)
+    for _, c in ipairs(Conditions.List()) do
+        if any[c.key] then
+            local out
+            for i, l in ipairs(row) do
+                if not out and not each[i][c.key] then out = l end
+            end
+            if out then
+                refused[#refused + 1] = { cond = c.key,
+                    why = WORDING.neverOther:format(Grammar.ActionWords(out.moment, out.action)) }
+            else
+                keys[#keys + 1] = c.key
+            end
+        end
+    end
+    return keys, refused
 end
 
 -- Whether lines hold an EZ-CDM fall-off rule: a fall-off line with a lead or a sound.

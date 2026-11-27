@@ -1634,9 +1634,12 @@ T.test("drawer fall-off: the lead and the sound, picked in the drawer, round-tri
         T.eq(sentences(Drawer)[glow].said, "When it's about to fall off (5 seconds before), glow with the spell's style in the accent color.")
         local profile = ns.Bridge.ProfileOf(1)
         T.deq(EZCDMDB.fallOff[profile][k.rend], { lead = 5 }, "EZ-CDM's rule")
-        -- A sound line on the same moment takes the piece's lead.
+        -- A sound on the same moment takes the piece's lead, and joins the glow's line.
         local sound = addRecast(Drawer, "sound")
-        T.eq(sentences(Drawer)[sound].said, "When it's about to fall off (5 seconds before), play Proc.")
+        T.eq(#sentences(Drawer), glow, "one line, two actions")
+        sound = glow
+        T.eq(sentences(Drawer)[glow].said, "When it's about to fall off (5 seconds before), glow with the spell's style "
+            .. "in the accent color and play Proc.")
         local rule = EZCDMDB.fallOff[profile][k.rend]
         T.eq(rule.lead, 5)
         T.truthy(type(rule.sound) == "string" and rule.sound ~= "none", "the first sound")
@@ -1645,14 +1648,17 @@ T.test("drawer fall-off: the lead and the sound, picked in the drawer, round-tri
         -- The lead is one per piece: a pick on either line sets both.
         wordOf(Drawer, sound, "seconds"):Click()
         pick(Drawer, 8)
-        T.eq(sentences(Drawer)[glow].said, "When it's about to fall off (8 seconds before), glow with the spell's style in the accent color.")
+        T.eq(sentences(Drawer)[glow].said, "When it's about to fall off (8 seconds before), glow with the spell's style "
+            .. "in the accent color and play Proc.")
         T.eq(EZCDMDB.fallOff[profile][k.rend].lead, 8)
-        -- Back to Daylight UI's timing: the sound stays, the lead goes.
-        wordOf(Drawer, glow, "seconds"):Click()
+        -- Back to Daylight UI's timing: the sound stays, the lead goes. The line has one
+        -- lead word, and its strip is still open.
+        T.eq(strip(Drawer).heading, "Choose how many seconds:")
         pick(Drawer, "daylight")
         T.isnil(EZCDMDB.fallOff[profile][k.rend].lead)
         T.eq(EZCDMDB.fallOff[profile][k.rend].sound, rule.sound)
-        T.eq(sentences(Drawer)[sound].said, "When it's about to fall off (Daylight's timing), play Proc.")
+        T.eq(sentences(Drawer)[sound].said, "When it's about to fall off (Daylight's timing), glow with the spell's "
+            .. "style in the accent color and play Proc.")
         -- Moved to another moment, a line drops its lead.
         pick(Drawer, 3)
         wordOf(Drawer, glow, "moment"):Click()
@@ -1819,17 +1825,17 @@ T.test("drawer recipes: + a recipe opens chips of the fitting recipes; a pick me
     T.eq(pieceOf(k.clap).readySound, "file:568016", "Daylight UI's Proc sound")
     -- The glow is replaced by one in the accent, which Daylight UI 2.2.6 writes back.
     T.isnil(pieceOf(k.clap).readyGlowColor, "the gold is gone")
-    T.eq(said(Drawer), "When it's ready, glow with the spell's style in the accent color.\n"
-        .. "When it's ready, play Proc.\nWhile it's cooling down, make it see-through.",
-        "the glow replaced, the sound added, read back in the grammar's order")
+    T.eq(said(Drawer), "When it's ready, glow with the spell's style in the accent color and play Proc.\n"
+        .. "While it's cooling down, make it see-through.",
+        "the glow replaced, the sound added to its line, read back in the grammar's order")
     T.falsy(blockWith(Drawer, "notice"), "no accent note")
     -- Every word stays clickable.
-    T.truthy(wordOf(Drawer, 2, "sound"), "the sound is a word to change")
+    T.truthy(wordOf(Drawer, 1, "sound"), "the sound is a word to change")
     -- The same family: hide replaces the fade.
     pick(Drawer, "outOfWay")
     T.eq(pieceOf(k.clap).onCd, "hide")
-    T.eq(#sentences(Drawer), 3, "nothing doubled")
-    T.eq(sentences(Drawer)[3].said, "While it's cooling down, hide it.")
+    T.eq(#sentences(Drawer), 2, "nothing doubled")
+    T.eq(sentences(Drawer)[2].said, "While it's cooling down, hide it.")
     -- The group recipe writes the group word.
     pick(Drawer, "fightOnly")
     T.eq(chainOf(k.rend).combat, true, "on the group")

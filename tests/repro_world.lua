@@ -137,6 +137,9 @@ function R.Build(text)
         if type(EZCDMDB[store]) ~= "table" then EZCDMDB[store] = {} end
         EZCDMDB[store][profile] = copy(byKey)
     end
+    -- The rules in the form they were saved in. A report from before rulesVersion
+    -- is from 1.0.0 or later, whose form is 6.
+    EZCDMDB.conditionsVersion = report.rulesVersion or 6
     w.Pass()
     w.Reload()
     w.Pass()
@@ -193,8 +196,18 @@ function R.Describe(w, report, key)
     local rules, problems = Draft.Rules(key)
     if rules then
         if #rules.lines == 0 then add("   rules    (none)") end
-        for i, l in ipairs(rules.lines) do
-            add(string.format("   %s %s  %s", i == 1 and "rules   " or "        ", G.Describe(l), show(l)))
+        -- One sentence per line, its actions joined ("glow and pulse it"), then each
+        -- action's own saved line.
+        for i, row in ipairs(G.Rows(rules.lines, kind)) do
+            local lines = {}
+            for p, x in ipairs(row) do lines[p] = rules.lines[x] end
+            if #lines == 1 then
+                add(string.format("   %s %s  %s", i == 1 and "rules   " or "        ", G.Describe(lines[1]),
+                    show(lines[1])))
+            else
+                add(string.format("   %s %s", i == 1 and "rules   " or "        ", G.DescribeRow(lines)))
+                for _, l in ipairs(lines) do add("            + " .. show(l)) end
+            end
         end
         for k, v in pairs(rules.group or {}) do add("   group    " .. tostring(k) .. "=" .. show(v)) end
         if #(rules.forms or {}) > 0 then add("   forms    " .. table.concat(rules.forms, ", ")) end
