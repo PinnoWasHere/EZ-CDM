@@ -1715,8 +1715,11 @@ Grammar.WORDING = {
     -- left isn't offered: a buff whose timer the game hides, one that never wears off,
     -- or a debuff on your target, which Daylight UI times once per spell.
     fillSources = { power = "my %s", time = "time left" },
-    fillShapes = { tint = "tint", bar = "thin bar" },
+    fillShapes = { bar = "thin bar" },
     fillDirs = { drain = "drains", rise = "rises" },
+    -- A fill's color that shifts with the amount (Looks.FILL_SHIFT): Daylight UI's health
+    -- gradient, green with much left and red with little.
+    fillShift = "a color that shifts with the amount",
     fillNever = { hidden = "the game hides this buff's timer in a fight", untimed = "it never wears off",
                   target = "its timer is one per spell, not per target" },
     -- A flare line's picks, in brackets after its action: Daylight UI's Proc Alerts
@@ -1725,8 +1728,12 @@ Grammar.WORDING = {
     flareDesigns = { wings = "Wings", talons = "Talons", pillars = "Pillars", shards = "Shards", flames = "Flames",
         bolt = "Lightning", comet = "Comets", crown = "Crown", sigil = "Sigil", sun = "Sunrise", ring = "Rune ring",
         wave = "Shockwave" },
-    flareAnims = { breathe = "Breathe", pulse = "Pulse", impact = "Impact", flash = "Flash", still = "Still" },
+    flareAnims = { strike = "Strike", breathe = "Breathe", pulse = "Pulse", impact = "Impact", flash = "Flash",
+        still = "Still" },
     flareSound = "Proc Alerts' sound",
+    -- A flash line's pick after "flash it": once as the line turns on, or on each beat
+    -- while it holds.
+    flashRepeats = { once = "once", again = "again and again" },
     -- A text look's words in a line ("show \"Kick!\" on it"), and its blank.
     textShown = "show \"%s\" on it",
     chooseText = "type…",
@@ -1909,6 +1916,13 @@ Grammar.WORDING = {
     },
     -- What's New, newest first, from CHANGELOG.md.
     news = {
+        { version = "1.3.0", lines = {
+            "A flash can go again and again, every 1.2 seconds while its line is true.",
+            "A fill's color can shift with the amount: green with much left, red with little.",
+            "\"While it's cooling down\" and \"While it's active\" take \"and\" now.",
+            "Fills show as a thin bar under the icon. Tint fills become thin bars.",
+            "Flares can use Daylight UI 2.4.1's Strike animation.",
+        } },
         { version = "1.2.0", lines = {
             "Fill an icon with your power or its time left.",
             "Pick a tint over the icon or a thin bar under it, draining or rising.",
@@ -2109,6 +2123,13 @@ local function soundName(key)
     return type(name) == "string" and name or tostring(key)
 end
 
+-- A flash line's color (nil for the accent) and whether it repeats.
+function Grammar.FlashPicks(v)
+    local L = ns.Looks
+    if L and L.FlashPicks then return L.FlashPicks(v) end
+    return nil, false
+end
+
 -- A flare line's design, animation and sound: its own, else Proc Alerts' (sound nil).
 function Grammar.FlarePicks(v)
     local L = ns.Looks
@@ -2199,11 +2220,22 @@ local function actionWords(line, kind)
     if valued == "color" and line.value then return Grammar.ActionWords(line.moment, a) .. " in " .. WORDING.picked end
     if valued == "text" and type(line.value) == "string" then return WORDING.textShown:format(line.value) end
     if valued == "icon" and line.value ~= nil then return Grammar.ActionWords(line.moment, a) .. " for " .. WORDING.iconPicked end
+    if valued == "flash" then
+        local color, again = Grammar.FlashPicks(line.value)
+        local out = Grammar.ActionWords(line.moment, a)
+        if again then out = out .. " " .. WORDING.flashRepeats.again end
+        if color then out = out .. " in " .. WORDING.picked end
+        return out
+    end
     if valued == "fill" then
         local source, shape, dir, color = Grammar.FillPicks(line.value, kind, line)
         local out = string.format("%s %s (%s, %s)", Grammar.ActionWords(line.moment, a),
             Grammar.FillSourceWords(source, kind), WORDING.fillShapes[shape] or shape, WORDING.fillDirs[dir] or dir)
-        if color then out = out .. " in " .. WORDING.picked end
+        if color == "shift" then
+            out = out .. " in " .. WORDING.fillShift
+        elseif color then
+            out = out .. " in " .. WORDING.picked
+        end
         return out
     end
     if valued == "flare" then

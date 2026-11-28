@@ -484,6 +484,10 @@ Effects.SWAP_QUIET = 0.5
 -- Piece key as a string -> { up, ends, upAt, downAt, token }. ends is set only by an
 -- up that started a clock.
 local moments = {}
+-- Piece key as a string -> the end of a holder's buff, from the pass telling it up
+-- (CdmAuras.Told) for the buff's length, moved by your recast while it is up. For a
+-- holder no buff moment comes for (Bridge.BuffState "holder").
+local holderEnds = {}
 -- Piece key as a string -> the watch or holder the clock last passed in.
 local clockOf = setmetatable({}, { __mode = "v" })
 local targetAt = -math.huge
@@ -576,7 +580,8 @@ end
 function Effects.Covered(key)
     if key == nil then return false end
     if moments[tostring(key)] ~= nil then return true end
-    return Bridge.BuffState(key) ~= nil
+    local up, _, from = Bridge.BuffState(key)
+    return up ~= nil and from ~= "holder"
 end
 
 -- Which clock times the piece's fall-off now: "events" or "cast".
@@ -609,6 +614,7 @@ function Effects.BuffClock(key)
     elseif type(h) == "table" then
         ends = plainSeconds(h.endsAt)
     end
+    if not ends then ends = holderEnds[k] end
     if not ends or ends <= now then return nil end
     local lasts = lengthOf(keyFrom(k) or key, h)
     if not lasts then return nil end
@@ -700,7 +706,7 @@ local heldNow = {}
 --   cast route    the game's item says "down" while the aura is up before your
 --                 debuff lands, so a "down" is held until the cast clock's end.
 -- Your recast still moves the end. After the end, the "down" stands.
-local function told(orig, h, up)
+local function holdDown(orig, h, up)
     if type(h) ~= "table" or up ~= false or ruleOf(h) == nil then return orig(h, up) end
     remember(h)
     local now = GetTime()
@@ -711,6 +717,62 @@ local function told(orig, h, up)
     orig(h, nil)
     heldNow[h.id] = { due = Bridge.Clip(h, Bridge.SpellOf(h.id)) == true }
 end
+
+-- A holder's buff as the pass last told it (h.up), by piece key, and who hears a
+-- change (Effects.OnHolderBuff). Bridge.BuffState reads h.up where Daylight UI's
+-- pass reports no buff state, and no buff moment fires there either.
+local holderWas, holderHeard, holderDue = {}, {}, {}
+local holderQueued = false
+
+local function holderFlush()
+    holderQueued = false
+    local keys = holderDue
+    holderDue = {}
+    for k in pairs(keys) do
+        for _, fn in ipairs(holderHeard) do fn(k) end
+    end
+end
+
+-- Each fn(key) runs on the frame after a holder's told buff changes.
+function Effects.OnHolderBuff(fn) holderHeard[#holderHeard + 1] = fn end
+
+local function holderClock(k, h)
+    local lasts = lengthOf(h.id, h)
+    holderEnds[k] = lasts and GetTime() + lasts or nil
+end
+
+local function told(orig, h, up)
+    local r = holdDown(orig, h, up)
+    if type(h) == "table" and h.id ~= nil and not h.watch then
+        local k = tostring(h.id)
+        local now = h.up
+        if type(now) ~= "boolean" or (type(issecretvalue) == "function" and issecretvalue(now)) then
+            now = "unknown"
+        end
+        if holderWas[k] ~= now then
+            holderWas[k] = now
+            if now == true then holderClock(k, h) elseif now == false then holderEnds[k] = nil end
+            holderDue[k] = true
+            if not holderQueued then
+                holderQueued = true
+                C_Timer.After(0, holderFlush)
+            end
+        end
+    end
+    return r
+end
+
+-- Your recast of a holder's buff while it is up starts its clock again.
+local recasts = CreateFrame("Frame")
+recasts:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+recasts:SetScript("OnEvent", function(_, _, _, _, sid)
+    if type(sid) ~= "number" or (type(issecretvalue) == "function" and issecretvalue(sid)) then return end
+    for k in pairs(holderEnds) do
+        local h = clockOf[k] or Bridge.AuraHolder(tonumber(k) or k)
+        local ids = type(h) == "table" and Bridge.SpellIDs(h.id) or nil
+        if type(ids) == "table" and ids[sid] then holderClock(k, h) end
+    end
+end)
 
 -- For tests: the end a piece's sound last played for, or nil.
 function Effects.Heard(key) return heardFor[key] end

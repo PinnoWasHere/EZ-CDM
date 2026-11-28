@@ -1256,7 +1256,7 @@ end
 
 local USABLE_EVENTS = {
     -- The game's usability signals. Daylight UI re-reads usable and noPower on the
-    -- next frame (CdmEffects.lua:1567-1570); its watch moments never fire on them.
+    -- next frame (CdmEffects.lua:1569-1572); its watch moments never fire on them.
     game = { "SPELL_UPDATE_USABLE", "SPELL_UPDATE_COOLDOWN" },
     daylight = { "changed" },
 }
@@ -1338,11 +1338,13 @@ Conditions.Register({
 })
 
 -- Its buff isn't up, as Daylight UI's own item says. Only after "and": on a piece
--- that shows its buff and its cooldown, it keeps a line to the cooldown icon.
+-- that shows its buff and its cooldown, it keeps a line to the cooldown icon. Only
+-- where Daylight UI can tell the buff up or down (kind.tracked), as its card's
+-- buff rows.
 Conditions.Register({
     key = "noBuff", moment = "noBuff", clauseOnly = true, noSound = true,
     actions = { gray = WASH_GRAY },
-    fits = function(kind) return kind.buff == true end,
+    fits = function(kind) return kind.buff == true and kind.tracked == true end,
     read = function(k)
         local up = Bridge.BuffState(k)
         if up == nil then return nil end
@@ -1969,10 +1971,11 @@ Conditions.Register({
 -- Wave 2: the moments the progress fill takes (docs/specs/progress-fill.md)
 -- ---------------------------------------------------------------------
 
--- Each takes the fill only (Looks.lua), never a sound, and is never an "and" part.
--- Always is Daylight UI's own "Always" moment, under every other line. Cooling and
+-- Each takes the fill only (Looks.lua) and never a sound. Always is Daylight UI's own
+-- "Always" moment, under every other line, and is never an "and" part. Cooling and
 -- active show under Daylight UI's "While it's cooling down" and "While it's active"
--- (Grammar.MERGED), so they fit only where those moments mean the same.
+-- (Grammar.MERGED), so they fit only where those moments mean the same. They take
+-- "and" parts, and are "and" parts on other lines ("and it's on cooldown").
 local FILL_ONLY = { "fill" }
 
 Conditions.Register({
@@ -1987,7 +1990,7 @@ Conditions.Register({
 -- Its real cooldown runs: offCooldown's opposite. The global cooldown alone is no
 -- cooldown here, as Daylight UI's own cooling down reads it.
 Conditions.Register({
-    key = "cooling", moment = "cooling", actions = {}, looks = FILL_ONLY, alone = true, noSound = true,
+    key = "cooling", moment = "cooling", actions = {}, looks = FILL_ONLY, noSound = true,
     fits = function(kind) return kind.cooldownReady == true end,
     read = function(k)
         local off = offCooldownNow(k)
@@ -2004,12 +2007,16 @@ Conditions.Register({
               never = { offCooldown = "it's on cooldown or off it" } },
 })
 
--- Its own buff is up, on a piece whose buff Daylight UI clocks (Grammar.Kind clocked).
+-- Its own buff is up, on a piece whose buff Daylight UI clocks (Grammar.Kind clocked)
+-- and can tell up or down (kind.tracked), as its card's "While it's active" rows.
 Conditions.Register({
-    key = "active", moment = "active", actions = {}, looks = FILL_ONLY, alone = true, noSound = true,
-    fits = function(kind) return kind.clocked == true end,
+    key = "active", moment = "active", actions = {}, looks = FILL_ONLY, noSound = true,
+    fits = function(kind) return kind.clocked == true and kind.tracked == true end,
     read = function(k) return (Bridge.BuffState(k)) end,
-    detail = function(k) return { up = (Bridge.BuffState(k)) } end,
+    detail = function(k)
+        local up, drawnBy, from = Bridge.BuffState(k)
+        return { up = up, drawnBy = drawnBy, from = from }
+    end,
     events = { daylight = { "buffUp", "buffDown", "changed" } },
     secrecy = "plain", layer = "buff", excludes = { "noBuff" },
     words = { moment = "While its buff is up", clause = "its buff is up",
@@ -2082,6 +2089,14 @@ if type(API) == "table" and type(API.On) == "function" and Bridge.ApiFits() then
         Conditions.Sync()
         if Bridge.Ready() then Bridge.HookEditor("Draw", Conditions.Sync) end
     end, addonName)
+end
+
+-- A buff Daylight UI's aura holder draws: its pass sends no buff moment there, so a
+-- change in what it tells the holder reads the piece's lines again.
+if ns.Effects and ns.Effects.OnHolderBuff then
+    ns.Effects.OnHolderBuff(function(k)
+        if rules[k] then refresh(k) end
+    end)
 end
 
 -- Another profile: a talent set switch, or one picked in the editor (its Draw).

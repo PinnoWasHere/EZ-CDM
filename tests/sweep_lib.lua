@@ -29,7 +29,8 @@ local TINT = { 0.2, 0.4, 0.6, 0.5 }
 local LEAD = 5
 -- A look line's sample value, by the value its effect takes.
 SW.LOOK_VALUES = { color = COLOR, text = "Now!", icon = 136048, flare = { design = "crown", anim = "impact" },
-                  fill = { shape = "bar", dir = "rise", color = COLOR } }
+                  fill = { shape = "bar", dir = "rise", color = COLOR },
+                  flash = { COLOR[1], COLOR[2], COLOR[3], again = true } }
 local ITEM, ADDED_SPELL = W.ITEM, W.ADDED_SPELL
 
 -- The catalogue's classes and the class world (tests/classworld.lua).

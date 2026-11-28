@@ -64,7 +64,8 @@ local function check(G, C, B, key, name, bad, totals)
         say(wantLooks and "While it's cooling down lacks the fill" or "While it's cooling down offers the fill")
     end
     if C.FitsKind("cooling", kind) ~= (readyFace and real and not totem) then say("cooling fits wrongly") end
-    local wantActive = m.recast ~= nil and kind.aura ~= "debuff"
+    -- Active needs the buff told up or down, as Daylight UI's own "While it's active" rows.
+    local wantActive = m.recast ~= nil and kind.aura ~= "debuff" and kind.tracked == true
     if (m.up ~= nil and m.up.fill == true) ~= wantActive then
         say(wantActive and "While it's active lacks the fill" or "While it's active offers the fill")
     end

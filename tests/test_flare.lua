@@ -108,11 +108,13 @@ T.test("flare: its value keeps a known design, animation and sound only", functi
     T.deq(C.CleanValue("flare", { sound = "none" }), { sound = "none" }, "no sound")
     T.isnil(C.CleanValue("flare", {}), "all Proc Alerts' own")
     T.isnil(C.CleanValue("flare", { design = "nope" }), "not one of the twelve")
-    T.isnil(C.CleanValue("flare", { anim = "spin" }), "not one of the five")
+    T.isnil(C.CleanValue("flare", { anim = "spin" }), "not one of the six")
     T.isnil(C.CleanValue("flare", { sound = "head:own" }), "a heading is no sound")
     T.isnil(C.CleanValue("flare", { sound = 568016 }), "a key of Daylight UI's list, never a bare id")
     T.eq(#ns.Looks.FLARE_DESIGNS, 12)
-    T.eq(#ns.Looks.FLARE_ANIMS, 5)
+    T.eq(#ns.Looks.FLARE_ANIMS, 6)
+    T.eq(ns.Looks.FLARE_ANIMS[1], "strike", "Daylight UI 2.4.1's Strike first, in its order")
+    T.deq(C.CleanValue("flare", { anim = "strike" }), { anim = "strike" })
     for _, d in ipairs(ns.Looks.FLARE_DESIGNS) do T.truthy(stub.procs.Data.DESIGNS[d], d .. " is Daylight UI's") end
     for _, a in ipairs(ns.Looks.FLARE_ANIMS) do T.truthy(stub.procs.Data.ANIMS[a], a .. " is Daylight UI's") end
     noErrors()
@@ -320,7 +322,7 @@ T.test("flare drawer: picked as an action, it says Proc Alerts' own picks in wor
     noErrors()
 end)
 
-T.test("flare drawer: the twelve designs, the five animations and the sounds, each written as picked", function()
+T.test("flare drawer: the twelve designs, the six animations and the sounds, each written as picked", function()
     local DUI, ns, AB, key = world({ L("unusable", "flare") })
     local Drawer = editor(ns, AB, key)
     wordOf(Drawer, 1, "design"):Click()
@@ -328,7 +330,7 @@ T.test("flare drawer: the twelve designs, the five animations and the sounds, ea
     strip(Drawer).chip.crown:Click()
     T.deq(ns.Conditions.Rule(key), { notUsable = { flare = { value = { design = "crown" } } } })
     wordOf(Drawer, 1, "anim"):Click()
-    T.eq(table.concat(strip(Drawer).keys, " "), "breathe pulse impact flash still")
+    T.eq(table.concat(strip(Drawer).keys, " "), "strike breathe pulse impact flash still")
     strip(Drawer).chip.impact:Click()
     wordOf(Drawer, 1, "flareSound"):Click()
     local s = strip(Drawer)
@@ -349,6 +351,64 @@ T.test("flare drawer: the twelve designs, the five animations and the sounds, ea
     wordOf(Drawer, 1, "flareSound"):Click()
     strip(Drawer).chip["procs"]:Click()
     T.deq(ns.Conditions.Rule(key), { notUsable = { flare = true } }, "all Proc Alerts' own again")
+    noErrors()
+end)
+
+T.test("flare drawer: Strike is offered only where Daylight UI's Proc Alerts has it", function()
+    local _, ns, AB, key = world({ L("unusable", "flare", { anim = "strike" }) })
+    local Drawer = editor(ns, AB, key)
+    T.eq(sentences(Drawer)[1].said, "When it's not usable, flare around me (Sunrise, Strike, Proc Alerts' sound).")
+    wordOf(Drawer, 1, "anim"):Click()
+    T.eq(strip(Drawer).keys[1], "strike")
+    AB.CdmEditor.Close(); stub.RunTimers()
+    -- An older Proc Alerts: no Strike in its list.
+    local strike = stub.procs.Data.ANIMS.strike
+    stub.procs.Data.ANIMS.strike = nil
+    Drawer = editor(ns, AB, key)
+    wordOf(Drawer, 1, "anim"):Click()
+    T.eq(table.concat(strip(Drawer).keys, " "), "breathe pulse impact flash still", "not offered")
+    T.eq(sentences(Drawer)[1].said, "When it's not usable, flare around me (Sunrise, Strike, Proc Alerts' sound).",
+        "a saved Strike still reads as saved")
+    stub.procs.Data.ANIMS.strike = strike
+    noErrors()
+end)
+
+T.test("flare: Strike with Proc Alerts unread follows the Daylight UI version", function()
+    local _, ns = world()
+    local B = ns.Bridge
+    local keep = C_AddOns.GetAddOnMetadata
+    local version = "2.4.1"
+    C_AddOns.GetAddOnMetadata = function(name, field)
+        if name == "DaylightUI" and field == "Version" then return version end
+        return keep(name, field)
+    end
+    local resolve = B.Resolve
+    B.Resolve = function(path)
+        if path == "Procs.Data.ANIMS" then return nil end
+        return resolve(path)
+    end
+    T.truthy(B.FlareAnimFits("strike"), "2.4.1 has it")
+    T.truthy(B.FlareAnimFits("pulse"), "an older animation always fits")
+    version = "2.4.0"
+    T.falsy(B.FlareAnimFits("strike"), "2.4.0 doesn't")
+    version = "2.10.0"
+    T.truthy(B.FlareAnimFits("strike"), "numbers compare as numbers")
+    B.Resolve, C_AddOns.GetAddOnMetadata = resolve, keep
+    noErrors()
+end)
+
+T.test("flare: a saved Strike on a Proc Alerts without it lands as the default animation", function()
+    local _, ns, _, key = world({ L("unusable", "flare", { design = "crown", anim = "strike" }) })
+    local strike = stub.procs.Data.ANIMS.strike
+    stub.procs.Data.ANIMS.strike = nil
+    block()
+    local f = flareOf(full(ns, key, "notUsable:flare"))
+    T.truthy(f, "up anyway")
+    T.eq(f.design, "crown", "its design kept")
+    T.eq(f.anim, ns.Looks.FLARE_ANIM, "Proc Alerts' default animation")
+    T.deq(ns.Conditions.Rule(key), { notUsable = { flare = { value = { design = "crown", anim = "strike" } } } },
+        "the saved pick stays for a newer Daylight UI")
+    stub.procs.Data.ANIMS.strike = strike
     noErrors()
 end)
 

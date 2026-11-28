@@ -123,7 +123,7 @@ local function validSpell(spec, v, B)
     return false
 end
 
-T.test("grammar: every field and value it can write is valid on Daylight UI 2.4.1", function()
+T.test("grammar: every field and value it can write is valid on Daylight UI 2.4.3", function()
     local _, ns, G, AB = world()
     local B = ns.Bridge
     local spell, bad = AB.CdmData.SPELL_FIELDS, {}

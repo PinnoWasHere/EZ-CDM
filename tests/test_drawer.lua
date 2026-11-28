@@ -1705,7 +1705,10 @@ T.test("drawer fall-off: each limit note shows only on the right piece kinds", f
         T.eq(fallOffNotes(Drawer), "own early")
         wordOf(Drawer, #sentences(Drawer), "seconds"):Click()
         pick(Drawer, 5)
-        T.isnil(ns.Bridge.BuffState(k.wall), "Shield Wall's state: can't tell")
+        local _, _, from = ns.Bridge.BuffState(k.wall)
+        T.isnil(DaylightUI.API.CooldownState(tostring(k.wall)).buffUp, "Shield Wall's state: Daylight UI says nothing")
+        T.truthy(from == nil or from == "holder", "only its holder's word")
+        T.falsy(ns.Effects.Covered(k.wall), "no buff moment covers it")
         T.eq(fallOffNotes(Drawer), "own early", "a rule, not covered: the cast clock")
         -- Battle Shout drawn by Daylight UI's aura icon holder.
         AB.CdmData.AddPiece(set, k.shout, "icon", 300, 0)

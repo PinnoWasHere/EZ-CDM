@@ -59,6 +59,7 @@ Conditions EZ-CDM adds, each a moment of its own or a part after "and":
   number to type your own.
 - It's only on the global cooldown, I'm in a form, stance or stealth, my weapon buff is
   missing, its charges are down to a number.
+- It's on cooldown, its buff is up: parts after "and" on other lines.
 - Behind "more…": in combat, out of combat, in a group, in an instance. More Condition
   Choices on the settings page always shows them.
 
@@ -69,15 +70,19 @@ What happens:
 - Turn it gray or keep its color, tint it blue, hide or color the sweep, color the numbers
   for the last few seconds.
 - Play a sound.
-- Flash it, sparkle, or flash the screen's edge, once as the line turns on.
+- Flash it, sparkle, or flash the screen's edge, once as the line turns on. A flash can
+  also go again and again, every 1.2 seconds while the line is true.
 - Pulse it, color its border, light a halo behind it, show words on it, or swap its icon,
   for as long as the line is true. Each takes its own color, words or icon.
 - Flare around me: Daylight UI's Proc Alerts flare around your character, in the design,
-  animation and sound you pick. It goes as the line turns off.
+  animation and sound you pick. It goes as the line turns off. Strike, the liveliest
+  animation, needs Daylight UI 2.4.1 or newer.
 - Fill it with my power (the one the spell costs) or time left:
-  a tint rising over the icon or a thin bar under it, that drains or rises, in the accent
-  or a color you pick. It works in a fight. "Always", "while it's cooling down" and
-  "while it's active" take it too. Time left is offered on real cooldowns, totems and
+  a thin bar under the icon that drains or rises, in the accent,
+  a color you pick, or a color that shifts with the amount, as Daylight UI's health bar
+  does: green with much left, red with little. It works in a fight. "Always", "while it's
+  cooling down" and "while it's active" take it too, and the last two take "and": "While
+  it's cooling down and I'm in combat, fill it with time left". Time left is offered on real cooldowns, totems and
   your own buffs, never on procs, whose timer the game hides in a fight.
 
 Also:

@@ -154,13 +154,16 @@ Bridge.NEEDS = {
     -- ready sound keeps Daylight UI's gap between a piece's sounds
     "ActionBars.CdmEffects.GlowShown",
     "ActionBars.CdmEffects.SOUND_GAP",
-    -- Looks: the progress fill's tint and thin bar, as Daylight UI fills its own bars
-    "DaylightUI.Style.TrackBar",
+    -- Looks: the progress fill's thin bar, as Daylight UI fills its own bars
     "DaylightUI.Style.PaintAccentBar",
     "DaylightUI.Style.SetBarGradient",
     "DaylightUI.Style.SetBarColor",
     "DaylightUI.Widgets.BAR_H",
     "DaylightUI.SafeReturn",
+    -- Looks: a fill whose color shifts with the amount, painted as Daylight UI's health
+    -- bar paints its gradient
+    "DaylightUI.Style.NoteFill",
+    "DaylightUI.Style.Neutral",
 }
 
 -- NEEDS entries that are tables kept by a lowercase name.
@@ -195,6 +198,13 @@ Bridge.OPTIONAL = {
     -- Without them, Daylight UI's numbers as the Bridge keeps them.
     "Nameplates.Plate.CIRCLE_SCALE",
     "Chat.Feel.BREATH",
+    -- Proc Alerts' animations (Bridge.FlareAnimFits), in DaylightUI_Procs, an addon of
+    -- its own. Without it, the Daylight UI version says.
+    "Procs.Data.ANIMS",
+    -- The shifting fill color: Daylight UI's health gradient and its low-time beat.
+    -- Without them, a curve of API.Colors' BAD, WARN and GOOD, and Bridge.LOW_TICK.
+    "DaylightUI.Health.GradientCurve",
+    "ActionBars.Cooldowns.LOW_TICK",
 }
 
 -- The table a root name stands for, or nil.
@@ -285,6 +295,35 @@ function Bridge.ProcAlertsFit()
     local major, minor = Bridge.ApiVersion()
     local API = _G.DaylightUI and _G.DaylightUI.API
     return major == 1 and minor >= 16 and type(API.ProcAlerts) == "function" and type(API.For) == "function"
+end
+
+-- The Daylight UI release each newer flare animation came in.
+Bridge.FLARE_ANIM_FROM = { strike = "2.4.1" }
+
+local function versionParts(v)
+    local a, b, c = tostring(v or ""):match("^v?(%d+)%.(%d+)%.(%d+)")
+    if not a then return nil end
+    return { tonumber(a), tonumber(b), tonumber(c) }
+end
+
+-- Whether the loaded Daylight UI is release v or newer, by its toc's Version.
+function Bridge.DaylightAtLeast(v)
+    local get = C_AddOns and C_AddOns.GetAddOnMetadata
+    local have, want = versionParts(get and get("DaylightUI", "Version")), versionParts(v)
+    if not (have and want) then return false end
+    for i = 1, 3 do
+        if have[i] ~= want[i] then return have[i] > want[i] end
+    end
+    return true
+end
+
+-- Whether Proc Alerts takes animation anim: its own list (Procs.Data.ANIMS), or with
+-- that unread, the release the animation came in.
+function Bridge.FlareAnimFits(anim)
+    local anims = Bridge.Resolve("Procs.Data.ANIMS")
+    if type(anims) == "table" then return anims[anim] ~= nil end
+    local from = Bridge.FLARE_ANIM_FROM[anim]
+    return from == nil or Bridge.DaylightAtLeast(from)
 end
 
 -- Whether the player has Proc Alerts on: its list answers nil while the module or
@@ -1040,16 +1079,36 @@ function Bridge.OnBuff(up, down)
     return a ~= nil and b ~= nil
 end
 
+-- What draws a piece through Daylight UI's aura holder (CdmRows HOLDS, and the
+-- buff over a cooldown icon).
+Bridge.HOLDER_DRAWS = { ["aura icon"] = true, ["aura bar"] = true, ["aura and cooldown bar"] = true,
+                        ["aura and cooldown icon"] = true }
+
 -- What a shown piece's buff reads now (API.CooldownState): true up, false down, or
--- nil when the piece isn't on show or the game won't say. Then what draws it.
+-- nil when the piece isn't on show or the game won't say. Then what draws it, and
+-- "holder" when the answer is the aura holder's.
+--
+-- Workaround (docs/reference/dui-prs/holder-buff-state.md): Daylight UI's pass
+-- reports a holder's buff to CooldownState only while one of its own buff options
+-- needs it (CdmRows.lua:1074-1090, holder.wantsUp). The pass still tells the
+-- holder the game's word each time (CdmAuras.Told, h.up), so that is read here.
 function Bridge.BuffState(key)
     local API = _G.DaylightUI and _G.DaylightUI.API
     if key == nil or not (Bridge.ApiFits() and type(API.CooldownState) == "function") then return nil end
     local state = API.CooldownState(tostring(key))
     if type(state) ~= "table" then return nil end
     local up = state.buffUp
-    if type(up) ~= "boolean" then up = nil end
-    return up, state.drawnBy
+    if type(up) == "boolean" then return up, state.drawnBy end
+    if Bridge.HOLDER_DRAWS[state.drawnBy] then
+        -- Holders go by the piece's key as Daylight UI keeps it: a number for a game piece.
+        local h = Bridge.AuraHolder(tonumber(key) or key)
+        up = nil
+        if type(h) == "table" then up = h.up end
+        if type(up) == "boolean" and not (type(issecretvalue) == "function" and issecretvalue(up)) then
+            return up, state.drawnBy, "holder"
+        end
+    end
+    return nil, state.drawnBy
 end
 
 -- What a shown piece reads now (API.CooldownState): usable (castable now), noPower
@@ -1126,16 +1185,45 @@ function Bridge.PlaceHalo(halo, frame, w) return call("DaylightUI.Style.PlaceAur
 function Bridge.LightShell(s) return call("DaylightUI.Style.LightShell", s) end
 function Bridge.ShellColor(s, color) return call("DaylightUI.Style.SetShellColors", s, color, nil) end
 
--- A status bar made by EZ-CDM given Daylight UI's bar fill, which follows the player's
--- bar texture pick (Style.TrackBar).
-function Bridge.TrackBar(bar) return call("DaylightUI.Style.TrackBar", bar) end
-
 -- A Daylight UI bar in the accent, as Daylight UI paints one (Style.PaintAccentBar), or
 -- in a color with its gradient off (Style.SetBarGradient, Style.SetBarColor).
 function Bridge.BarColor(bar, color)
     if type(color) ~= "table" then return call("DaylightUI.Style.PaintAccentBar", bar) end
     call("DaylightUI.Style.SetBarGradient", bar, false)
     return call("DaylightUI.Style.SetBarColor", bar, color[1], color[2], color[3])
+end
+
+-- A Daylight UI bar made ready for a color that shifts with the amount: gradient off,
+-- the empty part neutral, as Daylight UI's health bar lays its gradient (UnitFrames
+-- Colors.lua).
+function Bridge.ShiftBar(bar)
+    call("DaylightUI.Style.SetBarGradient", bar, false)
+    local r, g, b = call("DaylightUI.Style.Neutral")
+    if r then call("DaylightUI.Style.SetBarColor", bar, r, g, b) end
+end
+
+-- Paints a Daylight UI bar's fill in a color the game evaluated from a curve, a secret
+-- too, as Daylight UI's Health.ApplyGradient does, and tells its bar effects the color
+-- (Style.NoteFill).
+local function paintShift(bar, col)
+    local r, g, b = col:GetRGB()
+    bar:SetStatusBarColor(r, g, b, 1)
+    call("DaylightUI.Style.NoteFill", bar:GetStatusBarTexture(), col)
+end
+function Bridge.ShiftColor(bar, col)
+    if type(col) ~= "table" or type(col.GetRGB) ~= "function" then return false end
+    return Bridge.SafeCall(paintShift, bar, col)
+end
+
+-- Daylight UI's health gradient as a client color curve (Health.GradientCurve), or nil.
+function Bridge.GradientCurve() return (call("DaylightUI.Health.GradientCurve")) end
+
+-- Seconds between a shifting time-left fill's repaints: Daylight UI's low-time beat
+-- (Cooldowns.LOW_TICK). LOW_TICK is its number when Daylight UI has none.
+Bridge.LOW_TICK = 0.1
+function Bridge.LowTick()
+    local v = Bridge.Resolve("ActionBars.Cooldowns.LOW_TICK")
+    return type(v) == "number" and v > 0 and v or Bridge.LOW_TICK
 end
 
 -- Daylight UI's thin bar height (Widgets.BAR_H).
@@ -1216,7 +1304,7 @@ local function breatheHalo(host)
 end
 
 -- A glow style round frame on a host EZ-CDM keeps, laid as API.GlowAround lays one
--- (API.lua:1092-1109), one lap in lap seconds. Workaround: API.GlowAround takes no
+-- (API.lua:1103-1120), one lap in lap seconds. Workaround: API.GlowAround takes no
 -- lap, and Widgets.GLOW_LAP is every glow's (docs/reference/dui-prs/glow-lap.md).
 -- The lap rides on the host's own clock (glowDriver, glowAt, glowStyle).
 --

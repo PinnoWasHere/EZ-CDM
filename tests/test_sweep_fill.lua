@@ -4,8 +4,8 @@ local W = require("classworld")
 
 -- The fill sweep (docs/tasks/w2-fill.md): every class's tray as icons. On each piece,
 -- each of Always, "While it's cooling down" and "While it's active" that takes the fill
--- gets one line per source the drawer offers there, the shapes and directions taken
--- in turn. Every line then reads on, and each fill must draw with no error: lit, on
+-- gets one line per source the drawer offers there, the shapes (and the retired ones
+-- a 1.2.0 save may name, each drawn as the thin bar) and directions taken in turn. Every line then reads on, and each fill must draw with no error: lit, on
 -- show, and its bar set by the game (a percent, or a duration, or the no-time value).
 -- Offers must fit: my power only where the cast costs a bar the class has as a
 -- percent, time left only where a clock runs for the line's icon, never on a proc,
@@ -15,6 +15,16 @@ local CLASSES = { "DRUID", "HUNTER", "MAGE", "PALADIN", "PRIEST", "ROGUE", "SHAM
 local MOMENTS = { "always", "cooldown", "up" }
 
 local totals = { pieces = 0, lines = 0, hidden = 0, time = 0, power = 0, refused = 0 }
+
+-- The shapes a line may name: the offered ones, then the retired ones, sorted.
+local function shapes(L)
+    local out, old = {}, {}
+    for _, s in ipairs(L.FILL_SHAPES) do out[#out + 1] = s end
+    for s in pairs(L.FILL_RETIRED) do old[#old + 1] = s end
+    table.sort(old)
+    for _, s in ipairs(old) do out[#out + 1] = s end
+    return out
+end
 
 -- Every condition reads on, a client one drives its layer to 1. Returns the undo.
 local function allOn(C)
@@ -56,7 +66,7 @@ local function check(DUI, ns, p, class, bad, n)
                 if src == "time" and kind.proc then say("time left on a proc") end
                 n = n + 1
                 lines[#lines + 1] = { moment = m, action = "fill", value = { source = src,
-                    shape = L.FILL_SHAPES[n % 2 + 1], dir = L.FILL_DIRS[math.floor(n / 2) % 2 + 1] } }
+                    shape = shapes(L)[n % #shapes(L) + 1], dir = L.FILL_DIRS[math.floor(n / 2) % 2 + 1] } }
             end
             for _, r in ipairs(refused) do
                 if r.key ~= "time" or type(r.why) ~= "string" then say("a refusal with no reason") end
@@ -88,7 +98,8 @@ local function check(DUI, ns, p, class, bad, n)
                     tostring(v.lit), tostring(v.shown)))
             else
                 local f = L.Frame(DUI.API.Attach(C.FrameOf(p.key)), "fill")
-                local bar = f and (line.value.shape == "bar" and f.bar or f.tint)
+                local bar = f and f.bar
+                if f and f.tint then say(line.moment .. " " .. line.value.source .. ": a tint was made") end
                 if not bar or (bar.__value == nil and bar.__timer == nil) then
                     say(line.moment .. " " .. line.value.source .. ": the bar was never set")
                 end

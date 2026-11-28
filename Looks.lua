@@ -7,7 +7,9 @@ local addonName, ns = ...
 -- Once, as the line turns on (edge). They move, so they are plain lines only, and
 -- motion off in Daylight UI keeps them away, as it keeps its own:
 --   flash    the wash texture in the line's color from the ready ping's brightness
---            (Ping.FLASH_ALPHA), played by Motion.Flash
+--            (Ping.FLASH_ALPHA), played by Motion.Flash. "Again and again" flashes
+--            it at once, then twice each Twinkle lap (Widgets.GLOW_LAP) while the
+--            line holds, so it also goes as the line turns off (hides)
 --   sparkle  API.GlowAround's twinkle for one lap (Widgets.GLOW_LAP), at the
 --            Cooldown Manager's glow size (CdmEffects.GLOW_SCALE)
 --   screen   Daylight UI's vignette art (portrait-vignette.png, as InstallerScreen.lua
@@ -30,15 +32,15 @@ local addonName, ns = ...
 --   text     the line's words in API.Text, in the accent, at the Cooldown Manager's
 --            cooldown number size (Skin.COOLDOWN_SIZE)
 --   swap     a copy of the icon showing the picked icon in its place
---   fill     a number on the icon: a tint stood up over it, or Daylight UI's thin bar
---            under it, in the line's color (below, "the progress fill")
+--   fill     a number on the icon: Daylight UI's thin bar under it, in the line's
+--            color (below, "the progress fill")
 --
 -- Pulse, border, halo, text and the fill sit on the piece's holder, which lies over
 -- whichever face the piece shows, so they show on its buff's face too (anyFace).
 -- Swap lies on the cooldown icon, under the buff's button, so it waits for the
 -- cooldown face.
 --
--- A color look's value is its color (nil = the accent). No look runs an OnUpdate of
+-- A color look's value is its color (nil = the accent). A flash's adds again. No look runs an OnUpdate of
 -- its own: Motion's shared tween driver, the glow's and the pulse's are Daylight UI's.
 
 local Bridge, Conditions, Overlay, Effects = ns.Bridge, ns.Conditions, ns.Overlay, ns.Effects
@@ -53,6 +55,10 @@ local API = _G.DaylightUI and _G.DaylightUI.API
 
 -- The glow style the sparkle plays once.
 Looks.SPARKLE_STYLE = "twinkle"
+-- A repeating flash beats FLASH_BEATS times each lap of this glow style
+-- (Twinkle's 2.4 s lap: a flash every 1.2 s).
+Looks.FLASH_BEAT = "twinkle"
+Looks.FLASH_BEATS = 2
 -- The vignette Daylight UI lays over the screen (InstallerScreen.lua).
 Looks.VIGNETTE = "portrait-vignette.png" -- look-ok: Daylight UI's own media, read through API.Media
 
@@ -67,7 +73,7 @@ local function speed(name) return API.Speed and API.Speed[name] or nil end
 -- The line's color, or the accent.
 local function colorOf(opts)
     local c = type(opts.value) == "table" and opts.value or nil
-    if c then return c[1], c[2], c[3] end
+    if c and type(c[1]) == "number" then return c[1], c[2], c[3] end
     return API.Accent()
 end
 
@@ -124,13 +130,67 @@ local function any() return true end
 -- Once, as the line turns on
 -- ---------------------------------------------------------------------
 
-local function flash(target, on, opts)
-    if not on or not Bridge.MotionOn() then return end
-    local f = frameOn(target, "flash")
-    local r, g, b = colorOf(opts)
+-- A flash line's value as saved: its color ({ r, g, b }, left out for the accent)
+-- and again = true for "again and again". A bare color, as 1.2.0 saved it, stays as is.
+-- nil for none or a bad one.
+local function cleanFlash(v)
+    if type(v) ~= "table" then return nil end
+    local out = Conditions.CleanValue("color", v) or {}
+    if v.again == true then out.again = true end
+    return next(out) and out or nil
+end
+
+-- A flash value's color (nil for the accent) and whether it repeats.
+function Looks.FlashPicks(v)
+    v = type(v) == "table" and v or {}
+    local c = type(v[1]) == "number" and { v[1], v[2], v[3] } or nil
+    return c, v.again == true
+end
+
+local function flashOnce(f, r, g, b, key)
     local t = wash(f, r, g, b, Bridge.FlashAlpha())
     Bridge.Flash(t, speed("SLOW"))
-    note(opts.key, "flash", t)
+    note(key, "flash", t)
+end
+
+-- Each repeating line's beat on f.beats[line id], ended by a newer number or nil.
+local beatGen = 0
+
+local function stopBeat(target, line)
+    local f = frameIf(target, "flash")
+    if not (f and f.beats) then return end
+    if line ~= nil then f.beats[line] = nil else f.beats = nil end
+end
+
+-- A repeating flash beats on C_Timer, never an OnUpdate. Each beat flashes only
+-- while motion is on, so the flashes come back with it.
+local function flash(target, on, opts)
+    if not on then return stopBeat(target, opts.line) end
+    local _, again = Looks.FlashPicks(opts.value)
+    local lap = again and Bridge.GlowLap(Looks.FLASH_BEAT)
+    local every = lap and lap / Looks.FLASH_BEATS
+    if not every and not Bridge.MotionOn() then return end
+    local f = frameOn(target, "flash")
+    f:Show()
+    local r, g, b = colorOf(opts)
+    if Bridge.MotionOn() then flashOnce(f, r, g, b, opts.key) end
+    if not every then return end
+    beatGen = beatGen + 1
+    local gen, line, key = beatGen, opts.line, opts.key
+    f.beats = f.beats or {}
+    f.beats[line] = gen
+    local function beat()
+        if not (f.beats and f.beats[line] == gen) then return end
+        if Bridge.MotionOn() then flashOnce(f, r, g, b, key) end
+        C_Timer.After(every, beat)
+    end
+    C_Timer.After(every, beat)
+end
+
+-- Whether a repeating flash beats for line on target, for the dev suite.
+function Looks.Beating(target, line)
+    local f = frameIf(target, "flash")
+    return f ~= nil and f.beats ~= nil and f.beats[line] ~= nil
 end
 
 local function sparkle(target, on, opts)
@@ -180,11 +240,20 @@ end
 -- ---------------------------------------------------------------------
 
 -- Proc Alerts' designs and animations (API.md, Proc Alerts), in its own order, and
--- the ones AddProcAlert takes with none picked.
+-- the ones AddProcAlert takes with none picked. Strike came in Daylight UI 2.4.1.
 Looks.FLARE_DESIGNS = { "wings", "talons", "pillars", "shards", "flames", "bolt", "comet", "crown", "sigil",
                         "sun", "ring", "wave" }
-Looks.FLARE_ANIMS = { "breathe", "pulse", "impact", "flash", "still" }
+Looks.FLARE_ANIMS = { "strike", "breathe", "pulse", "impact", "flash", "still" }
 Looks.FLARE_DESIGN, Looks.FLARE_ANIM = "sun", "pulse"
+
+-- The animations this Daylight UI's Proc Alerts has, in its order: the drawer's offer.
+function Looks.FlareAnims()
+    local out = {}
+    for _, a in ipairs(Looks.FLARE_ANIMS) do
+        if Bridge.FlareAnimFits(a) then out[#out + 1] = a end
+    end
+    return out
+end
 
 local function setOf(list)
     local out = {}
@@ -240,14 +309,19 @@ end
 
 -- Proc Alerts' sound plays as the flare lands, once. Daylight UI never hides it, so
 -- it goes as the line turns off. The alert is added again at each show, so a look
--- picked since, and Proc Alerts turned on since, both take.
+-- picked since, and Proc Alerts turned on since, both take. An animation this
+-- Daylight UI lacks (Strike before 2.4.1) shows as the default one.
 local function flare(target, on, opts)
     if not on then return hideFlare(target, opts.line) end
     local v = type(opts.value) == "table" and opts.value or {}
     local k = alertKey(opts)
     local spec = { name = Bridge.SpellName(tonumber(opts.key) or opts.key), design = v.design or Looks.FLARE_DESIGN,
                    anim = v.anim or Looks.FLARE_ANIM, sound = v.sound }
-    if not plugin().AddProcAlert(k, spec) then return end
+    if not plugin().AddProcAlert(k, spec) then
+        if spec.anim == Looks.FLARE_ANIM then return end
+        spec.anim = Looks.FLARE_ANIM
+        if not plugin().AddProcAlert(k, spec) then return end
+    end
     if not plugin().ShowProcAlert(k, { left = opts.left, dur = opts.dur }) then return end
     flares[target] = flares[target] or {}
     flares[target][opts.line] = k
@@ -333,12 +407,24 @@ end
 -- totem's, or a span on Daylight UI's clock of your own buff. One event frame keeps
 -- power current, listening only while a power fill is lit;
 -- time left is taken again on the fill's watch (Conditions' effect watch).
+--
+-- A fill's color may shift with the amount: Daylight UI's health gradient, green with
+-- much left and red with little, whichever way it fills. The game evaluates the
+-- color from the same amount, so a secret is fine. Power repaints on its events. Time
+-- left repaints on a ticker at Daylight UI's low-time beat, running only while such a
+-- fill shows a clock.
 
 -- A fill's picks, in the drawer's order, and the ones a value leaves out.
 Looks.FILL_SOURCES = { "power", "time" }
-Looks.FILL_SHAPES = { "tint", "bar" }
+Looks.FILL_SHAPES = { "bar" }
 Looks.FILL_DIRS = { "drain", "rise" }
-Looks.FILL_SOURCE, Looks.FILL_SHAPE, Looks.FILL_DIR = "time", "tint", "drain"
+Looks.FILL_SOURCE, Looks.FILL_SHAPE, Looks.FILL_DIR = "time", "bar", "drain"
+
+-- Retired shapes a saved line may still name -> the shape it draws as. 1.2.0's tint
+-- (its default too) draws as the thin bar (owner, 2026-11-27).
+Looks.FILL_RETIRED = { tint = "bar" }
+-- The color value of a fill whose color shifts with the amount.
+Looks.FILL_SHIFT = "shift"
 
 -- The thin bar's gap under the icon's border, in pixels (owner, 2026-11-27).
 Looks.FILL_GAP = 2
@@ -346,30 +432,38 @@ Looks.FILL_GAP = 2
 local SOURCES, SHAPES, DIRS = setOf(Looks.FILL_SOURCES), setOf(Looks.FILL_SHAPES), setOf(Looks.FILL_DIRS)
 
 -- A fill line's value as saved: { source, shape, dir, color }, each left out at its
--- default (the first source that fits, the tint, drains, the accent). nil for none or a bad one.
+-- default (the first source that fits, the thin bar, drains, the accent). Its color is
+-- an { r, g, b } or Looks.FILL_SHIFT. A retired shape is saved as the one it draws as.
+-- nil for none or a bad one.
 local function cleanFill(v)
     if type(v) ~= "table" then return nil end
     local out = {}
     for field, set in pairs({ source = SOURCES, shape = SHAPES, dir = DIRS }) do
-        if v[field] ~= nil then
-            if not set[v[field]] then return nil end
-            out[field] = v[field]
+        local x = v[field]
+        if field == "shape" and Looks.FILL_RETIRED[x] then x = Looks.FILL_RETIRED[x] end
+        if x ~= nil then
+            if not set[x] then return nil end
+            out[field] = x
         end
     end
-    if v.color ~= nil then
+    if v.color == Looks.FILL_SHIFT then
+        out.color = Looks.FILL_SHIFT
+    elseif v.color ~= nil then
         out.color = Conditions.CleanValue("color", v.color)
         if out.color == nil then return nil end
     end
     return next(out) and out or nil
 end
 
--- A fill value's source, shape, direction and color (nil for the accent). A value
+-- A fill value's source, shape, direction and color (nil for the accent,
+-- Looks.FILL_SHIFT for one that shifts with the amount). A value
 -- with no source fills with the first one that fits kind's line about layer.
 function Looks.FillPicks(v, kind, layer)
     v = type(v) == "table" and v or {}
     local source = v.source
     if source == nil and kind and ns.Grammar then source = (ns.Grammar.FillSourcesAt(kind, layer or "any"))[1] end
-    return source or Looks.FILL_SOURCE, v.shape or Looks.FILL_SHAPE, v.dir or Looks.FILL_DIR, v.color
+    local shape = Looks.FILL_RETIRED[v.shape] or v.shape
+    return source or Looks.FILL_SOURCE, SHAPES[shape] and shape or Looks.FILL_SHAPE, v.dir or Looks.FILL_DIR, v.color
 end
 
 local function secret(v) return type(issecretvalue) == "function" and issecretvalue(v) == true end
@@ -399,14 +493,42 @@ local function fillCurve(dir)
     return made or nil
 end
 
+-- The color curve of a fill that shifts with the amount: Daylight UI's health gradient,
+-- or with none a curve of API.Colors' BAD, WARN and GOOD. nil where the game has no
+-- color curve.
+local inkCurve
+local function shiftCurve()
+    local c = Bridge.GradientCurve()
+    if c then return c end
+    if inkCurve ~= nil then return inkCurve or nil end
+    inkCurve = false
+    if not (C_CurveUtil and C_CurveUtil.CreateColorCurve and CreateColor) then return nil end
+    local ok, made = Bridge.SafeReturn(C_CurveUtil.CreateColorCurve)
+    if not (ok and made) then return nil end
+    if Enum.LuaCurveType and made.SetType then made:SetType(Enum.LuaCurveType.Linear) end
+    local ink = API.Colors()
+    for i, name in ipairs({ "BAD", "WARN", "GOOD" }) do
+        local col = ink[name]
+        made:AddPoint((i - 1) / 2, CreateColor(col[1], col[2], col[3], 1))
+    end
+    inkCurve = made
+    return made
+end
+
+-- The spell's power percent through curve, as the game gives it; nil with no answer.
+local function powerThrough(key, curve)
+    local t = curve and type(UnitPowerPercent) == "function" and Conditions.PowerOf(key)
+    if not t then return nil end
+    local ok, v = Bridge.SafeReturn(UnitPowerPercent, "player", t, false, curve)
+    if ok then return v end
+    return nil
+end
+
 -- The spell's power percent through dir's curve, as the game gives it; 0 with no
 -- answer.
 local function percentOf(_, key, dir)
-    local curve = type(UnitPowerPercent) == "function" and fillCurve(dir)
-    local t = curve and Conditions.PowerOf(key)
-    if not t then return 0 end
-    local ok, v = Bridge.SafeReturn(UnitPowerPercent, "player", t, false, curve)
-    if ok and (secret(v) or type(v) == "number") then return v end
+    local v = powerThrough(key, fillCurve(dir))
+    if secret(v) or type(v) == "number" then return v end
     return 0
 end
 
@@ -471,13 +593,60 @@ local fillsBy = { power = setmetatable({}, weak) }
 -- Event -> the units it is registered for now, sorted and joined ("" for any unit).
 local fillHeard = {}
 
-local function barOf(f) return f.shape == "bar" and f.bar or f.tint end
+-- Paints a shifting fill in col, the game's answer through shiftCurve, as Daylight UI
+-- paints its health gradient.
+local function shiftPaint(f, col)
+    if f.bar then Bridge.ShiftColor(f.bar, col) end
+end
 
 local function setPercent(f)
-    local bar = barOf(f)
+    local bar = f.bar
     if not bar then return end
     bar:SetMinMaxValues(0, 1)
     bar:SetValue(percentOf(f.source, f.key, f.dir))
+    if f.shift then shiftPaint(f, powerThrough(f.key, shiftCurve())) end
+end
+
+-- Fill frame -> the duration object its shifting color follows, for each lit
+-- time-left fill that shifts and has time left.
+local shifting = setmetatable({}, weak)
+local shiftTicker
+
+-- Paints a shifting time-left fill from d's time left; with no d, from none left.
+local function shiftTime(f, d)
+    local curve = shiftCurve()
+    if not curve then return end
+    local ok, col
+    if type(d) ~= "nil" then
+        if type(d.EvaluateRemainingPercent) ~= "function" then return end
+        ok, col = Bridge.SafeReturn(d.EvaluateRemainingPercent, d, curve)
+    else
+        ok, col = Bridge.SafeReturn(curve.Evaluate, curve, 0)
+    end
+    if ok then shiftPaint(f, col) end
+end
+
+local function tickShifts()
+    for f, d in pairs(shifting) do
+        if f:IsVisible() then shiftTime(f, d) end
+    end
+    if next(shifting) == nil and shiftTicker then
+        shiftTicker:Cancel()
+        shiftTicker = nil
+    end
+end
+
+-- f's shifting color follows d (nil: no time left, or no shift); the ticker runs
+-- while any fill has one to follow.
+local function followTime(f, d)
+    shifting[f] = (f.shift and type(d) ~= "nil") and d or nil
+    if f.shift then shiftTime(f, d) end
+    if next(shifting) ~= nil then
+        if not shiftTicker then shiftTicker = C_Timer.NewTicker(Bridge.LowTick(), tickShifts) end
+    elseif shiftTicker then
+        shiftTicker:Cancel()
+        shiftTicker = nil
+    end
 end
 
 local fillEvents = CreateFrame("Frame")
@@ -526,39 +695,15 @@ local function listenFills()
     end
 end
 
--- The tint's frame level: the icon's own, as the gray copy sits (Overlay.lua), so the
--- swipe, the numbers and the border stay on top.
-local function iconLevel(bar, key)
-    local piece = Conditions.FrameOf(key)
-    local icon = piece and Bridge.PieceIcon(piece)
-    local owner = icon and icon:GetParent()
-    if not owner then return end
-    bar:SetFrameStrata(owner:GetFrameStrata())
-    local level = owner:GetFrameLevel()
-    if type(level) == "number" and not secret(level) then bar:SetFrameLevel(level) end
-end
-
--- f's bar for shape, made once: the tint over the target, or the thin bar under it.
-local function fillBar(f, target, shape, key)
-    if shape == "bar" then
-        if not f.bar then
-            f.bar = API.Bar(f)
-            f.bar:SetPoint("TOPLEFT", target, "BOTTOMLEFT", 0, -Looks.FILL_GAP)
-            f.bar:SetPoint("TOPRIGHT", target, "BOTTOMRIGHT", 0, -Looks.FILL_GAP)
-            f.bar:SetHeight(Bridge.BarHeight())
-        end
-        return f.bar
+-- f's thin bar under the icon, made once.
+local function fillBar(f, target)
+    if not f.bar then
+        f.bar = API.Bar(f)
+        f.bar:SetPoint("TOPLEFT", target, "BOTTOMLEFT", 0, -Looks.FILL_GAP)
+        f.bar:SetPoint("TOPRIGHT", target, "BOTTOMRIGHT", 0, -Looks.FILL_GAP)
+        f.bar:SetHeight(Bridge.BarHeight())
     end
-    if not f.tint then
-        local t = CreateFrame("StatusBar", nil, f)
-        t:SetAllPoints(f)
-        t:SetOrientation("VERTICAL")
-        Bridge.TrackBar(t)
-        t:SetMinMaxValues(0, 1)
-        f.tint = t
-    end
-    iconLevel(f.tint, key)
-    return f.tint
+    return f.bar
 end
 
 -- An icon with something to fill with: a power the spell costs, or a clock.
@@ -567,9 +712,10 @@ local function fillFits(kind)
 end
 
 local function putOutFill(f)
-    f.lit, f.kind = nil, nil
+    f.lit, f.kind, f.shift = nil, nil, nil
     for _, set in pairs(fillsBy) do set[f] = nil end
     listenFills()
+    followTime(f, nil)
     f:Hide()
 end
 
@@ -579,27 +725,25 @@ local function fill(target, on, opts)
     if not on then return putOutFill(f) end
     f.kind = f.lit and f.kind or (ns.Grammar and ns.Grammar.Kind(pieceKey(opts.key))) or {}
     local source, shape, dir, color = Looks.FillPicks(opts.value, f.kind, opts.layer)
-    local bar = fillBar(f, target, shape, opts.key)
-    local other = shape == "bar" and f.tint or f.bar
-    if other then other:Hide() end
+    -- With no color curve in the game, a shifting fill takes the accent.
+    local shift = color == Looks.FILL_SHIFT and shiftCurve() ~= nil
+    if color == Looks.FILL_SHIFT and not shift then color = nil end
+    local bar = fillBar(f, target)
     bar:Show()
-    if shape == "bar" then
-        local painted = color and table.concat(color, ",") or "accent"
-        if f.painted ~= painted then
-            Bridge.BarColor(bar, color)
-            f.painted = painted
-        end
-    else
-        local r, g, b
-        if color then r, g, b = color[1], color[2], color[3] else r, g, b = API.Accent() end
-        bar:SetStatusBarColor(r, g, b, Bridge.WashAlpha() or 0)
+    local painted = shift and Looks.FILL_SHIFT or (color and table.concat(color, ",")) or "accent"
+    if f.painted ~= painted then
+        if shift then Bridge.ShiftBar(bar) else Bridge.BarColor(bar, color) end
+        f.painted = painted
     end
-    f.lit, f.key, f.source, f.shape, f.dir = true, opts.key, source, shape, dir
+    f.lit, f.key, f.source, f.shape, f.dir, f.shift = true, opts.key, source, shape, dir, shift or nil
     for s, set in pairs(fillsBy) do set[f] = s == source or nil end
     listenFills()
     if source == "time" then
-        runTime(bar, durationOf(f, opts.key, timeFace(opts.key, f.kind, opts.layer)), dir)
+        local d = durationOf(f, opts.key, timeFace(opts.key, f.kind, opts.layer))
+        runTime(bar, d, dir)
+        followTime(f, d)
     else
+        followTime(f, nil)
         setPercent(f)
     end
     f:Show()
@@ -658,21 +802,22 @@ function Looks.Frame(target, name) return frameIf(target, name) end
 function Looks.Edge() return edge end
 
 -- What a fill drew on target (a holder or a layer), for the dev suite: { shape,
--- source, dir, value, timer, level, iconLevel }, value Conditions.SECRET while the
--- game keeps it; nil with no fill on show.
+-- source, dir, value, timer, shift, ticking }, value Conditions.SECRET while the game
+-- keeps it; nil with no fill on show. shift says its color shifts with the amount,
+-- ticking that the time-left ticker repaints it.
 function Looks.FillState(target)
     local f = frameIf(target, "fill")
-    local bar = f and f:IsShown() and barOf(f)
+    local bar = f and f:IsShown() and f.bar
     if not bar then return nil end
     local v = bar:GetValue()
     if secret(v) then v = Conditions.SECRET end
-    local piece = Conditions.FrameOf(f.key)
-    local icon = piece and Bridge.PieceIcon(piece)
-    local owner = icon and icon:GetParent()
     local d = type(bar.GetTimerDuration) == "function" and bar:GetTimerDuration() or nil
     return { shape = f.shape, source = f.source, dir = f.dir, value = v, timer = d ~= nil,
-             level = bar:GetFrameLevel(), iconLevel = owner and owner:GetFrameLevel() or nil }
+             shift = f.shift == true, ticking = shifting[f] ~= nil and shiftTicker ~= nil }
 end
+
+-- Whether the shifting time-left ticker runs now.
+function Looks.ShiftTicking() return shiftTicker ~= nil end
 
 -- ---------------------------------------------------------------------
 -- Registration
@@ -680,8 +825,13 @@ end
 
 -- In the drawer's order: { action, effect fields }.
 Looks.LIST = {
-    { action = "flash", effect = { key = "flash", edge = true, value = "color", fits = icons, draw = flash,
-        clear = clearFrame("flash"), offNote = motionNote } },
+    { action = "flash", value = { "flash", cleanFlash },
+      effect = { key = "flash", edge = true, hides = true, value = "flash", fits = icons, draw = flash,
+        clear = function(target, id)
+            stopBeat(target, id)
+            local f = id == nil and frameIf(target, "flash")
+            if f then f:Hide() end
+        end, offNote = motionNote } },
     { action = "sparkle", effect = { key = "sparkle", edge = true, value = "color", fits = any, draw = sparkle,
         offNote = motionNote,
         clear = function(target)
@@ -727,7 +877,7 @@ Looks.LIST = {
         watch = FILL_WATCH, clear = clearFrame("fill", putOutFill),
         shown = function(target)
             local f = frameIf(target, "fill")
-            local bar = f and f:IsShown() and barOf(f)
+            local bar = f and f:IsShown() and f.bar
             return bar and bar:IsShown() and bar or nil
         end } },
 }

@@ -4,10 +4,12 @@ local W = require("classworld")
 
 -- The progress fill (wave 2, 1.2.0, docs/tasks/w2-fill.md): "fill it with my health /
 -- target health / my power / time left", a look a line may end in.
---   1 the registry: always, cooling and active take the fill only, no sound, and are
---     never an "and" part; the fill's watch joins a piece's handlers and events;
+--   1 the registry: always, cooling and active take the fill only and no sound; always
+--     is never an "and" part (cooling and active are since 1.3.0, test_r130_fill);
+--     the fill's watch joins a piece's handlers and events;
 --     1.1.0 saves load unchanged
---   2 the look: a tint stood up over the icon or a thin bar under it; health and power
+--   2 the look: a thin bar under the icon (1.2.0's tint retired in 1.3.0, read as the
+--     bar, test_r130_fill); health and power
 --     go to the bar as the game gives them, through a curve ("rises" flips it); no
 --     target is empty; its events listen only while a fill of that source is lit
 --   3 time left: a real cooldown's duration object, a totem's, or Daylight UI's clock
@@ -130,7 +132,7 @@ T.test("fill: the fill is the last look, held, alpha-safe, and takes a fill valu
     noErrors()
 end)
 
-T.test("fill: always, cooling and active take only the fill, no sound, and are never an and part", function()
+T.test("fill: always, cooling and active take only the fill and no sound; always is never an and part", function()
     local w, key = place(EARTH_SHOCK)
     local C, G = w.ns.Conditions, w.ns.Grammar
     local kind = G.Kind(key)
@@ -141,15 +143,15 @@ T.test("fill: always, cooling and active take only the fill, no sound, and are n
         for a in pairs(c.actions) do acts[#acts + 1] = a end
         table.sort(acts)
         T.eq(table.concat(acts, ","), "fill", ck .. " takes the fill alone")
-        T.truthy(c.alone, ck .. " stands alone")
+        T.eq(c.alone == true, ck == "always", ck .. (ck == "always" and " stands alone" or " takes and parts"))
         T.eq(c.secrecy, "plain")
     end
     T.eq(C.Get("always").layer, "any")
     T.eq(C.Get("always").read("x"), true, "always is true")
     local clauses = G.Clauses(kind, { moment = "blocked", action = "glow" }, { more = true })
-    for _, ck in ipairs({ "always", "cooling", "active" }) do
-        T.falsy(has(clauses, ck), ck .. " is no and part")
-    end
+    T.falsy(has(clauses, "always"), "always is no and part")
+    T.truthy(has(clauses, "cooling"), "cooling is one on Earth Shock")
+    T.falsy(has(clauses, "active"), "active doesn't fit Earth Shock")
     T.falsy(G.TakesClauses({ moment = "always", action = "fill" }, kind), "Always takes no and part")
     local _, problems = G.Compile({ lines = { { moment = "always", action = "fill",
         clauses = { { cond = "inCombat" } } } } }, kind)
@@ -210,23 +212,17 @@ local function mana(w, pct, how)
     stub.FireEvent("UNIT_POWER_FREQUENT", "player", "MANA")
 end
 
-T.test("fill: my power goes to the tint as the game gives it, a secret too", function()
+T.test("fill: my power goes to the thin bar as the game gives it, a secret too", function()
     local w, key = place(EARTH_SHOCK)
     mana(w, 0.6)
     write(w, key, { { moment = "always", action = "fill", value = { source = "power" } } })
     T.truthy(lit(w, key, "always:fill"), "always lit")
     local f, holder = fillOf(w, key)
-    T.truthy(f and f.tint, "the tint")
-    T.eq(f.tint:GetOrientation(), "VERTICAL", "stood up")
-    T.truthy(f.tint:IsShown())
-    T.truthy(not f.bar or not f.bar:IsShown(), "no bar")
-    T.truthy(near(f.tint:GetValue(), 0.6), "60%: " .. tostring(stub.Plain(f.tint:GetValue())))
+    T.truthy(f and f.bar and f.bar:IsShown(), "the thin bar, the only shape")
+    T.falsy(f.tint, "no tint is made")
+    T.truthy(near(f.bar:GetValue(), 0.6), "60%: " .. tostring(stub.Plain(f.bar:GetValue())))
     mana(w, 0.4, "secret")
-    T.truthy(issecretvalue(f.tint:GetValue()), "a secret goes in whole")
-    local r, g, b, a = unpack(f.tint.__barColor)
-    local ar, ag, ab = w.DUI.API.Accent()
-    T.eq(r, ar); T.eq(g, ag); T.eq(b, ab)
-    T.truthy(near(a, w.ns.Bridge.WashAlpha()), "the held tint's strength")
+    T.truthy(issecretvalue(f.bar:GetValue()), "a secret goes in whole")
     local v = w.ns.Conditions.Visible(key, "always:fill")
     T.truthy(v.lit and v.shown, "Conditions.Visible sees it")
     T.eq(f:GetParent(), holder)
@@ -238,8 +234,8 @@ T.test("fill: rises fills as the number drops, through the flipped curve", funct
     mana(w, 0.25)
     write(w, key, { { moment = "always", action = "fill", value = { source = "power", dir = "rise", color = GOLD } } })
     local f = fillOf(w, key)
-    T.truthy(near(f.tint:GetValue(), 0.75), "25% mana: three quarters full, " .. tostring(f.tint:GetValue()))
-    local r, g, b = unpack(f.tint.__barColor)
+    T.truthy(near(f.bar:GetValue(), 0.75), "25% mana: three quarters full, " .. tostring(f.bar:GetValue()))
+    local r, g, b = unpack(f.bar.__barColor)
     T.eq(r, GOLD[1]); T.eq(g, GOLD[2]); T.eq(b, GOLD[3])
     noErrors()
 end)
@@ -266,7 +262,6 @@ T.test("fill: the thin bar is Daylight UI's bar, 2 px under the icon", function(
     write(w, key, { { moment = "always", action = "fill", value = { source = "power", shape = "bar" } } })
     local f, holder = fillOf(w, key)
     T.truthy(f.bar and f.bar:IsShown(), "the bar")
-    T.truthy(not f.tint or not f.tint:IsShown(), "no tint")
     T.truthy(near(f.bar:GetValue(), 0.5))
     T.eq(f.bar:GetHeight(), w.ns.Bridge.BarHeight(), "Daylight UI's thin bar height")
     local point, rel, relPoint, x, y = f.bar:GetPoint(1)
@@ -296,19 +291,19 @@ T.test("fill: time left on Earth Shock's cooldown runs on its duration object", 
     local sid = w.ns.Bridge.SpellOf(key)
     write(w, key, { { moment = "always", action = "fill", value = { source = "time" } } })
     local f = fillOf(w, key)
-    T.eq(f.tint:GetValue(), 0, "ready: no time left, empty")
+    T.eq(f.bar:GetValue(), 0, "ready: no time left, empty")
     w.Cooldown(sid, 6)
-    local t = f.tint.__timer
+    local t = f.bar.__timer
     T.truthy(t and t[1] == made[sid], "its cooldown's duration object")
     T.eq(made[sid].ignoreGcd, true, "the real cooldown, not the global one")
     T.eq(t[3], Enum.StatusBarTimerDirection.RemainingTime, "drains as the time runs out")
     w.Ready(sid)
-    T.eq(f.tint:GetValue(), 0, "ready again: empty")
+    T.eq(f.bar:GetValue(), 0, "ready again: empty")
     write(w, key, { { moment = "always", action = "fill", value = { source = "time", dir = "rise" } } })
     f = fillOf(w, key)
-    T.eq(f.tint:GetValue(), 1, "rises: full when ready")
+    T.eq(f.bar:GetValue(), 1, "rises: full when ready")
     w.Cooldown(sid, 6)
-    T.eq(f.tint.__timer[3], Enum.StatusBarTimerDirection.ElapsedTime, "fills as it comes back")
+    T.eq(f.bar.__timer[3], Enum.StatusBarTimerDirection.ElapsedTime, "fills as it comes back")
     noErrors()
 end)
 
@@ -320,7 +315,7 @@ T.test("fill: time left on a totem is its own duration", function()
     w.Totem(1, sid)
     T.truthy(lit(w, key, "totemUp:fill"), "lit while the totem stands")
     local f = fillOf(w, key)
-    local t = f.tint.__timer
+    local t = f.bar.__timer
     T.truthy(t and t[1] == stub.totems[1].duration, "the totem's own duration object")
     noErrors()
 end)
@@ -333,7 +328,7 @@ T.test("fill: time left on Lightning Shield is Daylight UI's clock of its buff",
     w.Pass()
     T.truthy(lit(w, key, "active:fill"), "lit while it's active")
     local f = fillOf(w, key)
-    local t = f.tint.__timer
+    local t = f.bar.__timer
     T.truthy(t and type(t[1]) == "table", "a duration")
     T.truthy(near(t[1]:GetEndTime(), w.ns.Effects.BuffClock(key)), "ends where Daylight UI's clock does")
     T.truthy(near(t[1]:GetTotalDuration(), 600), "its whole length")
@@ -383,7 +378,7 @@ T.test("fill: While it's cooling down takes the fill on Earth Shock, one chip", 
     T.eq(G.LineCondition({ moment = "cooldown", action = "fill" }, kind), "cooling")
     T.eq(G.DescribeRow({ { moment = "cooldown", action = "gray" },
         { moment = "cooldown", action = "fill", value = { source = "time" } } }, kind),
-        "While it's cooling down, turn it gray and fill it with time left (tint, drains).")
+        "While it's cooling down, turn it gray and fill it with time left (thin bar, drains).")
     local sid = w.ns.Bridge.SpellOf(key)
     write(w, key, { { moment = "cooldown", action = "fill", value = { source = "time" } } })
     T.falsy(lit(w, key, "cooling:fill"), "ready: dark")
@@ -426,15 +421,15 @@ T.test("fill: its words name the number, the shape, the way it fills and the col
     local w, key = place(EARTH_SHOCK)
     local G = w.ns.Grammar
     local kind = G.Kind(key)
-    T.eq(G.Describe({ moment = "always", action = "fill" }, kind), "Always fill it with my mana (tint, drains).", "the first that fits")
+    T.eq(G.Describe({ moment = "always", action = "fill" }, kind), "Always fill it with my mana (thin bar, drains).", "the first that fits")
     T.eq(G.Describe({ moment = "always", action = "fill",
         value = { source = "time", shape = "bar", dir = "rise", color = GOLD } }, kind),
         "Always fill it with time left (thin bar, rises) in the color you picked.")
     T.eq(G.Describe({ moment = "always", action = "fill", value = { source = "power" } }, kind),
-        "Always fill it with my mana (tint, drains).")
+        "Always fill it with my mana (thin bar, drains).")
     T.eq(G.DescribeRow({ { moment = "ready", action = "glow" },
         { moment = "ready", action = "fill", value = { source = "time" } } }, kind),
-        "When it's ready, glow and fill it with time left (tint, drains).")
+        "When it's ready, glow and fill it with time left (thin bar, drains).")
     noErrors()
 end)
 
@@ -487,23 +482,19 @@ T.test("fill drawer: picked as an action, each pick a word, written as picked", 
     T.truthy(strip(Drawer).chip.fill, "the fill is offered")
     strip(Drawer).chip.fill:Click()
     T.deq(w.ns.Conditions.Rule(key), { cantCast = { fill = true } }, "written at once, nothing picked")
-    T.eq(sentences(Drawer)[1].said, "When I can't cast it, fill it with my mana (tint, drains) in the accent color.")
+    T.eq(sentences(Drawer)[1].said, "When I can't cast it, fill it with my mana (thin bar, drains) in the accent color.")
     wordOf(Drawer, 1, "fillSource"):Click()
     T.eq(table.concat(strip(Drawer).keys, " "), "power time", "both on Earth Shock")
     strip(Drawer).chip.time:Click()
-    wordOf(Drawer, 1, "fillShape"):Click()
-    T.eq(table.concat(strip(Drawer).keys, " "), "tint bar")
-    strip(Drawer).chip.bar:Click()
+    T.falsy(wordOf(Drawer, 1, "fillShape"), "one shape: no word to click")
     wordOf(Drawer, 1, "fillDir"):Click()
     T.eq(table.concat(strip(Drawer).keys, " "), "drain rise")
     strip(Drawer).chip.rise:Click()
-    T.deq(w.ns.Conditions.Rule(key), { cantCast = { fill = { value = { source = "time", shape = "bar", dir = "rise" } } } })
+    T.deq(w.ns.Conditions.Rule(key), { cantCast = { fill = { value = { source = "time", dir = "rise" } } } })
     T.eq(sentences(Drawer)[1].said, "When I can't cast it, fill it with time left (thin bar, rises) in the accent color.")
     -- Back to each default: left out of the value.
     wordOf(Drawer, 1, "fillSource"):Click()
     strip(Drawer).chip.power:Click()
-    wordOf(Drawer, 1, "fillShape"):Click()
-    strip(Drawer).chip.tint:Click()
     wordOf(Drawer, 1, "fillDir"):Click()
     strip(Drawer).chip.drain:Click()
     T.deq(w.ns.Conditions.Rule(key), { cantCast = { fill = true } }, "every default again")

@@ -104,9 +104,11 @@ T.test("looks: ten looks, four once and plain only, six held and alpha-safe", fu
     end
     T.eq(C.Effect("text").value, "text")
     T.eq(C.Effect("swap").value, "icon")
-    for _, a in ipairs({ "flash", "sparkle", "screen", "pulse", "border", "halo" }) do
+    for _, a in ipairs({ "sparkle", "screen", "pulse", "border", "halo" }) do
         T.eq(C.Effect(a).value, "color", a .. " takes a color")
     end
+    T.eq(C.Effect("flash").value, "flash", "flash takes a color and how often")
+    T.truthy(C.Effect("flash").hides, "a repeating flash goes as its line turns off")
     noErrors()
 end)
 
@@ -547,5 +549,122 @@ T.test("looks glow: an EZ-CDM glow line runs API.GlowAround in its own style and
     T.eq(asked[1] and asked[1].style, "comet", "the line's own style")
     T.deq(asked[1] and { asked[1].r, asked[1].g, asked[1].b }, GOLD, "the line's own color")
     T.deq(ns.Conditions.Rule(key).notUsable.glow, { value = GOLD, style = "comet" }, "saved per line")
+    noErrors()
+end)
+
+-- ---------------------------------------------------------------------
+-- Flash again and again (1.3.0, docs/tasks/r130-looks.md)
+-- ---------------------------------------------------------------------
+
+local AGAIN = { GOLD[1], GOLD[2], GOLD[3], again = true }
+
+-- C_Timer.After's delays from now on, and the undo.
+local function delays()
+    local got, keep = {}, C_Timer.After
+    C_Timer.After = function(d, fn) got[#got + 1] = d; return keep(d, fn) end
+    return got, function() C_Timer.After = keep end
+end
+
+local function flashes(ns, key)
+    local f = ns.Looks.Fired(key, "flash")
+    return f and f.n or 0
+end
+
+T.test("looks flash: its value keeps a color and again; a 1.2.0 color loads as it was", function()
+    local _, ns, _, key = world()
+    local C = ns.Conditions
+    T.deq(C.CleanValue("flash", GOLD), GOLD, "a bare color, as 1.2.0 saved it")
+    T.deq(C.CleanValue("flash", { 1, 0.5, 0, 0.3, again = true }), { 1, 0.5, 0, again = true })
+    T.deq(C.CleanValue("flash", { again = true }), { again = true }, "the accent, again and again")
+    T.isnil(C.CleanValue("flash", { again = false }), "once in the accent is no value")
+    T.isnil(C.CleanValue("flash", {}))
+    T.isnil(C.CleanValue("flash", "red"))
+    T.eq(C.VERSION, 6, "no migration")
+    saved(ns, 6, { [key] = { notUsable = { flash = { value = GOLD } } } })
+    T.deq(C.Rule(key), { notUsable = { flash = { value = GOLD } } }, "a 1.2.0 save reads unchanged")
+    noErrors()
+end)
+
+T.test("looks flash: once never starts a beat", function()
+    local DUI, ns, _, key = world({ L("unusable", "flash", GOLD) })
+    local got, undo = delays()
+    block()
+    undo()
+    T.eq(flashes(ns, key), 1, "one flash")
+    T.falsy(ns.Looks.Beating(holderOf(DUI, ns, key), "notUsable:flash"))
+    local every = ns.Bridge.GlowLap("twinkle") / 2
+    for _, d in ipairs(got) do T.truthy(d ~= every, "no beat timer") end
+    noErrors()
+end)
+
+T.test("looks flash: again and again beats twice each Twinkle lap while its line holds", function()
+    local DUI, ns, _, key = world({ L("unusable", "flash", AGAIN) })
+    local holder = holderOf(DUI, ns, key)
+    local got, undo = delays()
+    usable(false, false)
+    stub.FireEvent("SPELL_UPDATE_USABLE")
+    stub.RunTimersOnce(); stub.RunTimersOnce(); stub.RunTimersOnce()
+    local n = flashes(ns, key)
+    T.truthy(n >= 1, "flashed as it turned on")
+    T.truthy(ns.Looks.Beating(holder, "notUsable:flash"), "beating")
+    local lap = 0
+    for _, d in ipairs(got) do if d == DUI.Widgets.GLOW_LAP.twinkle / 2 then lap = lap + 1 end end
+    T.truthy(lap >= 1, "its beat is half Daylight UI's Twinkle lap")
+    T.eq(DUI.Widgets.GLOW_LAP.twinkle / 2, 1.2, "1.2 s, as the owner approved")
+    stub.RunTimersOnce()
+    T.eq(flashes(ns, key), n + 1, "one more flash each beat")
+    stub.RunTimersOnce()
+    T.eq(flashes(ns, key), n + 2)
+    local tex = ns.Looks.Fired(key, "flash").shown
+    T.truthy(tex.__duiFlash, "each one Motion.Flash")
+    undo()
+    unblock()
+    T.falsy(ns.Looks.Beating(holder, "notUsable:flash"), "off: the beat ends")
+    local m = flashes(ns, key)
+    stub.RunTimers()
+    T.eq(flashes(ns, key), m, "no flash after the line turns off")
+    noErrors()
+end)
+
+T.test("looks flash: motion off skips the beats, and they come back with it", function()
+    local DUI, ns, _, key = world({ L("unusable", "flash", AGAIN) })
+    block()
+    local n = flashes(ns, key)
+    DUI.DB.General().motion = false
+    stub.RunTimersOnce(); stub.RunTimersOnce()
+    T.eq(flashes(ns, key), n, "motion off: no flash")
+    T.truthy(ns.Looks.Beating(holderOf(DUI, ns, key), "notUsable:flash"), "the beat waits")
+    DUI.DB.General().motion = true
+    stub.RunTimersOnce()
+    T.eq(flashes(ns, key), n + 1, "motion on: flashing again")
+    noErrors()
+end)
+
+T.test("looks flash: a line that goes ends its beat", function()
+    local DUI, ns, AB, key = world({ L("unusable", "flash", AGAIN) })
+    block()
+    local holder = holderOf(DUI, ns, key)
+    T.truthy(ns.Looks.Beating(holder, "notUsable:flash"), "beating")
+    local ok = ns.Draft.Write(key, { lines = { L("unusable", "border") } })
+    T.truthy(ok)
+    pass(AB)
+    T.falsy(ns.Looks.Beating(holder, "notUsable:flash"), "its line went: no beat")
+    noErrors()
+end)
+
+T.test("looks flash drawer: \"once\" or \"again and again\", then its color", function()
+    local _, ns, AB, key = world({ L("unusable", "flash") })
+    local Drawer = editor(ns, AB, key)
+    T.eq(sentences(Drawer)[1].said, "When it's not usable, flash it once in the accent color.")
+    wordOf(Drawer, 1, "flashRepeat"):Click()
+    T.eq(table.concat(strip(Drawer).keys, " "), "once again")
+    strip(Drawer).chip.again:Click()
+    T.deq(ns.Conditions.Rule(key), { notUsable = { flash = { value = { again = true } } } }, "written at once")
+    T.eq(sentences(Drawer)[1].said, "When it's not usable, flash it again and again in the accent color.")
+    T.eq(ns.Grammar.Describe(L("unusable", "flash", AGAIN)),
+        "When it's not usable, flash it again and again in the color you picked.")
+    -- The strip stays open on its word after a write.
+    strip(Drawer).chip.once:Click()
+    T.deq(ns.Conditions.Rule(key), { notUsable = { flash = true } }, "once in the accent: back to no value")
     noErrors()
 end)

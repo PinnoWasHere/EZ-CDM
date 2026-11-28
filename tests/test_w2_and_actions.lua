@@ -531,7 +531,7 @@ T.test("drawer: right-click clears one action; the line's other words go to ever
     T.eq(stub.Text(acts[3].text), "pulse it")
     acts[3]:Click("RightButton")
     T.deq(ns.Conditions.Rule(key), { cantCast = { glow = true, flash = true } }, "the pulse alone goes")
-    T.eq(sentences(Drawer)[1].said, "When I can't cast it, glow with the spell's style in the accent color and flash it in the accent color.")
+    T.eq(sentences(Drawer)[1].said, "When I can't cast it, glow with the spell's style in the accent color and flash it once in the accent color.")
     -- A clause goes on every action.
     ns.Settings.Set("more", true)
     wordOf(Drawer, 1, "and"):Click()
@@ -539,7 +539,7 @@ T.test("drawer: right-click clears one action; the line's other words go to ever
     local fight = { { cond = "inCombat" } }
     T.deq(ns.Conditions.Rule(key), { cantCast = { glow = { clauses = fight }, flash = { clauses = fight } } })
     T.eq(sentences(Drawer)[1].said,
-        "When I can't cast it and I'm in combat, glow with the spell's style in the accent color and flash it in the accent color.")
+        "When I can't cast it and I'm in combat, glow with the spell's style in the accent color and flash it once in the accent color.")
     -- A new moment takes every action that fits it.
     wordOf(Drawer, 1, "moment"):Click()
     strip(Drawer).chip.unusable:Click()

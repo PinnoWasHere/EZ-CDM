@@ -375,38 +375,76 @@ W.HANDLER_DRIVERS = {
 -- out, as it did with an aura's charges in a fight):
 --   unit.pct, unit.pctAnswer          health, 0-1; "plain", "secret" or "nil"
 --   unit.powers[type], .powerAnswer   each power's percent, 0-1 (full when unset)
+-- A color curve's points are CreateColor colors, and it answers a color object with
+-- GetRGB and GetRGBA; a secret answer keeps its methods and hides its numbers.
 -- W.curves counts the curves made.
+local function colorOf(r, g, b, a)
+    return { r = r, g = g, b = b, a = a or 1,
+             GetRGB = function(self) return self.r, self.g, self.b end,
+             GetRGBA = function(self) return self.r, self.g, self.b, self.a end }
+end
+W.ColorOf = colorOf
+
+local function mix(a, b, t)
+    if type(a) == "number" then return a + (b - a) * t end
+    return colorOf(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, 1)
+end
+
+local function curveOf()
+    W.curves = W.curves + 1
+    local c = { points = {} }
+    function c.SetType(self, t) self.type = t end
+    function c.AddPoint(self, x, y)
+        self.points[#self.points + 1] = { x, y }
+        table.sort(self.points, function(a, b) return a[1] < b[1] end)
+    end
+    function c.Evaluate(self, x)
+        local p = self.points
+        if #p == 0 then return 0 end
+        if x <= p[1][1] then return mix(p[1][2], p[1][2], 0) end
+        for i = 2, #p do
+            if x <= p[i][1] then
+                local a, b = p[i - 1], p[i]
+                if b[1] == a[1] then return mix(b[2], b[2], 0) end
+                return mix(a[2], b[2], (x - a[1]) / (b[1] - a[1]))
+            end
+        end
+        return mix(p[#p][2], p[#p][2], 0)
+    end
+    return c
+end
+
+-- A duration object's time left as a percent through a curve (EvaluateRemainingPercent),
+-- on every duration the fake game makes.
+local function remainingPercent(d, curve)
+    local s, e = stub.Plain(d:GetStartTime()), stub.Plain(d:GetEndTime())
+    local left = (e > s) and math.max(0, math.min(1, (e - GetTime()) / (e - s))) or 0
+    return curve:Evaluate(left)
+end
+W.RemainingPercent = remainingPercent
+
 function W.ClientTier()
     local keep = { curve = rawget(_G, "C_CurveUtil"), health = _G.UnitHealthPercent,
-                   power = rawget(_G, "UnitPowerPercent"), types = Enum.LuaCurveType, powers = Enum.PowerType }
+                   power = rawget(_G, "UnitPowerPercent"), types = Enum.LuaCurveType, powers = Enum.PowerType,
+                   duration = C_DurationUtil and C_DurationUtil.CreateDuration }
     Enum.LuaCurveType = Enum.LuaCurveType or { Linear = 0, Step = 1, Cosine = 2, Cubic = 3 }
     Enum.PowerType = Enum.PowerType or { Mana = 0, Rage = 1, Focus = 2, Energy = 3, ComboPoints = 4 }
     W.curves = 0
-    _G.C_CurveUtil = { CreateCurve = function()
-        W.curves = W.curves + 1
-        local c = { points = {} }
-        function c.SetType(self, t) self.type = t end
-        function c.AddPoint(self, x, y)
-            self.points[#self.points + 1] = { x, y }
-            table.sort(self.points, function(a, b) return a[1] < b[1] end)
+    _G.C_CurveUtil = { CreateCurve = curveOf, CreateColorCurve = curveOf }
+    if keep.duration and not W.realDuration then
+        local real = keep.duration
+        W.realDuration = real
+        C_DurationUtil.CreateDuration = function()
+            local d = real()
+            d.EvaluateRemainingPercent = remainingPercent
+            return d
         end
-        function c.Evaluate(self, x)
-            local p = self.points
-            if #p == 0 then return 0 end
-            if x <= p[1][1] then return p[1][2] end
-            for i = 2, #p do
-                if x <= p[i][1] then
-                    local a, b = p[i - 1], p[i]
-                    if b[1] == a[1] then return b[2] end
-                    return a[2] + (b[2] - a[2]) * (x - a[1]) / (b[1] - a[1])
-                end
-            end
-            return p[#p][2]
-        end
-        return c
-    end }
+    end
     local function answer(how, v)
         if how == "nil" then return nil end
+        if how == "secret" and type(v) == "table" then
+            return colorOf(stub.Secret(v.r), stub.Secret(v.g), stub.Secret(v.b), stub.Secret(v.a))
+        end
         if how == "secret" then return stub.Secret(v) end
         return v
     end
@@ -432,6 +470,7 @@ function W.ClientTier()
     stub.onReset[#stub.onReset + 1] = function()
         _G.C_CurveUtil, _G.UnitHealthPercent, _G.UnitPowerPercent = keep.curve, keep.health, keep.power
         Enum.LuaCurveType, Enum.PowerType = keep.types, keep.powers
+        if W.realDuration then C_DurationUtil.CreateDuration, W.realDuration = W.realDuration, nil end
     end
 end
 

@@ -40,6 +40,8 @@ Drawer.COPY_REPORT = WORDING.copyReport
 -- The strip's heading per kind of word. "and" is the and … blank's strip.
 Drawer.HEADINGS = setmetatable({ ["and"] = WORDING.headings.clause }, { __index = WORDING.headings })
 Drawer.COLOR_WORDS = { accent = "accent", pick = "pick…" }
+-- A fill's color words: the accent, a pick, or one that shifts with the amount.
+Drawer.FILL_COLOR_WORDS = { accent = "accent", pick = "pick…", shift = "shifts with the amount" }
 -- Strip keys of the drawer's own: the chip that shows or hides advanced words, and
 -- the chip that takes a clause out.
 Drawer.MORE = "\1more"
@@ -57,7 +59,7 @@ Drawer.REFUSED = {
 
 -- API.md's text sizes in px, for a line's height before the client measures one.
 local SIZE_PX = { small = 12, body = 13, head = 15 }
--- Stack:Text's line spacing (Parts.lua:423).
+-- Stack:Text's line spacing (Parts.lua:426).
 local SPACING = 3
 
 local d            -- the drawer, built on the editor's first open
@@ -1393,7 +1395,7 @@ local function sentence(s, kind, rules, row)
                         onPick = function(icon) edit(function(r) r.lines[i].value = icon end) end })
                 end, writes = false }, line.value ~= nil, off)
         elseif valued == "fill" then
-            -- " my health (tint, drains) in the accent color": each pick a word of its
+            -- " my health (thin bar, drains) in the accent color": each pick a word of its
             -- own. A pick back at its default is left out of the value.
             local L = ns.Looks
             local source, shape, dir, color = Grammar.FillPicks(line.value, kind, line)
@@ -1413,26 +1415,62 @@ local function sentence(s, kind, rules, row)
             pieces[#pieces + 1] = word(sourceValues[source] or tostring(source), id .. "fillSource", {
                 kind = "fillSource", keys = sourceKeys, values = sourceValues, current = source, refused = refused,
                 onPick = function(k) pick("source", k, sourceKeys[1] or L.FILL_SOURCE) end }, true, off)
-            pieces[#pieces + 1] = { text = " (" }
-            pieces[#pieces + 1] = word(WORDING.fillShapes[shape] or shape, id .. "fillShape", {
-                kind = "fillShape", keys = L.FILL_SHAPES, values = WORDING.fillShapes, current = shape,
-                onPick = function(k) pick("shape", k, L.FILL_SHAPE) end }, true, off)
-            pieces[#pieces + 1] = { text = ", " }
+            -- The shape is a word to click only while there is more than one.
+            local shapeWords = WORDING.fillShapes[shape] or shape
+            if #L.FILL_SHAPES > 1 then
+                pieces[#pieces + 1] = { text = " (" }
+                pieces[#pieces + 1] = word(shapeWords, id .. "fillShape", {
+                    kind = "fillShape", keys = L.FILL_SHAPES, values = WORDING.fillShapes, current = shape,
+                    onPick = function(k) pick("shape", k, L.FILL_SHAPE) end }, true, off)
+                pieces[#pieces + 1] = { text = ", " }
+            else
+                pieces[#pieces + 1] = { text = " (" .. shapeWords .. ", " }
+            end
             pieces[#pieces + 1] = word(WORDING.fillDirs[dir] or dir, id .. "fillDir", {
                 kind = "fillDir", keys = L.FILL_DIRS, values = WORDING.fillDirs, current = dir,
                 onPick = function(k) pick("dir", k, L.FILL_DIR) end }, true, off)
             pieces[#pieces + 1] = { text = ") in " }
-            pieces[#pieces + 1] = word(Draft.ColorName(color), id .. "color", {
-                kind = "color", keys = { "accent", "pick" }, values = Drawer.COLOR_WORDS,
-                current = color == nil and "accent" or nil,
+            local shift = color == L.FILL_SHIFT
+            pieces[#pieces + 1] = word(shift and WORDING.fillShift or Draft.ColorName(color), id .. "color", {
+                kind = "color", keys = { "accent", "pick", "shift" }, values = Drawer.FILL_COLOR_WORDS,
+                current = (color == nil and "accent") or (shift and "shift") or nil,
                 onPick = function(k)
                     if k == "accent" then return pick("color", nil, nil) end
-                    local start = color or { API.Accent() }
+                    if k == "shift" then return pick("color", L.FILL_SHIFT, nil) end
+                    local start = (not shift and color) or { API.Accent() }
                     Bridge.PickColor({ start[1], start[2], start[3] }, function(c)
                         pick("color", { c[1], c[2], c[3] }, nil)
                     end)
                 end, writes = false,
                 clear = color ~= nil and function() pick("color", nil, nil) end or nil },
+                true, off)
+        elseif valued == "flash" then
+            -- " once in the accent color": how often, then the color. Once and the accent
+            -- are left out of the value.
+            local color, again = Grammar.FlashPicks(line.value)
+            local function set(c, a)
+                edit(function(r)
+                    local v = c and { c[1], c[2], c[3] } or {}
+                    if a then v.again = true end
+                    r.lines[i].value = next(v) and v or nil
+                end)
+            end
+            local repeats = WORDING.flashRepeats
+            pieces[#pieces + 1] = { text = " " }
+            pieces[#pieces + 1] = word(again and repeats.again or repeats.once, id .. "flashRepeat", {
+                kind = "flashRepeat", keys = { "once", "again" }, values = repeats,
+                current = again and "again" or "once",
+                onPick = function(k) set(color, k == "again") end }, true, off)
+            pieces[#pieces + 1] = { text = " in " }
+            pieces[#pieces + 1] = word(Draft.ColorName(color), id .. "color", {
+                kind = "color", keys = { "accent", "pick" }, values = Drawer.COLOR_WORDS,
+                current = color == nil and "accent" or nil,
+                onPick = function(k)
+                    if k == "accent" then return set(nil, again) end
+                    local start = color or { API.Accent() }
+                    Bridge.PickColor({ start[1], start[2], start[3] }, function(c) set(c, again) end)
+                end, writes = false,
+                clear = color ~= nil and function() set(nil, again) end or nil },
                 true, off)
         elseif valued == "flare" then
             -- " (Sunrise, Pulse, Proc Alerts' sound)": each pick a word of its own. A pick
@@ -1460,7 +1498,7 @@ local function sentence(s, kind, rules, row)
                 onPick = function(k) pick("design", k, L.FLARE_DESIGN) end }, true, off)
             pieces[#pieces + 1] = { text = ", " }
             pieces[#pieces + 1] = word(WORDING.flareAnims[anim] or anim, id .. "anim", {
-                kind = "anim", keys = L.FLARE_ANIMS, values = WORDING.flareAnims, current = anim,
+                kind = "anim", keys = L.FlareAnims(), values = WORDING.flareAnims, current = anim,
                 onPick = function(k) pick("anim", k, L.FLARE_ANIM) end }, true, off)
             pieces[#pieces + 1] = { text = ", " }
             local said = soundValues[soundNow]

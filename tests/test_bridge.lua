@@ -13,7 +13,7 @@ local SHOUT, REND, BLOCK, RAGE, CLAP, WALL = 6673, 772, 2565, 2687, 6343, 871
 local function world(opts)
     opts = opts or {}
     stub.neverSecretAuras = {}
-    local DUI, ns = stub.LoadPlugin({ actionbars = true, infopanel = opts.panel, nameplates = opts.panel, chat = opts.panel, login = false, before = function()
+    local DUI, ns = stub.LoadPlugin({ actionbars = true, infopanel = opts.panel, nameplates = opts.panel, chat = opts.panel, procs = opts.panel, login = false, before = function()
         stub.SetUnits({ player = { name = "Me", class = "WARRIOR", friend = true },
                         target = { name = "Boar", reaction = 2 } })
         CW.Install({ with = SHOUT, known = { SHOUT, REND, BLOCK, RAGE, CLAP, WALL }, showAll = true })
@@ -46,7 +46,7 @@ end
 
 local function noErrors() T.eq(#stub.errors, 0, tostring(stub.errors[1])) end
 
-T.test("bridge: every NEEDS entry resolves on Daylight UI 2.4.1", function()
+T.test("bridge: every NEEDS entry resolves on Daylight UI 2.4.3", function()
     local _, _, B = world()
     T.truthy(#B.NEEDS > 0, "NEEDS lists the internals")
     T.eq(table.concat(B.Missing(), ", "), "", "nothing missing")
@@ -130,7 +130,7 @@ end)
 
 T.test("bridge: GlowResets is API 1.15 and newer, which takes nil for a glow color", function()
     local DUI, _, B, AB = world()
-    T.eq(DUI.API.minor, 16, "the pinned Daylight UI")
+    T.eq(DUI.API.minor, 17, "the pinned Daylight UI")
     T.truthy(B.GlowResets())
     -- The real setter: nil clears a glow color, and still refuses it for the sweep's.
     local D = AB.CdmData
@@ -825,10 +825,12 @@ T.test("bridge: without the info panel, FoldTab is nil and EZ-CDM stays on", fun
     local _, _, B = world()
     local apart = 0
     for _, path in ipairs(B.OPTIONAL) do
-        if path:find("^InfoPanel%.") or path:find("^Nameplates%.") or path:find("^Chat%.") then apart = apart + 1 end
+        if path:find("^InfoPanel%.") or path:find("^Nameplates%.") or path:find("^Chat%.") or path:find("^Procs%.") then
+            apart = apart + 1
+        end
     end
     T.eq(#B.MissingOptional(), apart,
-        "every info panel, nameplate and chat entry is missing; the rest is in the core and the editor")
+        "every info panel, nameplate, chat and Proc Alerts entry is missing; the rest is in the core and the editor")
     T.truthy(B.CanShowText())
     T.isnil(B.FoldTab())
     T.eq(B.CircleLight(), B.CIRCLE_LIGHT, "Daylight UI's number, kept by the Bridge")
