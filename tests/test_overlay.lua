@@ -312,7 +312,10 @@ T.test("conditions registry: each has fits, read, events, secrecy, words, an eff
         else
             T.eq(type(c.read), "function", c.key .. " read")
         end
-        T.truthy(#(c.events.game or {}) + #(c.events.daylight or {}) > 0, c.key .. " has events")
+        -- Always never changes, so nothing has to tell it.
+        if c.key ~= "always" then
+            T.truthy(#(c.events.game or {}) + #(c.events.daylight or {}) > 0, c.key .. " has events")
+        end
         T.truthy(C.SECRECY[c.secrecy], c.key .. " secrecy")
         T.truthy(G.WORDING.moments[c.moment], c.key .. ": its moment has words")
         for a, act in pairs(c.actions) do
@@ -333,7 +336,7 @@ T.test("conditions registry: each has fits, read, events, secrecy, words, an eff
     T.eq(table.concat(keys, " "), "cantCast notUsable noMana noBuff hasTarget targetEnemy targetBoss outOfRange "
         .. "targetCasting onlyGcd offCooldown formBear formCat formAquatic formTravel formMoonkin formStealth formBattle "
         .. "formDefensive formBerserker totemUp totemDown weaponBuffMissing chargesLeft targetLow playerLow powerLow "
-        .. "inCombat noCombat inGroup inInstance",
+        .. "inCombat noCombat inGroup inInstance always cooling active",
         "the shipped ones, in order")
     noErrors()
 end)

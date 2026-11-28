@@ -155,10 +155,14 @@ Grammar.MAP = MAP
 -- the kind flag that says so. Daylight UI's ready keeps its own glow and sound, and
 -- takes the EZ-CDM moment's looks: offCooldown where ready is the real cooldown's end
 -- (kind.cooldownReady), totemDown where it is the totem gone (kind.totemTime).
+-- Daylight UI's cooling down and active take the fill as EZ-CDM's cooling
+-- (kind.cooldownReady) and active (kind.clocked).
 Grammar.MERGED = {
     totemUp = { into = "cooldown", flag = "totemTime" },
     offCooldown = { into = "ready", flag = "cooldownReady" },
     totemDown = { into = "ready", flag = "totemTime" },
+    cooling = { into = "cooldown", flag = "cooldownReady" },
+    active = { into = "up", flag = "clocked" },
 }
 
 -- The merge a merged entry takes on kind ({ moment, action, flag }), or nil where kind
@@ -656,6 +660,9 @@ end
 --   totem            its spell is a timed totem (Bridge.IsTotem)
 --   procAlert        Daylight UI's Proc Alerts lists its spell (Bridge.ProcAlertListed).
 --                    The flare covers the proc, so no Proc pop, and the drawer notes it
+--   clocked          Daylight UI clocks its own buff from your cast or its buff moments,
+--                    so its time left reads in a fight: a buff you cast that wears off
+--                    (the recast moment's pieces), never a proc or a debuff
 -- Form rows show for cooldowns of a class with forms (CdmCard.lua:817).
 -- Totems take no case of their own. Bridge.Shows (CdmOwn.Track) says "totem" for a
 -- totem with no buff and "both" for a Shaman element piece (CdmOwn.lua:108-130), and
@@ -762,6 +769,8 @@ function Grammar.Kind(key, piece, shows)
         if own == nil then own = not kind.cast end
         kind.proc = own == true
     end
+    kind.clocked = (kind.showsBuff and kind.cast and not kind.untimed and not kind.proc
+        and kind.aura ~= "debuff") or nil
     -- What the card's What it shows reads now (CdmCard.lua:367-374), in the grammar's words.
     if trackRow then
         kind.showing = (now == "both" or now == "cooldown" or now == "buff") and now
@@ -910,9 +919,10 @@ function Grammar.Extras(kind)
 end
 
 -- Whether the drawer offers an EZ-CDM condition: never one that is unknown in a
--- fight, and an advanced one only with more.
+-- fight, and an advanced one only with more. An alone one is never an "and" part.
 local function offered(c, opts, asClause)
     if c.clauseOnly and not asClause then return false end
+    if c.alone and asClause then return false end
     if not (opts and opts.drawer) then return true end
     if c.secrecy == "outOfCombat" then return false end
     return not c.advanced or opts.more == true
@@ -979,7 +989,8 @@ end
 -- part, or a client one).
 local function partsSoFar(line, kind)
     local ck = Grammar.ClauseRoot(line, kind)
-    if not ck or Conditions.Get(ck).secrecy == "client" then return nil end
+    local root = ck and Conditions.Get(ck)
+    if not root or root.secrecy == "client" or root.alone then return nil end
     local parts = { ck }
     for _, cl in ipairs(type(line.clauses) == "table" and line.clauses or {}) do
         local c = type(cl) == "table" and Conditions.Get(cl.cond)
@@ -1327,9 +1338,10 @@ local function condSpec(line, entry, kind)
     local clauses = line.clauses
     if clauses ~= nil and type(clauses) ~= "table" then return nil, "pair" end
     local seen, client, parts = { [ck] = true }, 0, { Conditions.Get(ck) }
+    if parts[1].alone and clauses ~= nil and #clauses > 0 then return nil, "pair" end
     for _, cl in ipairs(clauses or {}) do
         local c = type(cl) == "table" and Conditions.Get(cl.cond)
-        if not c then return nil, "pair" end
+        if not c or c.alone then return nil, "pair" end
         if seen[cl.cond] then return nil, "twice" end
         seen[cl.cond] = true
         if kind and not Conditions.FitsKind(cl.cond, kind) then return nil, "kind" end
@@ -1411,6 +1423,10 @@ function Grammar.Compile(rules, kind)
         elseif line.n ~= nil and not entry.cond then
             problem({ line = i, code = "value" })
         elseif not Grammar.Fits(line.action == "flash" and flashKind or kind, line.moment, line.action) then
+            problem({ line = i, code = "kind" })
+        elseif entry.valued == "fill" and kind
+            and not indexOf((Grammar.FillSources(kind, line)), (Grammar.FillPicks(line.value, kind, line))) then
+            -- What it fills with doesn't fit the piece (time left on a proc).
             problem({ line = i, code = "kind" })
         elseif entry.all then
             always = entry
@@ -1692,7 +1708,17 @@ Grammar.WORDING = {
         sparkle = "sparkle", screen = "flash the screen's edge",
         pulse = "pulse it", border = "color its border", halo = "light a halo behind it",
         text = "show words on it", swap = "swap its icon", flare = "flare around me",
+        fill = "fill it with",
     },
+    -- A fill line's picks (Looks.lua): what it fills with (%s is the power name), its
+    -- shape and which way it fills, in brackets after the number. fillNever is why time
+    -- left isn't offered: a buff whose timer the game hides, one that never wears off,
+    -- or a debuff on your target, which Daylight UI times once per spell.
+    fillSources = { power = "my %s", time = "time left" },
+    fillShapes = { tint = "tint", bar = "thin bar" },
+    fillDirs = { drain = "drains", rise = "rises" },
+    fillNever = { hidden = "the game hides this buff's timer in a fight", untimed = "it never wears off",
+                  target = "its timer is one per spell, not per target" },
     -- A flare line's picks, in brackets after its action: Daylight UI's Proc Alerts
     -- names for its designs and animations (DaylightUI_Procs/Data.lua), and the sound
     -- it plays with none picked.
@@ -1782,6 +1808,7 @@ Grammar.WORDING = {
         clause = "Choose another condition:", number = "Type a number:",
         text = "Type a few words:", icon = "Choose an icon:",
         design = "Choose a flare:", anim = "Choose how it moves:", flareSound = "Choose a sound:",
+        fillSource = "Choose what it fills with:", fillShape = "Choose a shape:", fillDir = "Choose which way it fills:",
         also = "Choose what else happens:",
     },
     -- Under a one-shot look's line while Daylight UI's motion is off.
@@ -1882,6 +1909,12 @@ Grammar.WORDING = {
     },
     -- What's New, newest first, from CHANGELOG.md.
     news = {
+        { version = "1.2.0", lines = {
+            "Fill an icon with your power or its time left.",
+            "Pick a tint over the icon or a thin bar under it, draining or rising.",
+            "\"Always\", \"While it's cooling down\" and \"While it's active\" can fill it.",
+            "It works in a fight: the game draws the number.",
+        } },
         { version = "1.1.0", lines = {
             "One line can do several things: \"When I can't cast it, glow and pulse it.\"",
             "Click \"and …\" after what happens to add up to three actions.",
@@ -2083,6 +2116,64 @@ function Grammar.FlarePicks(v)
     return v.design or L.FLARE_DESIGN, v.anim or L.FLARE_ANIM, v.sound
 end
 
+-- A fill line's source, shape, direction and color: its own, else the defaults
+-- (Looks.FillPicks).
+function Grammar.FillPicks(v, kind, line)
+    local L = ns.Looks
+    if L and L.FillPicks then
+        local ck = kind and type(line) == "table" and Grammar.LineCondition(line, kind)
+        return L.FillPicks(v, kind, ck and Conditions.LineLayer(ck, { clauses = line.clauses }) or "any")
+    end
+    v = type(v) == "table" and v or {}
+    return v.source, v.shape, v.dir, v.color
+end
+
+-- A fill source's words on a piece: "my health", "my mana".
+function Grammar.FillSourceWords(source, kind)
+    local w = WORDING.fillSources[source]
+    if not w then return tostring(source) end
+    return fill(w, nil, kind)
+end
+
+-- Whether a line about layer has a clock time left can run on: a buff Daylight UI
+-- clocks, a totem's own time, or a real cooldown (Looks.lua's faces).
+local function timeFits(kind, layer)
+    if layer ~= "cooldown" and kind.clocked then return true end
+    if layer ~= "buff" and (kind.totemTime or kind.cooldownReady) then return true end
+    return false
+end
+
+-- What a fill line may fill with on kind, in Looks.FILL_SOURCES order, and those left
+-- out with why ({ { key, why } }, for the strip): my power where the spell costs a bar your class has, time left
+-- where a clock runs for the line's icon. A buff with no clock in a fight (a proc,
+-- or one you never cast), one that never wears off and a debuff say why.
+function Grammar.FillSources(kind, line)
+    kind = type(kind) == "table" and kind or {}
+    local ck = type(line) == "table" and Grammar.LineCondition(line, kind)
+    return Grammar.FillSourcesAt(kind, ck and Conditions.LineLayer(ck, { clauses = line.clauses }) or "any")
+end
+
+-- The same for a line about layer ("cooldown", "buff" or "any").
+function Grammar.FillSourcesAt(kind, layer)
+    local keys, refused = {}, {}
+    local L = ns.Looks
+    kind = type(kind) == "table" and kind or {}
+    for _, src in ipairs(L and L.FILL_SOURCES or {}) do
+        local fits = true
+        if src == "power" then fits = kind.lowPower == true
+        elseif src == "time" then
+            fits = timeFits(kind, layer)
+            if not fits and layer ~= "cooldown" and kind.showsBuff then
+                local why = (kind.untimed and WORDING.fillNever.untimed)
+                    or (kind.aura == "debuff" and WORDING.fillNever.target) or WORDING.fillNever.hidden
+                refused[#refused + 1] = { key = src, why = why }
+            end
+        end
+        if fits then keys[#keys + 1] = src end
+    end
+    return keys, refused
+end
+
 -- A glow style key's name, the card's label, or the key.
 local function styleName(key)
     for _, st in ipairs(Bridge.GlowStyles() or {}) do
@@ -2092,7 +2183,7 @@ local function styleName(key)
 end
 Grammar.StyleName = styleName
 
-local function actionWords(line)
+local function actionWords(line, kind)
     local a = line.action
     if a == nil then return WORDING.chooseWhat end
     if a == "glow" and line.style ~= nil then
@@ -2108,6 +2199,13 @@ local function actionWords(line)
     if valued == "color" and line.value then return Grammar.ActionWords(line.moment, a) .. " in " .. WORDING.picked end
     if valued == "text" and type(line.value) == "string" then return WORDING.textShown:format(line.value) end
     if valued == "icon" and line.value ~= nil then return Grammar.ActionWords(line.moment, a) .. " for " .. WORDING.iconPicked end
+    if valued == "fill" then
+        local source, shape, dir, color = Grammar.FillPicks(line.value, kind, line)
+        local out = string.format("%s %s (%s, %s)", Grammar.ActionWords(line.moment, a),
+            Grammar.FillSourceWords(source, kind), WORDING.fillShapes[shape] or shape, WORDING.fillDirs[dir] or dir)
+        if color then out = out .. " in " .. WORDING.picked end
+        return out
+    end
     if valued == "flare" then
         local d, anim, sound = Grammar.FlarePicks(line.value)
         return string.format("%s (%s, %s, %s)", Grammar.ActionWords(line.moment, a), WORDING.flareDesigns[d] or d,
@@ -2150,7 +2248,7 @@ Grammar.ListWords = listOf
 function Grammar.Describe(line, kind)
     if type(line) ~= "table" then return "" end
     local phrase, joint = momentPart(line, kind)
-    return phrase .. joint .. actionWords(line) .. "."
+    return phrase .. joint .. actionWords(line, kind) .. "."
 end
 
 -- ---------------------------------------------------------------------
@@ -2237,7 +2335,7 @@ function Grammar.DescribeRow(lines, kind)
     if type(lines) ~= "table" or #lines == 0 then return "" end
     local phrase, joint = momentPart(lines[1], kind)
     local said = {}
-    for i, l in ipairs(lines) do said[i] = actionWords(l) end
+    for i, l in ipairs(lines) do said[i] = actionWords(l, kind) end
     return phrase .. joint .. listOf(said) .. "."
 end
 

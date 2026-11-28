@@ -200,7 +200,8 @@ T.test("grammar: gray and color go with cooldown only, and sounds only where Day
     T.eq(G.MAP.up.hide.field, "hideActive")
     T.eq(G.MAP.missing.show.field, "missing")
     T.eq(G.MAP.missing.hide.field, "hideMissing")
-    T.deq(G.MAP.always, { show = G.MAP.always.show }, "always only takes show")
+    T.deq(G.MAP.always, { show = G.MAP.always.show, fill = G.MAP.always.fill }, "always takes show, and EZ-CDM's fill")
+    T.eq(G.MAP.always.fill.cond, "always")
     T.eq(_G.EZCDM_Grammar, G, "the debug handle")
     noErrors()
 end)
@@ -486,18 +487,21 @@ local BATCH_MOMENT = {}
 for _, k in ipairs(BATCH_A) do BATCH_MOMENT[k] = true end
 
 -- Words(kind) as text, batch A's left out, with the batch A lines a merged moment
--- shows (Grammar.MERGED): "ready(show,fade) up(glow)".
+-- shows (Grammar.MERGED): "ready(show,fade) up(glow)". The fill, and a moment it
+-- alone fills, are test_w2_fill's.
 local function wordsOf(G, kind)
     local out = {}
     for _, e in ipairs(G.Words(kind)) do
         local acts = {}
         for _, a in ipairs(e.actions) do
             local entry = G.MAP[e.moment][a]
-            local batch = false
+            local batch = a == "fill"
             for _, m in ipairs(entry.merges or {}) do batch = batch or BATCH_MOMENT[m.moment] == true end
             if not batch then acts[#acts + 1] = a end
         end
-        if not BATCH_MOMENT[e.moment] then out[#out + 1] = e.moment .. "(" .. table.concat(acts, ",") .. ")" end
+        if not BATCH_MOMENT[e.moment] and #acts > 0 then
+            out[#out + 1] = e.moment .. "(" .. table.concat(acts, ",") .. ")"
+        end
     end
     return table.concat(out, " ")
 end
@@ -986,6 +990,7 @@ T.test("grammar wording: placeholders and strip headings", function()
         clause = "Choose another condition:", number = "Type a number:",
         text = "Type a few words:", icon = "Choose an icon:",
         design = "Choose a flare:", anim = "Choose how it moves:", flareSound = "Choose a sound:",
+        fillSource = "Choose what it fills with:", fillShape = "Choose a shape:", fillDir = "Choose which way it fills:",
         also = "Choose what else happens:",
     })
     -- No phrase starts with a separate When or While: each moment is one phrase.
@@ -1185,7 +1190,7 @@ local function exceptions(G, AB, id, on)
     for _, m in ipairs(G.MOMENTS) do
         for _, a in ipairs(G.ACTIONS) do
             local e = G.MAP[m] and G.MAP[m][a]
-            if e and e.cond and G.Fits(kind, m, a) then
+            if e and e.cond and a ~= "fill" and G.Fits(kind, m, a) then
                 on.ezConditions[m] = on.ezConditions[m] or {}
                 table.insert(on.ezConditions[m], a)
             end

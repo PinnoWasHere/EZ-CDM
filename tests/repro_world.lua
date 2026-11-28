@@ -168,7 +168,7 @@ end
 -- ---------------------------------------------------------------------
 
 local KIND_FLAGS = { "drawnBy", "custom", "cooldown", "buff", "tracked", "cast", "ezGlow", "proc", "harmful",
-                     "untimed", "groupBuff", "buffEvents" }
+                     "untimed", "groupBuff", "buffEvents", "clocked" }
 
 -- Lines describing one piece: kind, offered words and recipes, its rules as
 -- sentences with their notes, Daylight UI's saved fields and EZ-CDM's rules.

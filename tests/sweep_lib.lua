@@ -28,7 +28,8 @@ local COLOR = { 0.2, 0.4, 0.6 }
 local TINT = { 0.2, 0.4, 0.6, 0.5 }
 local LEAD = 5
 -- A look line's sample value, by the value its effect takes.
-SW.LOOK_VALUES = { color = COLOR, text = "Now!", icon = 136048, flare = { design = "crown", anim = "impact" } }
+SW.LOOK_VALUES = { color = COLOR, text = "Now!", icon = 136048, flare = { design = "crown", anim = "impact" },
+                  fill = { shape = "bar", dir = "rise", color = COLOR } }
 local ITEM, ADDED_SPELL = W.ITEM, W.ADDED_SPELL
 
 -- The catalogue's classes and the class world (tests/classworld.lua).
@@ -328,7 +329,10 @@ function SW.CardAndGrammar(G, AB, id)
     for _, key in ipairs(ALWAYS_ROWS) do
         all = all and (on[key] == true or (key == "onCd" and on.onCdAlways) or (key == "onShort" and on.onShortAlways))
     end
-    if all then offered.always = { show = true } end
+    if all then
+        offered.always = offered.always or {}
+        offered.always.show = true
+    end
     local card = {}
     for _, m in ipairs(G.MOMENTS) do
         local acts = {}

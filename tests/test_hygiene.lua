@@ -127,10 +127,10 @@ end)
 -- The packager uploads CHANGELOG.md whole as each release's notes, so it holds one
 -- version: the one the toc names.
 T.test("hygiene: the changelog holds only the toc's version", function()
-    local text = read("CHANGELOG.md") or ""
+    local text = read(H.ROOT .. "CHANGELOG.md") or ""
     local heads = {}
     for v in text:gmatch("%f[^\n%z]# EZ%-CDM ([^\n]+)") do heads[#heads + 1] = v end
-    local toc = (read("EZ-CDM.toc") or ""):match("## Version: ([^\r\n]+)")
+    local toc = (read(H.ROOT .. "EZ-CDM.toc") or ""):match("## Version: ([^\r\n]+)")
     T.eq(#heads, 1, "one version heading: " .. table.concat(heads, ", "))
     T.eq(heads[1], toc, "the toc's version")
 end)

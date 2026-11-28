@@ -76,7 +76,7 @@ T.test("flare: a one-shot look that also goes, plain lines only, after the scree
     local C = ns.Conditions
     local got = {}
     for _, l in ipairs(C.Looks()) do got[#got + 1] = l.action end
-    T.eq(table.concat(got, ","), "flash,sparkle,screen,flare,pulse,border,halo,text,swap", "the drawer's order")
+    T.eq(table.concat(got, ","), "flash,sparkle,screen,flare,pulse,border,halo,text,swap,fill", "the drawer's order")
     local e = C.Effect("flare")
     T.truthy(e.edge and e.hides, "lands once, goes with its line")
     T.falsy(e.client, "never on a client line")

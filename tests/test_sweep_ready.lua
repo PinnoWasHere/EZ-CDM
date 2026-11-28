@@ -14,6 +14,10 @@ local SW = require("sweep_lib")
 -- And the ready glow and sound with an "and" clause (docs/tasks/w1-ready-owned.md): EZ-CDM's
 -- line where "When it's ready" merges offCooldown or totemDown, written to that condition's
 -- field and read back as written; refused anywhere else.
+-- And the fill (docs/tasks/w2-fill.md): "While it's cooling down" takes it where "When it's
+-- ready" takes the looks (cooling or totemUp merged), "While it's active" where a recast
+-- moment shows Daylight UI clocks the buff (active merged), never on a debuff; cooling and
+-- active never get a chip of their own.
 
 local CLASSES = { "DRUID", "HUNTER", "MAGE", "PALADIN", "PRIEST", "ROGUE", "SHAMAN", "WARLOCK", "WARRIOR" }
 
@@ -55,6 +59,18 @@ local function check(G, C, B, key, name, bad, totals)
         say(m.totemDown and "a When my totem is down chip" or "no When my totem is down chip")
     end
     if C.FitsKind("totemDown", kind) ~= totem then say("totemDown fits wrongly") end
+    local coolingFill = m.cooldown ~= nil and m.cooldown.fill == true
+    if coolingFill ~= wantLooks then
+        say(wantLooks and "While it's cooling down lacks the fill" or "While it's cooling down offers the fill")
+    end
+    if C.FitsKind("cooling", kind) ~= (readyFace and real and not totem) then say("cooling fits wrongly") end
+    local wantActive = m.recast ~= nil and kind.aura ~= "debuff"
+    if (m.up ~= nil and m.up.fill == true) ~= wantActive then
+        say(wantActive and "While it's active lacks the fill" or "While it's active offers the fill")
+    end
+    if m.cooling or m.active then say("a chip of cooling's or active's own") end
+    if coolingFill then totals.cooling = totals.cooling + 1 end
+    if wantActive then totals.active = totals.active + 1 end
     local wantOwn = readyFace and ((real and not totem) or totemTime)
     for _, a in ipairs({ "glow", "sound" }) do
         if m.ready and m.ready[a] then
@@ -85,7 +101,7 @@ local function check(G, C, B, key, name, bad, totals)
     if ownCd then totals.own = totals.own + 1 end
 end
 
-local totals = { pieces = 0, real = 0, totems = 0, own = 0, owned = 0 }
+local totals = { pieces = 0, real = 0, totems = 0, own = 0, owned = 0, cooling = 0, active = 0 }
 
 local function report(bad)
     return #bad .. " wrong offers:\n  " .. table.concat(bad, "\n  ", 1, math.min(#bad, 40))
@@ -146,7 +162,10 @@ end)
 -- covers it on a made kind.
 T.test("sweep ready: the sweep met real cooldowns and totems", function()
     print(string.format("ready sweep: %d pieces, %d real cooldowns, %d totems, %d own off-cooldown chips, "
-        .. "%d ready glows that take and", totals.pieces, totals.real, totals.totems, totals.own, totals.owned))
+        .. "%d ready glows that take and, %d cooling down fills, %d active fills", totals.pieces, totals.real,
+        totals.totems, totals.own, totals.owned, totals.cooling, totals.active))
+    T.truthy(totals.cooling >= 100, "cooling down fills: " .. totals.cooling)
+    T.truthy(totals.active >= 20, "active fills: " .. totals.active)
     T.truthy(totals.owned >= 100, "ready glows that take and: " .. totals.owned)
     T.truthy(totals.pieces >= 500, "pieces: " .. totals.pieces)
     T.truthy(totals.real >= 100, "real cooldowns: " .. totals.real)

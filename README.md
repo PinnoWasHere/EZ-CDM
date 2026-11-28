@@ -74,6 +74,11 @@ What happens:
   for as long as the line is true. Each takes its own color, words or icon.
 - Flare around me: Daylight UI's Proc Alerts flare around your character, in the design,
   animation and sound you pick. It goes as the line turns off.
+- Fill it with my power (the one the spell costs) or time left:
+  a tint rising over the icon or a thin bar under it, that drains or rises, in the accent
+  or a color you pick. It works in a fight. "Always", "while it's cooling down" and
+  "while it's active" take it too. Time left is offered on real cooldowns, totems and
+  your own buffs, never on procs, whose timer the game hides in a fight.
 
 Also:
 

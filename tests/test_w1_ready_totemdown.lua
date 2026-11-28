@@ -56,7 +56,7 @@ local function fired(w, key, effect)
     return f and f.n or 0
 end
 
-local LOOKS = "flash,sparkle,screen,flare,pulse,border,halo,text,swap"
+local LOOKS = "flash,sparkle,screen,flare,pulse,border,halo,text,swap,fill"
 
 -- ---------------------------------------------------------------------
 -- 1. When it's ready: Daylight UI's moment and EZ-CDM's offCooldown, one chip

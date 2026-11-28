@@ -51,6 +51,9 @@ local addonName, ns = ...
 --              fires an edge effect only as this part turns true from a plain false,
 --              never on its first read or as another part turns true. Held effects
 --              stay lit while it is true
+--   looks      optional { look action, ... }: the only looks it takes. Its actions may
+--              start empty, and the looks fill them
+--   alone      optional: never an "and" part, and its lines take none
 --
 -- An effect (Conditions.RegisterEffect):
 --   key, fits(kind) optional, draw(target, on, opts), clear(target)
@@ -67,6 +70,9 @@ local addonName, ns = ...
 --   anyFace    decorates the whole piece on its holder, so on a piece that shows its
 --              buff and its cooldown in turn it shows on either face. Without it a line
 --              about one icon draws only while that icon shows
+--   watch      optional { game, daylight, late }: what may change what it draws, as a
+--              condition's events and late. A piece whose lines use it reads again on
+--              them
 --
 -- A look (Conditions.RegisterLook) is an action every condition's lines may end in,
 -- drawn by one effect: "flash it", "sparkle" (Looks.lua). Each registered condition
@@ -149,7 +155,13 @@ local function problem(c)
     if type(c) ~= "table" or type(c.key) ~= "string" or c.key == "" then return "no key" end
     if byKey[c.key] then return "taken" end
     if type(c.moment) ~= "string" then return "no moment" end
-    if type(c.actions) ~= "table" or next(c.actions) == nil then return "no actions" end
+    if c.looks ~= nil then
+        if type(c.looks) ~= "table" then return "bad looks" end
+        for _, a in ipairs(c.looks) do
+            if type(a) ~= "string" then return "bad looks" end
+        end
+    end
+    if type(c.actions) ~= "table" or (next(c.actions) == nil and c.looks == nil) then return "no actions" end
     for a, act in pairs(c.actions) do
         if type(a) ~= "string" or type(act) ~= "table" or type(act.effect) ~= "string" then return "bad action" end
     end
@@ -182,8 +194,16 @@ end
 -- Returns true, or false and why.
 -- A look on a condition's lines, unless it is clauseOnly or has that action already.
 -- A client condition takes only the alpha-safe ones.
+local function takesLook(c, action)
+    if c.looks == nil then return true end
+    for _, a in ipairs(c.looks) do
+        if a == action then return true end
+    end
+    return false
+end
+
 local function addLook(c, look)
-    if c.clauseOnly or c.actions[look.action] ~= nil then return end
+    if c.clauseOnly or c.actions[look.action] ~= nil or not takesLook(c, look.action) then return end
     if c.secrecy == "client" and not effects[look.effect].client then return end
     c.actions[look.action] = { effect = look.effect }
 end
@@ -207,7 +227,11 @@ function Conditions.List() return list end
 function Conditions.RegisterEffect(e)
     if type(e) ~= "table" or type(e.key) ~= "string" or effects[e.key]
         or type(e.draw) ~= "function" or type(e.clear) ~= "function"
-        or (e.value ~= nil and not Conditions.VALUES[e.value]) then return false end
+        or (e.value ~= nil and not Conditions.VALUES[e.value])
+        or (e.watch ~= nil and type(e.watch) ~= "table") then return false end
+    for _, h in ipairs(type(e.watch) == "table" and e.watch.daylight or {}) do
+        if not Conditions.DAYLIGHT[h] then return false end
+    end
     effects[e.key] = e
     return true
 end
@@ -514,8 +538,8 @@ function Conditions.Spec(ck, action, spec)
         if e and e.value then out.value = Conditions.CleanValue(e.value, spec.value) end
     end
     local clauses = {}
-    for _, cl in ipairs(type(spec.clauses) == "table" and spec.clauses or {}) do
-        if type(cl) == "table" and byKey[cl.cond] then
+    for _, cl in ipairs(not c.alone and type(spec.clauses) == "table" and spec.clauses or {}) do
+        if type(cl) == "table" and byKey[cl.cond] and not byKey[cl.cond].alone then
             clauses[#clauses + 1] = { cond = cl.cond, n = savedNumber(cl.cond, cl.n) }
         end
     end
@@ -703,6 +727,8 @@ local function optsFor(act, spec, k, id)
         out.ready, out.daylight = spec.ready, spec.daylight
     end
     if act.effect == "glow" and out.style == nil and k then out.style = styleOf[k] end
+    -- The icon the line is about, for an effect whose look depends on it (the fill).
+    out.layer = Conditions.LineLayer(idParts(id), spec)
     return out
 end
 
@@ -915,6 +941,20 @@ local function usedBy(rule)
     return out
 end
 
+-- Every effect with a watch a rule's lines draw: key -> its watch.
+local function watchedBy(rule)
+    local out = {}
+    for ck, acts in pairs(rule) do
+        local c = byKey[ck]
+        for a in pairs(acts) do
+            local act = c and c.actions[a]
+            local e = act and effects[act.effect]
+            if e and e.watch then out[e.key] = e.watch end
+        end
+    end
+    return out
+end
+
 -- Key as a string -> its WatchCooldown handle (false where Daylight UI gave none),
 -- and the handler names it was made with.
 local watches, watchedWith = {}, {}
@@ -926,6 +966,9 @@ local function handlersFor(rule, k)
         for _, h in ipairs(c.events.daylight or {}) do names[h] = true end
         -- Its icon comes and goes with the buff.
         if both[k] and c.layer ~= "any" then names.buffUp, names.buffDown = true, true end
+    end
+    for _, w in pairs(watchedBy(rule)) do
+        for _, h in ipairs(w.daylight or {}) do names[h] = true end
     end
     local sorted = {}
     for h in pairs(names) do sorted[#sorted + 1] = h end
@@ -952,6 +995,9 @@ local function usesLate(rule)
     for _, c in pairs(usedBy(rule)) do
         if c.late then return true end
     end
+    for _, w in pairs(watchedBy(rule)) do
+        if w.late then return true end
+    end
     return false
 end
 
@@ -973,6 +1019,9 @@ local function sync()
             for _, c in pairs(usedBy(r)) do
                 for _, e in ipairs(c.events.game or {}) do want[(eventName(e))] = e end
                 ticks = ticks or c.ticker == true
+            end
+            for _, w in pairs(watchedBy(r)) do
+                for _, e in ipairs(w.game or {}) do want[(eventName(e))] = e end
             end
         end
     end
@@ -1841,6 +1890,7 @@ local function lowPowerOf(k)
     end
     return nil
 end
+Conditions.PowerOf = lowPowerOf
 
 -- Your power, the one the piece's cast costs, is under n%. Offered on a piece you can
 -- cast whose cost is a bar your class's player has (Grammar.LowPowers).
@@ -1913,6 +1963,57 @@ Conditions.Register({
     events = { game = { "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA" } },
     secrecy = "plain", layer = "any", excludes = {},
     words = { moment = "When I'm in an instance", clause = "I'm in an instance" },
+})
+
+-- ---------------------------------------------------------------------
+-- Wave 2: the moments the progress fill takes (docs/specs/progress-fill.md)
+-- ---------------------------------------------------------------------
+
+-- Each takes the fill only (Looks.lua), never a sound, and is never an "and" part.
+-- Always is Daylight UI's own "Always" moment, under every other line. Cooling and
+-- active show under Daylight UI's "While it's cooling down" and "While it's active"
+-- (Grammar.MERGED), so they fit only where those moments mean the same.
+local FILL_ONLY = { "fill" }
+
+Conditions.Register({
+    key = "always", moment = "always", actions = {}, looks = FILL_ONLY, alone = true, noSound = true,
+    priority = -1, fits = anyPiece,
+    read = function() return true end,
+    events = { game = {} },
+    secrecy = "plain", layer = "any", excludes = {},
+    words = { moment = "Always", clause = "always" },
+})
+
+-- Its real cooldown runs: offCooldown's opposite. The global cooldown alone is no
+-- cooldown here, as Daylight UI's own cooling down reads it.
+Conditions.Register({
+    key = "cooling", moment = "cooling", actions = {}, looks = FILL_ONLY, alone = true, noSound = true,
+    fits = function(kind) return kind.cooldownReady == true end,
+    read = function(k)
+        local off = offCooldownNow(k)
+        if off == nil then return nil end
+        return not off
+    end,
+    detail = function(k)
+        local sid, info = cooldownOf(k)
+        return { spell = sid, isActive = info and logged(info.isActive), isOnGCD = info and logged(info.isOnGCD) }
+    end,
+    events = { game = { "SPELL_UPDATE_COOLDOWN" }, daylight = { "ready", "started" } },
+    secrecy = "plain", layer = "cooldown", excludes = { "offCooldown" },
+    words = { moment = "While it's on cooldown", clause = "it's on cooldown",
+              never = { offCooldown = "it's on cooldown or off it" } },
+})
+
+-- Its own buff is up, on a piece whose buff Daylight UI clocks (Grammar.Kind clocked).
+Conditions.Register({
+    key = "active", moment = "active", actions = {}, looks = FILL_ONLY, alone = true, noSound = true,
+    fits = function(kind) return kind.clocked == true end,
+    read = function(k) return (Bridge.BuffState(k)) end,
+    detail = function(k) return { up = (Bridge.BuffState(k)) } end,
+    events = { daylight = { "buffUp", "buffDown", "changed" } },
+    secrecy = "plain", layer = "buff", excludes = { "noBuff" },
+    words = { moment = "While its buff is up", clause = "its buff is up",
+              never = { noBuff = "its buff is active or not" } },
 })
 
 -- Daylight UI's own "While it's cooling down, turn it gray" (Gray out at Gray), drawn

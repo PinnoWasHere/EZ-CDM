@@ -591,6 +591,30 @@ function Effects.EventEnds(key)
     return m and m.ends or nil
 end
 
+-- When a piece's own buff ends and how long it lasts, both plain, or nil while it
+-- isn't clocked: the end Daylight UI's buff moments started (a later recast moves it,
+-- as the fall-off clock reads it), else the end Daylight UI's own cast clock keeps on
+-- the piece's holder or watch (h.endsAt). The fill's time left (Looks.lua).
+function Effects.BuffClock(key)
+    if key == nil then return nil end
+    local k = tostring(key)
+    local now = GetTime()
+    local h = clockOf[k] or Bridge.AuraHolder(key)
+    local m = moments[k]
+    local ends
+    if m and m.up and m.ends then
+        ends = m.ends
+        local cast = type(h) == "table" and plainSeconds(h.endsAt) or nil
+        if cast and cast > ends + 1 then ends = cast end
+    elseif type(h) == "table" then
+        ends = plainSeconds(h.endsAt)
+    end
+    if not ends or ends <= now then return nil end
+    local lasts = lengthOf(keyFrom(k) or key, h)
+    if not lasts then return nil end
+    return ends, lasts
+end
+
 Effects.heard = Bridge.OnBuff(onUp, onDown)
 
 -- Around CdmAuras.ClipDue. Daylight UI's own "due" stands. On the cast clock, so

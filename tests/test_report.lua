@@ -98,7 +98,7 @@ T.test("report: a Mage's report holds the class, layout, spells and EZ-CDM's rul
     local t = assert(Report.Parse(text))
     T.eq(t.class, "MAGE")
     T.eq(t.v, 1)
-    T.eq(t.ez, "1.1.0", "EZ-CDM's version from its .toc")
+    T.eq(t.ez, "1.2.0", "EZ-CDM's version from its .toc")
     T.deq(t.api, { 1, 16 })
     T.deq(t.game, { "1.60.1", "71037", 16001 })
     T.eq(t.spec, 1)

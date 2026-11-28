@@ -1392,6 +1392,48 @@ local function sentence(s, kind, rules, row)
                         current = line.value,
                         onPick = function(icon) edit(function(r) r.lines[i].value = icon end) end })
                 end, writes = false }, line.value ~= nil, off)
+        elseif valued == "fill" then
+            -- " my health (tint, drains) in the accent color": each pick a word of its
+            -- own. A pick back at its default is left out of the value.
+            local L = ns.Looks
+            local source, shape, dir, color = Grammar.FillPicks(line.value, kind, line)
+            local function pick(field, k, own)
+                edit(function(r)
+                    local v = {}
+                    for f, x in pairs(type(r.lines[i].value) == "table" and r.lines[i].value or {}) do v[f] = x end
+                    if k == own then v[field] = nil else v[field] = k end
+                    r.lines[i].value = next(v) and v or nil
+                end)
+            end
+            local sourceKeys, refused = Grammar.FillSources(kind, line)
+            local sourceValues = {}
+            for _, k in ipairs(L.FILL_SOURCES) do sourceValues[k] = Grammar.FillSourceWords(k, kind) end
+            for _, r in ipairs(refused) do r.words, r.action = sourceValues[r.key], r.key end
+            pieces[#pieces + 1] = { text = " " }
+            pieces[#pieces + 1] = word(sourceValues[source] or tostring(source), id .. "fillSource", {
+                kind = "fillSource", keys = sourceKeys, values = sourceValues, current = source, refused = refused,
+                onPick = function(k) pick("source", k, sourceKeys[1] or L.FILL_SOURCE) end }, true, off)
+            pieces[#pieces + 1] = { text = " (" }
+            pieces[#pieces + 1] = word(WORDING.fillShapes[shape] or shape, id .. "fillShape", {
+                kind = "fillShape", keys = L.FILL_SHAPES, values = WORDING.fillShapes, current = shape,
+                onPick = function(k) pick("shape", k, L.FILL_SHAPE) end }, true, off)
+            pieces[#pieces + 1] = { text = ", " }
+            pieces[#pieces + 1] = word(WORDING.fillDirs[dir] or dir, id .. "fillDir", {
+                kind = "fillDir", keys = L.FILL_DIRS, values = WORDING.fillDirs, current = dir,
+                onPick = function(k) pick("dir", k, L.FILL_DIR) end }, true, off)
+            pieces[#pieces + 1] = { text = ") in " }
+            pieces[#pieces + 1] = word(Draft.ColorName(color), id .. "color", {
+                kind = "color", keys = { "accent", "pick" }, values = Drawer.COLOR_WORDS,
+                current = color == nil and "accent" or nil,
+                onPick = function(k)
+                    if k == "accent" then return pick("color", nil, nil) end
+                    local start = color or { API.Accent() }
+                    Bridge.PickColor({ start[1], start[2], start[3] }, function(c)
+                        pick("color", { c[1], c[2], c[3] }, nil)
+                    end)
+                end, writes = false,
+                clear = color ~= nil and function() pick("color", nil, nil) end or nil },
+                true, off)
         elseif valued == "flare" then
             -- " (Sunrise, Pulse, Proc Alerts' sound)": each pick a word of its own. A pick
             -- back at Proc Alerts' own is left out of the value.

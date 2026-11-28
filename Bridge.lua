@@ -154,6 +154,13 @@ Bridge.NEEDS = {
     -- ready sound keeps Daylight UI's gap between a piece's sounds
     "ActionBars.CdmEffects.GlowShown",
     "ActionBars.CdmEffects.SOUND_GAP",
+    -- Looks: the progress fill's tint and thin bar, as Daylight UI fills its own bars
+    "DaylightUI.Style.TrackBar",
+    "DaylightUI.Style.PaintAccentBar",
+    "DaylightUI.Style.SetBarGradient",
+    "DaylightUI.Style.SetBarColor",
+    "DaylightUI.Widgets.BAR_H",
+    "DaylightUI.SafeReturn",
 }
 
 -- NEEDS entries that are tables kept by a lowercase name.
@@ -815,6 +822,14 @@ end
 -- Returns whether it ran without one.
 function Bridge.SafeCall(fn, ...) return call("DaylightUI.SafeCall", fn, ...) == true end
 
+-- Runs fn(...) through Daylight UI's SafeReturn: true and fn's answers, or false after
+-- an error, which goes to its bug report.
+function Bridge.SafeReturn(fn, ...)
+    local safe = Bridge.Resolve("DaylightUI.SafeReturn")
+    if type(safe) ~= "function" then return false end
+    return safe(fn, ...)
+end
+
 -- Daylight UI's own question box (Options/Widgets.lua W.Ask) asking for a /reload.
 -- Its Reload is a secure /reload button, since addon code can't reload on this
 -- client, and it waits out a fight. onLater runs on the other answer.
@@ -978,6 +993,12 @@ local function seconds(v)
     return v > 0 and v or nil
 end
 
+-- A piece's aura icon holder (CdmAuras.Frame), or nil where the game's item draws it.
+function Bridge.AuraHolder(key)
+    local h = call("ActionBars.CdmAuras.Frame", key)
+    return type(h) == "table" and h or nil
+end
+
 -- How long a piece's aura lasts as its aura icon holder last read it (h.auraLasts,
 -- set from a plain read, CdmAuras.lua:970), or nil before a read this session.
 function Bridge.AuraLasts(key)
@@ -1104,6 +1125,30 @@ function Bridge.PlaceHalo(halo, frame, w) return call("DaylightUI.Style.PlaceAur
 -- A shell's border in the accent (Style.LightShell) or in a color (Style.SetShellColors).
 function Bridge.LightShell(s) return call("DaylightUI.Style.LightShell", s) end
 function Bridge.ShellColor(s, color) return call("DaylightUI.Style.SetShellColors", s, color, nil) end
+
+-- A status bar made by EZ-CDM given Daylight UI's bar fill, which follows the player's
+-- bar texture pick (Style.TrackBar).
+function Bridge.TrackBar(bar) return call("DaylightUI.Style.TrackBar", bar) end
+
+-- A Daylight UI bar in the accent, as Daylight UI paints one (Style.PaintAccentBar), or
+-- in a color with its gradient off (Style.SetBarGradient, Style.SetBarColor).
+function Bridge.BarColor(bar, color)
+    if type(color) ~= "table" then return call("DaylightUI.Style.PaintAccentBar", bar) end
+    call("DaylightUI.Style.SetBarGradient", bar, false)
+    return call("DaylightUI.Style.SetBarColor", bar, color[1], color[2], color[3])
+end
+
+-- Daylight UI's thin bar height (Widgets.BAR_H).
+function Bridge.BarHeight() return Bridge.Resolve("DaylightUI.Widgets.BAR_H") end
+
+-- The standing totem's duration object for a totem spell, or nil. The game fills a bar
+-- from it (StatusBar:SetTimerDuration), so its answers are never read here.
+function Bridge.TotemDuration(sid)
+    if sid == nil or call("ActionBars.CdmCustom.Totem", sid) == nil then return nil end
+    local d = call("ActionBars.CdmCustom.TotemUp", sid)
+    if type(d) == "nil" or (type(issecretvalue) == "function" and issecretvalue(d)) then return nil end
+    return d
+end
 
 -- The light size and strip width the Cooldown Manager gives a glow on a piece w by h
 -- (CdmEffects.GLOW_SCALE of the short side, the strip never under 2 px, as

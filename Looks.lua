@@ -30,15 +30,18 @@ local addonName, ns = ...
 --   text     the line's words in API.Text, in the accent, at the Cooldown Manager's
 --            cooldown number size (Skin.COOLDOWN_SIZE)
 --   swap     a copy of the icon showing the picked icon in its place
+--   fill     a number on the icon: a tint stood up over it, or Daylight UI's thin bar
+--            under it, in the line's color (below, "the progress fill")
 --
--- Pulse, border, halo and text sit on the piece's holder, which lies over whichever
--- face the piece shows, so they show on its buff's face too (anyFace). Swap lies on
--- the cooldown icon, under the buff's button, so it waits for the cooldown face.
+-- Pulse, border, halo, text and the fill sit on the piece's holder, which lies over
+-- whichever face the piece shows, so they show on its buff's face too (anyFace).
+-- Swap lies on the cooldown icon, under the buff's button, so it waits for the
+-- cooldown face.
 --
 -- A color look's value is its color (nil = the accent). No look runs an OnUpdate of
 -- its own: Motion's shared tween driver, the glow's and the pulse's are Daylight UI's.
 
-local Bridge, Conditions, Overlay = ns.Bridge, ns.Conditions, ns.Overlay
+local Bridge, Conditions, Overlay, Effects = ns.Bridge, ns.Conditions, ns.Overlay, ns.Effects
 
 local Looks = {}
 ns.Looks = Looks
@@ -319,6 +322,307 @@ local function swap(target, on, opts)
     if c then c.frame:SetAlpha(1) end
 end
 
+-- ---------------------------------------------------------------------
+-- Held while the line is on: the progress fill
+-- ---------------------------------------------------------------------
+
+-- The game fills the bar and EZ-CDM never reads the number, so a secret goes in
+-- whole. A power percent (UnitPowerPercent) always goes through a curve
+-- the game evaluates: straight for "drains", flipped for "rises". Time left is a
+-- duration object the bar runs itself (SetTimerDuration): a real cooldown's, a
+-- totem's, or a span on Daylight UI's clock of your own buff. One event frame keeps
+-- power current, listening only while a power fill is lit;
+-- time left is taken again on the fill's watch (Conditions' effect watch).
+
+-- A fill's picks, in the drawer's order, and the ones a value leaves out.
+Looks.FILL_SOURCES = { "power", "time" }
+Looks.FILL_SHAPES = { "tint", "bar" }
+Looks.FILL_DIRS = { "drain", "rise" }
+Looks.FILL_SOURCE, Looks.FILL_SHAPE, Looks.FILL_DIR = "time", "tint", "drain"
+
+-- The thin bar's gap under the icon's border, in pixels (owner, 2026-11-27).
+Looks.FILL_GAP = 2
+
+local SOURCES, SHAPES, DIRS = setOf(Looks.FILL_SOURCES), setOf(Looks.FILL_SHAPES), setOf(Looks.FILL_DIRS)
+
+-- A fill line's value as saved: { source, shape, dir, color }, each left out at its
+-- default (the first source that fits, the tint, drains, the accent). nil for none or a bad one.
+local function cleanFill(v)
+    if type(v) ~= "table" then return nil end
+    local out = {}
+    for field, set in pairs({ source = SOURCES, shape = SHAPES, dir = DIRS }) do
+        if v[field] ~= nil then
+            if not set[v[field]] then return nil end
+            out[field] = v[field]
+        end
+    end
+    if v.color ~= nil then
+        out.color = Conditions.CleanValue("color", v.color)
+        if out.color == nil then return nil end
+    end
+    return next(out) and out or nil
+end
+
+-- A fill value's source, shape, direction and color (nil for the accent). A value
+-- with no source fills with the first one that fits kind's line about layer.
+function Looks.FillPicks(v, kind, layer)
+    v = type(v) == "table" and v or {}
+    local source = v.source
+    if source == nil and kind and ns.Grammar then source = (ns.Grammar.FillSourcesAt(kind, layer or "any"))[1] end
+    return source or Looks.FILL_SOURCE, v.shape or Looks.FILL_SHAPE, v.dir or Looks.FILL_DIR, v.color
+end
+
+local function secret(v) return type(issecretvalue) == "function" and issecretvalue(v) == true end
+local function pieceKey(k) return tonumber(k) or k end
+
+-- Direction -> the curve a percent goes through, or false where the game has none.
+local fillCurves = {}
+local function fillCurve(dir)
+    local made = fillCurves[dir]
+    if made ~= nil then return made or nil end
+    made = false
+    if C_CurveUtil and C_CurveUtil.CreateCurve then
+        local c = C_CurveUtil.CreateCurve()
+        if c then
+            if Enum.LuaCurveType and c.SetType then c:SetType(Enum.LuaCurveType.Linear) end
+            if dir == "rise" then
+                c:AddPoint(0, 1)
+                c:AddPoint(1, 0)
+            else
+                c:AddPoint(0, 0)
+                c:AddPoint(1, 1)
+            end
+            made = c
+        end
+    end
+    fillCurves[dir] = made
+    return made or nil
+end
+
+-- The spell's power percent through dir's curve, as the game gives it; 0 with no
+-- answer.
+local function percentOf(_, key, dir)
+    local curve = type(UnitPowerPercent) == "function" and fillCurve(dir)
+    local t = curve and Conditions.PowerOf(key)
+    if not t then return 0 end
+    local ok, v = Bridge.SafeReturn(UnitPowerPercent, "player", t, false, curve)
+    if ok and (secret(v) or type(v) == "number") then return v end
+    return 0
+end
+
+-- Which clock a time-left fill runs on for a line about layer: "buff", "totem",
+-- "cooldown", or nil. A piece showing its buff and its cooldown in turn follows the
+-- face it shows.
+local function timeFace(key, kind, layer)
+    if kind.clocked and layer ~= "cooldown"
+        and (layer == "buff" or kind.buffOnly or Bridge.BuffState(key) == true) then return "buff" end
+    if layer == "buff" then return nil end
+    if kind.totemTime then return "totem" end
+    if kind.cooldownReady then return "cooldown" end
+    if kind.clocked then return "buff" end
+    return nil
+end
+
+-- The duration object face's clock runs on now, or nil when it has no time left. A
+-- real cooldown's never counts the global cooldown, as Daylight UI's own cooldown
+-- bars take it (CdmBars.lua). A buff's is a span of f's own, as Daylight UI's aura
+-- bars lay one (CdmBars.lua SetTime).
+local function durationOf(f, key, face)
+    local sid = Bridge.SpellOf(pieceKey(key))
+    if sid == nil then return nil end
+    if face == "cooldown" then
+        local info = C_Spell.GetSpellCooldown(sid)
+        if type(info) ~= "table" or secret(info.isActive) or secret(info.isOnGCD) then return nil end
+        if info.isActive ~= true or info.isOnGCD == true then return nil end
+        if type(C_Spell.GetSpellCooldownDuration) ~= "function" then return nil end
+        local ok, d = Bridge.SafeReturn(C_Spell.GetSpellCooldownDuration, sid, true)
+        if ok and type(d) ~= "nil" then return d end
+    elseif face == "totem" then
+        return Bridge.TotemDuration(sid)
+    elseif face == "buff" then
+        local ends, lasts = Effects.BuffClock(key)
+        if not ends or not (C_DurationUtil and C_DurationUtil.CreateDuration) then return nil end
+        f.span = f.span or C_DurationUtil.CreateDuration()
+        f.span:SetTimeFromStart(ends - lasts, lasts)
+        return f.span
+    end
+    return nil
+end
+
+-- The bar runs d, or with none sits where no time left is: empty for "drains", full
+-- for "rises".
+local function runTime(bar, d, dir)
+    local E = type(Enum) == "table" and Enum or {}
+    local D, I = E.StatusBarTimerDirection, E.StatusBarInterpolation
+    if type(d) ~= "nil" and D and I and type(bar.SetTimerDuration) == "function" then
+        local how = dir == "rise" and D.ElapsedTime or D.RemainingTime
+        if Bridge.SafeCall(bar.SetTimerDuration, bar, d, I.Immediate, how) then return end
+    end
+    bar:SetMinMaxValues(0, 1)
+    bar:SetValue(dir == "rise" and 1 or 0)
+end
+
+-- The events that move each percent source, as { event, unit }.
+local FILL_EVENTS = {
+    power = { { "UNIT_POWER_FREQUENT", "player" }, { "UNIT_MAXPOWER", "player" }, { "UNIT_DISPLAYPOWER", "player" } },
+}
+-- Source -> fill frame -> true, for each fill of a percent source lit now.
+local fillsBy = { power = setmetatable({}, weak) }
+-- Event -> the units it is registered for now, sorted and joined ("" for any unit).
+local fillHeard = {}
+
+local function barOf(f) return f.shape == "bar" and f.bar or f.tint end
+
+local function setPercent(f)
+    local bar = barOf(f)
+    if not bar then return end
+    bar:SetMinMaxValues(0, 1)
+    bar:SetValue(percentOf(f.source, f.key, f.dir))
+end
+
+local fillEvents = CreateFrame("Frame")
+fillEvents:SetScript("OnEvent", function(_, event, unit)
+    for source, set in pairs(fillsBy) do
+        for _, e in ipairs(FILL_EVENTS[source]) do
+            if e[1] == event and (e[2] == nil or e[2] == unit) then
+                for f in pairs(set) do setPercent(f) end
+                break
+            end
+        end
+    end
+end)
+
+-- Registers each event a lit fill needs, for its units only, and drops the rest.
+local function listenFills()
+    local want = {}
+    for source, set in pairs(fillsBy) do
+        if next(set) then
+            for _, e in ipairs(FILL_EVENTS[source]) do
+                want[e[1]] = want[e[1]] or {}
+                want[e[1]][e[2] or ""] = true
+            end
+        end
+    end
+    for name in pairs(fillHeard) do
+        if not want[name] then
+            fillEvents:UnregisterEvent(name)
+            fillHeard[name] = nil
+        end
+    end
+    for name, units in pairs(want) do
+        local list = {}
+        for u in pairs(units) do list[#list + 1] = u end
+        table.sort(list)
+        local id = table.concat(list, ",")
+        if fillHeard[name] ~= id then
+            if fillHeard[name] then fillEvents:UnregisterEvent(name) end
+            if units[""] then
+                fillEvents:RegisterEvent(name)
+            else
+                fillEvents:RegisterUnitEvent(name, unpack(list))
+            end
+            fillHeard[name] = id
+        end
+    end
+end
+
+-- The tint's frame level: the icon's own, as the gray copy sits (Overlay.lua), so the
+-- swipe, the numbers and the border stay on top.
+local function iconLevel(bar, key)
+    local piece = Conditions.FrameOf(key)
+    local icon = piece and Bridge.PieceIcon(piece)
+    local owner = icon and icon:GetParent()
+    if not owner then return end
+    bar:SetFrameStrata(owner:GetFrameStrata())
+    local level = owner:GetFrameLevel()
+    if type(level) == "number" and not secret(level) then bar:SetFrameLevel(level) end
+end
+
+-- f's bar for shape, made once: the tint over the target, or the thin bar under it.
+local function fillBar(f, target, shape, key)
+    if shape == "bar" then
+        if not f.bar then
+            f.bar = API.Bar(f)
+            f.bar:SetPoint("TOPLEFT", target, "BOTTOMLEFT", 0, -Looks.FILL_GAP)
+            f.bar:SetPoint("TOPRIGHT", target, "BOTTOMRIGHT", 0, -Looks.FILL_GAP)
+            f.bar:SetHeight(Bridge.BarHeight())
+        end
+        return f.bar
+    end
+    if not f.tint then
+        local t = CreateFrame("StatusBar", nil, f)
+        t:SetAllPoints(f)
+        t:SetOrientation("VERTICAL")
+        Bridge.TrackBar(t)
+        t:SetMinMaxValues(0, 1)
+        f.tint = t
+    end
+    iconLevel(f.tint, key)
+    return f.tint
+end
+
+-- An icon with something to fill with: a power the spell costs, or a clock.
+local function fillFits(kind)
+    return icons(kind) and ns.Grammar ~= nil and (ns.Grammar.FillSourcesAt(kind, "any"))[1] ~= nil
+end
+
+local function putOutFill(f)
+    f.lit, f.kind = nil, nil
+    for _, set in pairs(fillsBy) do set[f] = nil end
+    listenFills()
+    f:Hide()
+end
+
+local function fill(target, on, opts)
+    local f = on and frameOn(target, "fill") or frameIf(target, "fill")
+    if not f then return end
+    if not on then return putOutFill(f) end
+    f.kind = f.lit and f.kind or (ns.Grammar and ns.Grammar.Kind(pieceKey(opts.key))) or {}
+    local source, shape, dir, color = Looks.FillPicks(opts.value, f.kind, opts.layer)
+    local bar = fillBar(f, target, shape, opts.key)
+    local other = shape == "bar" and f.tint or f.bar
+    if other then other:Hide() end
+    bar:Show()
+    if shape == "bar" then
+        local painted = color and table.concat(color, ",") or "accent"
+        if f.painted ~= painted then
+            Bridge.BarColor(bar, color)
+            f.painted = painted
+        end
+    else
+        local r, g, b
+        if color then r, g, b = color[1], color[2], color[3] else r, g, b = API.Accent() end
+        bar:SetStatusBarColor(r, g, b, Bridge.WashAlpha() or 0)
+    end
+    f.lit, f.key, f.source, f.shape, f.dir = true, opts.key, source, shape, dir
+    for s, set in pairs(fillsBy) do set[f] = s == source or nil end
+    listenFills()
+    if source == "time" then
+        runTime(bar, durationOf(f, opts.key, timeFace(opts.key, f.kind, opts.layer)), dir)
+    else
+        setPercent(f)
+    end
+    f:Show()
+end
+
+-- What may change a time-left fill: a cooldown starting or ending, a buff landing or
+-- going, a totem, your own recast.
+local FILL_WATCH = {
+    daylight = { "ready", "started", "buffUp", "buffDown", "changed" },
+    game = { "SPELL_UPDATE_COOLDOWN", "PLAYER_TOTEM_UPDATE", { "UNIT_SPELLCAST_SUCCEEDED", "player" } },
+    late = true,
+}
+
+-- The fill's events registered now, sorted ("EVENT@unit", or "EVENT" for any unit).
+function Looks.FillEvents()
+    local out = {}
+    for name, id in pairs(fillHeard) do
+        for u in (id .. ","):gmatch("([^,]*),") do out[#out + 1] = u == "" and name or name .. "@" .. u end
+    end
+    table.sort(out)
+    return out
+end
+
 -- What a held look drew on target, for Conditions.Visible.
 local function shownFrame(name)
     return function(target)
@@ -352,6 +656,23 @@ function Looks.Frame(target, name) return frameIf(target, name) end
 
 -- The screen edge's frame, once made.
 function Looks.Edge() return edge end
+
+-- What a fill drew on target (a holder or a layer), for the dev suite: { shape,
+-- source, dir, value, timer, level, iconLevel }, value Conditions.SECRET while the
+-- game keeps it; nil with no fill on show.
+function Looks.FillState(target)
+    local f = frameIf(target, "fill")
+    local bar = f and f:IsShown() and barOf(f)
+    if not bar then return nil end
+    local v = bar:GetValue()
+    if secret(v) then v = Conditions.SECRET end
+    local piece = Conditions.FrameOf(f.key)
+    local icon = piece and Bridge.PieceIcon(piece)
+    local owner = icon and icon:GetParent()
+    local d = type(bar.GetTimerDuration) == "function" and bar:GetTimerDuration() or nil
+    return { shape = f.shape, source = f.source, dir = f.dir, value = v, timer = d ~= nil,
+             level = bar:GetFrameLevel(), iconLevel = owner and owner:GetFrameLevel() or nil }
+end
 
 -- ---------------------------------------------------------------------
 -- Registration
@@ -400,6 +721,14 @@ Looks.LIST = {
         shown = function(target)
             local c = Overlay.CopyOn(target, "swap")
             return c and c.frame:GetAlpha() > 0 and c.frame or nil
+        end } },
+    { action = "fill", value = { "fill", cleanFill },
+      effect = { key = "fill", client = true, anyFace = true, value = "fill", fits = fillFits, draw = fill,
+        watch = FILL_WATCH, clear = clearFrame("fill", putOutFill),
+        shown = function(target)
+            local f = frameIf(target, "fill")
+            local bar = f and f:IsShown() and barOf(f)
+            return bar and bar:IsShown() and bar or nil
         end } },
 }
 

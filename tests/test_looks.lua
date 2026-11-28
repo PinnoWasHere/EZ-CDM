@@ -14,7 +14,7 @@ local ESSENTIAL = 0
 local GOLD = { 1, 0.8, 0.2 }
 
 local ONCE = { "flash", "sparkle", "screen" }
-local HELD = { "pulse", "border", "halo", "text", "swap" }
+local HELD = { "pulse", "border", "halo", "text", "swap", "fill" }
 
 local function noErrors()
     T.eq(#stub.errors, 0, tostring(stub.errors[1]))
@@ -85,12 +85,12 @@ T.test("looks: the .toc loads Looks.lua after Overlay.lua and before Grammar", f
     T.truthy(at["Looks.lua"] < at["Grammar.lua"], "before Grammar takes the actions")
 end)
 
-T.test("looks: nine looks, four once and plain only, five held and alpha-safe", function()
+T.test("looks: ten looks, four once and plain only, six held and alpha-safe", function()
     local _, ns = world()
     local C = ns.Conditions
     local got = {}
     for _, l in ipairs(C.Looks()) do got[#got + 1] = l.action end
-    T.eq(table.concat(got, ","), "flash,sparkle,screen,flare,pulse,border,halo,text,swap", "the drawer's order")
+    T.eq(table.concat(got, ","), "flash,sparkle,screen,flare,pulse,border,halo,text,swap,fill", "the drawer's order")
     for _, a in ipairs({ "flash", "sparkle", "screen", "flare" }) do
         local e = C.Effect(a)
         T.truthy(e and e.edge, a .. " fires once")
@@ -114,10 +114,14 @@ T.test("looks: every condition takes them; a client one only the held ones; a cl
     local _, ns = world()
     local C = ns.Conditions
     for _, c in ipairs(C.List()) do
+        local only = {}
+        for _, a in ipairs(c.looks or {}) do only[a] = true end
         for _, l in ipairs(C.Looks()) do
             local has = c.actions[l.action] ~= nil
             if c.clauseOnly then
                 T.falsy(has, c.key .. " is a clause only: no " .. l.action)
+            elseif c.looks then
+                T.eq(has, only[l.action] == true, c.key .. " takes only its own looks: " .. l.action)
             elseif c.secrecy == "client" then
                 T.eq(has, C.Effect(l.effect).client == true, c.key .. " " .. l.action)
             else

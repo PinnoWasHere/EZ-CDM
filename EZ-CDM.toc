@@ -2,7 +2,7 @@
 ## Title: EZ-CDM (DaylightUI Plugin)
 ## Notes: Set up Daylight UI's Cooldown Manager by clicking words in plain sentences, in its /cdm editor. Needs Daylight UI 2.2.4 or newer.
 ## Author: PinnoWasHere
-## Version: 1.1.0
+## Version: 1.2.0
 ## X-License: All Rights Reserved
 ## X-Curse-Project-ID: 1827220
 ## Dependencies: DaylightUI
